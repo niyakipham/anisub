@@ -66,5 +66,5 @@ alias anisub='bash $HOME/anilink/anisub.sh'
 - Lệnh alias cho phép ngụy trang câu lệnh ( do mình lười viết file install )
 - Sau khi các bạn gán lệnh này vô bashrc hay zshrc thì khởi động lại máy cho chắc ăn
 - Bạn mở terminal rồi gõ anisub
-
+<br>
 CHÚC CÁC BẠN THÀNH CÔNG
