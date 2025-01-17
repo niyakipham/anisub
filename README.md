@@ -5,12 +5,12 @@
 </div>
 
 <br>
-
+<div align = center>
   <a href="#installation"><kbd> <br> Installation <br> </kbd></a>&ensp;&ensp;
   <a href="#themes"><kbd> <br> Feature <br> </kbd></a>&ensp;&ensp;
   <a href="#styles"><kbd> <br> Run <br> </kbd></a>&ensp;&ensp;
   <a href="#keybindings"><kbd> <br> Contact <br> </kbd></a>&ensp;&ensp;
-
+<div>
 <br>
 
 ## Hi Everyone 👋
