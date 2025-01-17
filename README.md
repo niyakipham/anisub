@@ -40,3 +40,31 @@ ARCH LINUX
 ```shell
 yay -S ffmpeg curl grep yt-dlp timg
 ```
+
+## RUN
+
+Cấp quyền cho file
+```shell
+chmod +x anisub.sh
+```
+
+Chạy File
+```shell
+./anisub.sh
+```
+
+<br>
+
+Nếu bạn đang dùng bashrc thì vào file bashrc, ở đây mình dùng zshrc các ví dụ bạn đang dùng bashrc thì nano bash hay vim,... sau đó gán lệnh này vô
+
+```shell
+alias anisub='bash $HOME/anilink/anisub.sh'
+```
+<br>
+
+- Các bạn lưu File anisub.sh ở đâu thì trỏ nó đến đường dẫn đó nhé
+- Lệnh alias cho phép ngụy trang câu lệnh ( do mình lười viết file install )
+- Sau khi các bạn gán lệnh này vô bashrc hay zshrc thì khởi động lại máy cho chắc ăn
+- Bạn mở terminal rồi gõ anisub
+
+CHÚC CÁC BẠN THÀNH CÔNG
