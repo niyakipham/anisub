@@ -10,7 +10,7 @@
   <a href="#themes"><kbd> <br> Feature <br> </kbd></a>&ensp;&ensp;
   <a href="#styles"><kbd> <br> Run <br> </kbd></a>&ensp;&ensp;
   <a href="#keybindings"><kbd> <br> Contact <br> </kbd></a>&ensp;&ensp;
-<div>
+</div>
 <br>
 
 ## Hi Everyone 👋
