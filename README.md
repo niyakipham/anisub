@@ -62,12 +62,12 @@ alias anisub='bash $HOME/anilink/anisub.sh'
 ```
 <br>
 
-## CONTACT
-Nếu trong quá trình thực hiện mà bạn gặp lỗi gì hãy liên hệ với mình qua FB. Cảm ơn các bạn đã đọc bài viết này, nếu thấy project này thú vị đừng quên cho mình xin một sao trên github để mình có động lực ra nhiều tính năng hay cho project này nha. CẢM ƠN CÁC CẬU
-
 - Các bạn lưu File anisub.sh ở đâu thì trỏ nó đến đường dẫn đó nhé
 - Lệnh alias cho phép ngụy trang câu lệnh ( do mình lười viết file install )
 - Sau khi các bạn gán lệnh này vô bashrc hay zshrc thì khởi động lại máy cho chắc ăn
 - Bạn mở terminal rồi gõ anisub
 <br>
 CHÚC CÁC BẠN THÀNH CÔNG
+
+## CONTACT
+Nếu trong quá trình thực hiện mà bạn gặp lỗi gì hãy liên hệ với mình qua FB. Cảm ơn các bạn đã đọc bài viết này, nếu thấy project này thú vị đừng quên cho mình xin một sao trên github để mình có động lực ra nhiều tính năng hay cho project này nha. CẢM ƠN CÁC CẬU
