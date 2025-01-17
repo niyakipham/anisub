@@ -19,6 +19,10 @@
 
 <br>
 
+https://github.com/niyakipham/anisub/raw/refs/heads/main/2025-01-16-20-40-18.mp4
+
+<br>
+
 ## FEARTURE
 
 《👀》- Tìm kiếm Anime, hiển thị các bộ anime có cùng tư khóa liên quan <br>
