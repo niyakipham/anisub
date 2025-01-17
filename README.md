@@ -21,7 +21,7 @@
 
 ## FEARTURE
 
-《👀》- Tìm kiếm Anime, hiển thị các bộ anime có cùng tư khóa liên quan
+《👀》- Tìm kiếm Anime, hiển thị các bộ anime có cùng tư khóa liên quan <br>
 《🔗》- Tải video về thư mục tên Anime
 
 
