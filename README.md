@@ -34,12 +34,12 @@
 
 UBUNTU
 ```shell
-sudo apt install ffmpeg curl grep yt-dlp timg
+sudo apt install ffmpeg curl grep yt-dlp fzf
 ```
 
 ARCH LINUX
 ```shell
-yay -S ffmpeg curl grep yt-dlp timg
+yay -S ffmpeg curl grep yt-dlp fzf
 ```
 
 ## RUN
