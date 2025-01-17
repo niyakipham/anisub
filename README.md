@@ -6,13 +6,27 @@
 
 <br>
 <div align = center>
-  <a href="#installation"><kbd> <br> Installation <br> </kbd></a>&ensp;&ensp;
-  <a href="#themes"><kbd> <br> Feature <br> </kbd></a>&ensp;&ensp;
-  <a href="#styles"><kbd> <br> Run <br> </kbd></a>&ensp;&ensp;
-  <a href="#keybindings"><kbd> <br> Contact <br> </kbd></a>&ensp;&ensp;
+  <a href="#INSTALL"><kbd> <br> INSTALL <br> </kbd></a>&ensp;&ensp;
+  <a href="#FEARTURE"><kbd> <br> FEARTURE <br> </kbd></a>&ensp;&ensp;
+  <a href="#RUN"><kbd> <br> RUN <br> </kbd></a>&ensp;&ensp;
+  <a href="#CONTACT"><kbd> <br> CONTACT <br> </kbd></a>&ensp;&ensp;
 </div>
 <br>
 
 ## Hi Everyone 👋
 ### We are ANISUB-CLI
 > ANISUB-CLI là trình xem anime trên terminal được lấy cảm hứng từ ani-cli
+
+<br>
+
+## INSTALL
+
+UBUNTU
+```shell
+sudo apt install ffmpeg curl grep yt-dlp timg
+```
+
+ARCH LINUX
+```shell
+yay -S ffmpeg curl grep yt-dlp timg
+```
