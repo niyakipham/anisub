@@ -6,8 +6,8 @@
 
 <br>
 <div align = center>
-  <a href="#INSTALL"><kbd> <br> INSTALL <br> </kbd></a>&ensp;&ensp;
   <a href="#FEARTURE"><kbd> <br> FEARTURE <br> </kbd></a>&ensp;&ensp;
+  <a href="#INSTALL"><kbd> <br> INSTALL <br> </kbd></a>&ensp;&ensp;
   <a href="#RUN"><kbd> <br> RUN <br> </kbd></a>&ensp;&ensp;
   <a href="#CONTACT"><kbd> <br> CONTACT <br> </kbd></a>&ensp;&ensp;
 </div>
@@ -16,6 +16,14 @@
 ## Hi Everyone 👋
 ### We are ANISUB-CLI
 > ANISUB-CLI là trình xem anime trên terminal được lấy cảm hứng từ ani-cli
+
+<br>
+
+## FEARTURE
+
+《👀》- Tìm kiếm Anime, hiển thị các bộ anime có cùng tư khóa liên quan
+《🔗》- Tải video về thư mục tên Anime
+
 
 <br>
 
