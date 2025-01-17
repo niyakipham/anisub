@@ -19,17 +19,14 @@
 
 <br>
 
-https://github.com/niyakipham/anisub/raw/refs/heads/main/2025-01-16-20-40-18.mp4
-
-<br>
-
 ## FEARTURE
 
 《👀》- Tìm kiếm Anime, hiển thị các bộ anime có cùng tư khóa liên quan <br>
+《📺》- Ngoài ra bạn có thể xem được cả phim truyền hình từ Scripts này <br>
+《✂》- Cắt video từ phút bao nhiêu đến phút bao nhiêu <br>
 《🔗》- Tải video về thư mục tên Anime <br>
 《👈》- Phát tập trước <br>
-《👉》- Phát tập sau
-《✂》- Cắt video từ phút bao nhiêu đến phút bao nhiêu
+《👉》- Phát tập sau<br>
 
 <br>
 
