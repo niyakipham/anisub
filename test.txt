@@ -3,7 +3,6 @@
 #EXT-X-PLAYLIST-TYPE:VOD
 #EXT-X-MEDIA-SEQUENCE:0
 #EXT-X-TARGETDURATION:8
-#EXT-X-DISCONTINUITY
 #EXTINF:4.166667,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/1a9522f6b16f4ac4edb037e96458985c.ts
 #EXTINF:4.166667,
@@ -22,7 +21,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/a170dda25b9151ad61e
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/6165d437e0846178422de44a4d67e40f.ts
 #EXTINF:4.166667,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/40cbf9e7f70fa972d68f644b542b6a64.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:2.000000,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/caff6920275ab99e9491bb83566bf3a3.ts
 #EXTINF:6.333333,
@@ -34,7 +32,7 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/4abe1b792a04dcca2b3
 #EXTINF:2.000000,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/f65bbcc060c17736001e5c18f425f1c4.ts
 #EXTINF:3.375000,
-https://vip.opstream15.com/20250117/47879_b64eccfa/30 গিল0k/hls/1c4784a6284c7d75ef6d2f3642f7dcf8.ts
+https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/1c4784a6284c7d75ef6d2f3642f7dcf8.ts
 #EXTINF:3.833333,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/206fe0cb0de536abf97081b5225b0254.ts
 #EXTINF:5.458333,
@@ -43,7 +41,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/565952eb664a830e8d7
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/40da8986c0edb04eeed95e0afdfa4d91.ts
 #EXTINF:4.208333,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/b97f724263e6b990f237e671ecc05315.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:3.208333,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/ee9dc556cf64531767931f1960c0245b.ts
 #EXTINF:4.625000,
@@ -64,7 +61,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/9d6ac5124214c979ba7
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/3767af62cd2c8211591e7b5bbfbcab99.ts
 #EXTINF:3.125000,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/0e575386df2f4f030951044ef12e3fd4.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:2.000000,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/69c639d82fbcc09615d03dd6ba947a71.ts
 #EXTINF:7.166667,
@@ -85,7 +81,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/f63b469d3b0f68436af
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/c47f19e21222881fe45655ba0c104c94.ts
 #EXTINF:1.208333,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/7a570d1567289228a5194b20a6b3e8fc.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:4.166667,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/0767f38a8fac9021534f017c683f5846.ts
 #EXTINF:4.166667,
@@ -106,7 +101,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/07c2da6f806641c1787
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/0e6dc7a509dabe1d07336192223307f9.ts
 #EXTINF:4.833333,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/2bc262da0698dd5303c53523c02ed83d.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:3.666667,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/a5625fcb5982985092887db1f3a6a715.ts
 #EXTINF:3.750000,
@@ -127,7 +121,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/c1fddd0d732a276d5b4
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/2085c3b1b2ac9e0b8cce162e07825744.ts
 #EXTINF:6.541667,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/f7ebfe786e534edba4a79a01c827f176.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:3.250000,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/80dfba565a4bbc292b2337fb33b2dc75.ts
 #EXTINF:4.166667,
@@ -148,7 +141,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/89617a412c06e4e0ec2
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/36ee321977243879dfd6f5af79fe92bc.ts
 #EXTINF:2.208333,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/fbbd67872067345819e4940e106a458c.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:5.916667,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/395686f249271c9dd84a6d3e5336b802.ts
 #EXTINF:4.166667,
@@ -169,7 +161,6 @@ https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/b9e90349b5117e60b6d
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/9b92a4d3bcf59203c8758ef1ff242766.ts
 #EXTINF:4.166667,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/f966a50a4b32a1f937e03ea635f8b74b.ts
-#EXT-X-DISCONTINUITY
 #EXTINF:4.000000,
 https://vip.opstream15.com/20250117/47879_b64eccfa/3000k/hls/1b1c0fc9c8e9b856d136ee0e949ba0d3.ts
 #EXTINF:2.833333,
