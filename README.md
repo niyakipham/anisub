@@ -19,6 +19,9 @@
 
 <br>
 
+## UPDATE
+《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub )
+<br>
 ## FEARTURE
 
 《👀》- Tìm kiếm Anime, hiển thị các bộ anime có cùng tư khóa liên quan <br>
