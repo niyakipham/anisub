@@ -1,5 +1,7 @@
 #!/bin/bash
 
+play_anime() {
+
 select_anime() {
     local keyword="$1"
     local anime_list
@@ -28,7 +30,6 @@ select_anime() {
 
     echo "$selected_anime" | sed 's/.*(\(.*\))/\1/'
 }
-
 
 get_episode_list_from_url() {
     local url="$1"
@@ -215,7 +216,7 @@ play_video_with_menu() {
                
                 if ! command -v yt-dlp &> /dev/null; then
                     echo "yt-dlp could not be found. Please install it via your package manager." >&2
-                    # Continue playing
+                    
                     mpv "$current_link" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window &
                     mpv_pid=$!
                     continue
@@ -292,22 +293,41 @@ play_video_from_url() {
 
 
 while true; do
-    echo -n "Tìm kiếm anime:"
-    read -r input
-    if [[ -z "$input" ]]; then
-        echo "Tìm kiếm anime:"
-    else
-        break
-    fi
-done
+    selected_option=$(echo -e "Manga Read\nPlay Anime" | fzf --prompt="Chọn chức năng: ")
 
-if [[ "$input" =~ ^https?:// ]]; then
-    play_video_from_url "$input"
-else
-    anime_name_encoded=$(echo "$input" | sed 's/ /+/g')
-    selected_anime=$(select_anime "$anime_name_encoded")
-    if [[ $? -ne 0 ]]; then # Kiểm tra nếu select_anime thất bại
-        exit 1
-    fi
-    play_video "$selected_anime"
-fi
+    case "$selected_option" in
+        "Manga Read")
+            manga-tui lang --set 'vi'
+            echo "Đã thiết lập ngôn ngữ manga-tui thành 'vi'."
+            exit 0
+            ;;
+        "Play Anime")
+            while true; do
+                echo -n "Tìm kiếm anime:"
+                read -r input
+                if [[ -z "$input" ]]; then
+                    echo "Tìm kiếm anime:"
+                else
+                    break
+                fi
+            done
+
+            if [[ "$input" =~ ^https?:// ]]; then
+                play_video_from_url "$input"
+            else
+                anime_name_encoded=$(echo "$input" | sed 's/ /+/g')
+                selected_anime=$(select_anime "$anime_name_encoded")
+                if [[ $? -ne 0 ]]; then 
+                    exit 1
+                fi
+                play_video "$selected_anime"
+            fi
+            ;;
+        *)
+            echo "Lựa chọn không hợp lệ." >&2
+            ;;
+    esac
+done
+}
+
+play_anime
