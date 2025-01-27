@@ -37,12 +37,12 @@
 
 UBUNTU
 ```shell
-sudo apt install ffmpeg curl grep yt-dlp fzf pup manga-tui
+sudo apt install ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut
 ```
 
 ARCH LINUX
 ```shell
-yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui
+yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut
 ```
 
 ## RUN
