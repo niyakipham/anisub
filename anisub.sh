@@ -131,7 +131,7 @@ play_anime() {
             
             while kill -0 "$mpv_pid" 2> /dev/null; do
                 
-                action=$(echo -e "Next\nPrevious\nSelect\nDownloads\nCut Video" | fzf --prompt="Đang phát: Tập $current_episode_number $download_status: ")
+                action=$(echo -e "Next\nPrevious\nSelect\nDownloads\nCut Video\nGrafting" | fzf --prompt="Đang phát: Tập $current_episode_number $download_status: ")
 
                 
                 download_status=""
@@ -234,22 +234,12 @@ play_anime() {
                             read -r -p "Nhập thời gian kết thúc (phút): " end_time
 
                             
-                            anime_dir=$(echo "$anime_url" | awk -F'/' '{print $NF}')
-
-                            
-                            if [ ! -d "$HOME/Downloads/anime/$anime_dir" ]; then
-                              mkdir -p "$HOME/Downloads/anime/$anime_dir"
+                            if [ ! -d "$HOME/Downloads/anime/cut" ]; then
+                              mkdir -p "$HOME/Downloads/anime/cut"
                             fi
 
                             
-                            edit_count=1
-                            while true; do
-                                output_file="$HOME/Downloads/anime/$anime_dir/edit${edit_count}.mp4"
-                                if [[ ! -f "$output_file" ]]; then
-                                    break
-                                fi
-                                edit_count=$((edit_count + 1))
-                            done
+                            output_file="$HOME/Downloads/anime/cut/cut_$(date +%s).mp4"
 
                             
                             echo "Đang cắt video từ phút $start_time đến phút $end_time..."
@@ -262,11 +252,8 @@ play_anime() {
                             read -r -p "Nhập số lượng phân đoạn muốn cắt: " num_segments
 
                             
-                            anime_dir=$(echo "$anime_url" | awk -F'/' '{print $NF}')
-
-                            
-                            if [ ! -d "$HOME/Downloads/anime/$anime_dir" ]; then
-                              mkdir -p "$HOME/Downloads/anime/$anime_dir"
+                            if [ ! -d "$HOME/Downloads/anime/cut" ]; then
+                              mkdir -p "$HOME/Downloads/anime/cut"
                             fi
 
                             
@@ -276,13 +263,79 @@ play_anime() {
                                 read -r -p "Nhập thời gian kết thúc (phút): " end_time
 
                                 
-                                output_file="$HOME/Downloads/anime/$anime_dir/edit${i}.mp4"
+                                output_file="$HOME/Downloads/anime/cut/cut_${i}_$(date +%s).mp4"
 
                                 
                                 echo "Đang cắt video từ phút $start_time đến phút $end_time..."
                                 yt-dlp --download-sections "*${start_time}-${end_time}" -o "$output_file" "$current_link"
 
                                 echo "Phân đoạn $i đã được cắt và lưu tại: $output_file"
+                            done
+                            ;;
+                        *)
+                            echo "Lựa chọn không hợp lệ." >&2
+                            ;;
+                    esac
+                    ;;
+                "Grafting")
+                    
+                    kill "$mpv_pid"
+
+                    grafting_option=$(echo -e "Ghép 1 lần\nGhép nhiều lần" | fzf --prompt="Chọn chế độ ghép: ")
+
+                    case "$grafting_option" in
+                        "Ghép 1 lần")
+                            
+                            read -r -p "Bạn muốn ghép bao nhiêu video lại với nhau: " num_videos
+
+                            
+                            video_files=()
+                            for ((i=1; i<=num_videos; i++)); do
+                                video_files+=("$(find "$HOME/Downloads/anime/cut" -type f -name "*.mp4" | fzf --prompt="Chọn video $i: ")")
+                            done
+
+                            
+                            if [ ! -d "$HOME/Downloads/anime/grafting" ]; then
+                              mkdir -p "$HOME/Downloads/anime/grafting"
+                            fi
+
+                            
+                            output_file="$HOME/Downloads/anime/grafting/grafted_$(date +%s).mp4"
+
+                            
+                            echo "Đang ghép video..."
+                            ffmpeg -f concat -safe 0 -i <(for f in "${video_files[@]}"; do echo "file '$f'"; done) -c copy "$output_file"
+
+                            echo "Video đã được ghép và lưu tại: $output_file"
+                            ;;
+                        "Ghép nhiều lần")
+                            
+                            read -r -p "Bạn muốn tạo bao nhiêu vòng lặp ghép: " num_loops
+
+                            
+                            for ((loop=1; loop<=num_loops; loop++)); do
+                                echo "Vòng lặp ghép thứ $loop:"
+                                read -r -p "Bạn muốn ghép bao nhiêu video lại với nhau: " num_videos
+
+                                
+                                video_files=()
+                                for ((i=1; i<=num_videos; i++)); do
+                                    video_files+=("$(find "$HOME/Downloads/anime/cut" -type f -name "*.mp4" | fzf --prompt="Chọn video $i: ")")
+                                done
+
+                                
+                                if [ ! -d "$HOME/Downloads/anime/grafting" ]; then
+                                  mkdir -p "$HOME/Downloads/anime/grafting"
+                                fi
+
+                                
+                                output_file="$HOME/Downloads/anime/grafting/grafted_loop${loop}_$(date +%s).mp4"
+
+                                
+                                echo "Đang ghép video..."
+                                ffmpeg -f concat -safe 0 -i <(for f in "${video_files[@]}"; do echo "file '$f'"; done) -c copy "$output_file"
+
+                                echo "Video đã được ghép và lưu tại: $output_file"
                             done
                             ;;
                         *)
