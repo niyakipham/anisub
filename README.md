@@ -20,7 +20,7 @@
 <br>
 
 ## UPDATE
-《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub )
+《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub ) <br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần
 <br>
 ## FEARTURE
