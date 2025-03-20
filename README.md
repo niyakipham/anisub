@@ -20,7 +20,7 @@
 <br>
 
 ## UPDATE
-《📺》- Thêm data từ google drive trong file csv
+《📺》- Thêm data từ google drive trong file csv <br>
 《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub ) <br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
 《﬚》- Bổ sung tính năng ghép nhiều video với nhau
