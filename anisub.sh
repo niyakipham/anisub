@@ -303,7 +303,7 @@ play_anime() {
 
     play_anidata() {
         # URL của file CSV
-        CSV_URL="https://raw.githubusercontent.com/niyakipham/anisub/refs/heads/main/data.csv"
+        CSV_URL="https://raw.githubusercontent.com/toilamsao/anidata/refs/heads/main/data.csv"
 
         # Tải nội dung CSV và loại bỏ dấu ngoặc kép
         CSV_CONTENT=$(curl -s "$CSV_URL" | sed 's/"//g')
