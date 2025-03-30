@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANISUB-CLI - Xem Anime Vietsub trên Terminal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #00b4d8;
+            --primary-dark: #0096c7;
+            --secondary: #ff8500;
+            --accent: #e63946;
+            --dark: #0a192f;
+            --darker: #020c1b;
+            --light: #ccd6f6;
+            --lighter: #e6f1ff;
+            --gray: #1e2a47;
+            --success: #2a9d8f;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: var(--dark);
+            color: var(--lighter);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header Styles */
+        header {
+            background: linear-gradient(135deg, var(--darker) 0%, var(--dark) 100%);
+            padding: 2rem 0;
+            border-bottom: 1px solid rgba(100, 149, 237, 0.1);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .logo-icon {
+            font-size: 2.5rem;
+            color: var(--primary);
+            margin-right: 1rem;
+        }
+
+        .logo-text {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .tagline {
+            text-align: center;
+            font-size: 1.2rem;
+            color: var(--lighter);
+            opacity: 0.8;
+            margin-bottom: 2rem;
+        }
+
+        /* Main Content */
+        main {
+            padding: 3rem 0;
+        }
+
+        section {
+            margin-bottom: 3rem;
+            background-color: var(--darker);
+            border-radius: 10px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(100, 149, 237, 0.1);
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+            position: relative;
+            padding-bottom: 0.5rem;
+        }
+
+        h2:after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            border-radius: 3px;
+        }
+
+        h3 {
+            font-size: 1.3rem;
+            color: var(--lighter);
+            margin: 1.5rem 0 1rem;
+        }
+
+        p {
+            margin-bottom: 1rem;
+            color: var(--light);
+            line-height: 1.7;
+        }
+
+        /* Update Cards */
+        .updates-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .update-card {
+            background-color: var(--gray);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .update-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 180, 216, 0.1);
+        }
+
+        .update-icon {
+            font-size: 1.8rem;
+            margin-bottom: 0.8rem;
+            color: var(--secondary);
+        }
+
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .feature-card {
+            background-color: var(--gray);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border-top: 3px solid var(--primary);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 180, 216, 0.1);
+        }
+
+        .feature-card:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(0, 180, 216, 0.1) 0%, rgba(255, 133, 0, 0.05) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .feature-card:hover:before {
+            opacity: 1;
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.8rem;
+            color: var(--primary);
+        }
+
+        /* Terminal */
+        .terminal-container {
+            background-color: #011627;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 1.5rem 0;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background-color: #1a3b5d;
+            border-bottom: 1px solid #0a192f;
+        }
+
+        .terminal-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-right: 1rem;
+        }
+
+        .terminal-btn {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .btn-close {
+            background-color: #ff5f56;
+        }
+
+        .btn-minimize {
+            background-color: #ffbd2e;
+        }
+
+        .btn-expand {
+            background-color: #27c93f;
+        }
+
+        .terminal-body {
+            padding: 1.5rem;
+            font-family: 'SF Mono', 'Courier New', monospace;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .prompt {
+            color: var(--secondary);
+        }
+
+        .command {
+            color: var(--lighter);
+            margin-left: 0.5rem;
+        }
+
+        .comment {
+            color: #637777;
+            font-style: italic;
+        }
+
+        /* Buttons */
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            margin: 2rem 0;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.8rem 1.5rem;
+            border-radius: 6px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: var(--darker);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 180, 216, 0.3);
+        }
+
+        .btn-secondary {
+            background-color: var(--gray);
+            color: var(--lighter);
+            border: 1px solid var(--primary);
+        }
+
+        .btn-secondary:hover {
+            background-color: rgba(0, 180, 216, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 180, 216, 0.1);
+        }
+
+        .btn-icon {
+            margin-right: 0.5rem;
+        }
+
+        /* Notice Box */
+        .notice {
+            background-color: rgba(230, 57, 70, 0.1);
+            border-left: 4px solid var(--accent);
+            padding: 1.5rem;
+            border-radius: 6px;
+            margin: 1.5rem 0;
+        }
+
+        .notice-title {
+            color: var(--accent);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .notice-title i {
+            margin-right: 0.5rem;
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--darker);
+            padding: 2rem 0;
+            text-align: center;
+            border-top: 1px solid rgba(100, 149, 237, 0.1);
+        }
+
+        .social-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .social-link {
+            color: var(--lighter);
+            font-size: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .social-link:hover {
+            color: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        .copyright {
+            color: var(--light);
+            opacity: 0.7;
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .logo-text {
+                font-size: 2rem;
+            }
+
+            .tagline {
+                font-size: 1rem;
+            }
+
+            section {
+                padding: 1.5rem;
+            }
+
+            h2 {
+                font-size: 1.5rem;
+            }
+
+            .btn-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+        }
+
+        /* Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .floating {
+            animation: float 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-terminal floating"></i>
+                </div>
+                <h1 class="logo-text">ANISUB-CLI</h1>
+            </div>
+            <p class="tagline">Trình xem anime vietsub trên terminal được lấy cảm hứng từ ani-cli</p>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <!-- Cập nhật -->
+            <section id="updates">
+                <h2><i class="fas fa-sync-alt"></i> Cập Nhật Mới Nhất</h2>
+                <div class="updates-grid">
+                    <div class="update-card">
+                        <div class="update-icon">📺</div>
+                        <h3>Thêm data từ Google Drive</h3>
+                        <p>Dữ liệu anime được lưu trữ trong file CSV trên Google Drive, dễ dàng cập nhật và quản lý.</p>
+                    </div>
+                    <div class="update-card">
+                        <div class="update-icon">📖</div>
+                        <h3>Tích hợp Manga-tui</h3>
+                        <p>Hỗ trợ đọc manga vietsub ngay trên terminal cùng với tính năng xem anime.</p>
+                    </div>
+                    <div class="update-card">
+                        <div class="update-icon">✂</div>
+                        <h3>Cắt video</h3>
+                        <p>Bổ sung tính năng cắt video 1 lần và cắt video nhiều lần theo ý muốn.</p>
+                    </div>
+                    <div class="update-card">
+                        <div class="update-icon">﬚</div>
+                        <h3>Ghép video</h3>
+                        <p>Tính năng mới cho phép ghép nhiều video lại với nhau tạo thành một video hoàn chỉnh.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tính năng -->
+            <section id="features">
+                <h2><i class="fas fa-star"></i> Tính Năng Nổi Bật</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">👀</div>
+                        <h3>Tìm kiếm thông minh</h3>
+                        <p>Tìm kiếm Anime theo từ khóa và hiển thị các bộ anime liên quan với chất lượng tốt nhất.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">📺</div>
+                        <h3>Đa dạng nội dung</h3>
+                        <p>Không chỉ anime, bạn còn có thể xem phim truyền hình trực tiếp từ terminal.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">✂</div>
+                        <h3>Cắt video chính xác</h3>
+                        <p>Cắt video từ phút bao nhiêu đến phút bao nhiêu với độ chính xác cao.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🔗</div>
+                        <h3>Tải video dễ dàng</h3>
+                        <p>Tải video về thư mục với tên Anime tự động, tiện lợi cho việc lưu trữ.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">👈</div>
+                        <h3>Điều khiển tiện lợi</h3>
+                        <p>Phát tập trước tiếp theo dễ dàng chỉ với 1 phím tắt.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">👉</div>
+                        <h3>Trải nghiệm mượt mà</h3>
+                        <p>Phát tập sau nhanh chóng mà không cần thoát chương trình.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Cài đặt -->
+            <section id="installation">
+                <h2><i class="fas fa-download"></i> Hướng Dẫn Cài Đặt</h2>
+                
+                <h3>Yêu cầu hệ thống</h3>
+                <p>Để chạy ANISUB-CLI, bạn cần cài đặt các công cụ sau:</p>
+                
+                <div class="terminal-container">
+                    <div class="terminal-header">
+                        <div class="terminal-buttons">
+                            <div class="terminal-btn btn-close"></div>
+                            <div class="terminal-btn btn-minimize"></div>
+                            <div class="terminal-btn btn-expand"></div>
+                        </div>
+                    </div>
+                    <div class="terminal-body">
+                        <p><span class="prompt">$</span> <span class="command"># Ubuntu/Debian</span></p>
+                        <p><span class="prompt">$</span> <span class="command">sudo apt install ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut</span></p>
+                        <br>
+                        <p><span class="prompt">$</span> <span class="command"># Arch Linux</span></p>
+                        <p><span class="prompt">$</span> <span class="command">yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut</span></p>
+                    </div>
+                </div>
+
+                <h3>Cách chạy chương trình</h3>
+                <div class="terminal-container">
+                    <div class="terminal-header">
+                        <div class="terminal-buttons">
+                            <div class="terminal-btn btn-close"></div>
+                            <div class="terminal-btn btn-minimize"></div>
+                            <div class="terminal-btn btn-expand"></div>
+                        </div>
+                    </div>
+                    <div class="terminal-body">
+                        <p><span class="prompt">$</span> <span class="command"># Cấp quyền thực thi</span></p>
+                        <p><span class="prompt">$</span> <span class="command">chmod +x anisub.sh</span></p>
+                        <p><span class="prompt">$</span> <span class="command"># Chạy chương trình</span></p>
+                        <p><span class="prompt">$</span> <span class="command">./anisub.sh</span></p>
+                        <br>
+                        <p><span class="prompt">$</span> <span class="command"># Thêm alias tiện lợi (cho zshrc hoặc bashrc)</span></p>
+                        <p><span class="prompt">$</span> <span class="command">alias anisub='bash $HOME/anilink/anisub.sh'</span></p>
+                        <p><span class="comment"># Lưu ý: Thay đổi đường dẫn đến nơi bạn lưu file anisub.sh</span></p>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <a href="https://github.com/niyakipham/anisub" class="btn btn-primary" target="_blank">
+                        <i class="fab fa-github btn-icon"></i> Xem trên GitHub
+                    </a>
+                    <a href="https://github.com/niyakipham/anisub/issues" class="btn btn-secondary" target="_blank">
+                        <i class="fas fa-bug btn-icon"></i> Báo cáo lỗi
+                    </a>
+                </div>
+            </section>
+
+            <!-- Lưu ý -->
+            <section id="notice">
+                <h2><i class="fas fa-exclamation-triangle"></i> Lưu ý quan trọng</h2>
+                <div class="notice">
+                    <h3 class="notice-title"><i class="fas fa-exclamation-circle"></i> Quảng cáo trên video</h3>
+                    <p>Các website mà mình đang sử dụng có chứa quảng cáo. Bản chất của các web này sẽ chèn một src nhúng vào tệp m3u8 khi đến một khoảng thời gian nào đó nó sẽ hiện quảng cáo. Nếu bạn cố tình skip quảng cáo thì bạn sẽ phải xem lại từ đầu.</p>
+                </div>
+
+                <div class="notice">
+                    <h3 class="notice-title"><i class="fas fa-star"></i> Đóng góp cho dự án</h3>
+                    <p>Nếu thấy project này thú vị, đừng quên cho mình xin một sao trên GitHub để mình có động lực phát triển thêm nhiều tính năng hay ho khác!</p>
+                </div>
+            </section>
+
+            <!-- Liên hệ -->
+            <section id="contact">
+                <h2><i class="fas fa-envelope"></i> Liên hệ & Hỗ trợ</h2>
+                <p>Nếu trong quá trình cài đặt hoặc sử dụng mà bạn gặp bất kỳ lỗi gì, hãy liên hệ với mình qua Facebook để được hỗ trợ nhanh nhất.</p>
+                <p>Cảm ơn các bạn đã quan tâm đến dự án này. Chúc các bạn có những giây phút thư giãn với ANISUB-CLI!</p>
+
+                <div class="btn-group">
+                    <a href="https://facebook.com" class="btn btn-primary" target="_blank">
+                        <i class="fab fa-facebook btn-icon"></i> Liên hệ qua Facebook
+                    </a>
+                    <a href="https://github.com/niyakipham/anisub" class="btn btn-secondary" target="_blank">
+                        <i class="fas fa-star btn-icon"></i> Star trên GitHub
+                    </a>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="social-links">
+                <a href="https://github.com/niyakipham" class="social-link" target="_blank">
+                    <i class="fab fa-github"></i>
+                </a>
+                <a href="https://facebook.com/niyakipham" class="social-link" target="_blank">
+                    <i class="fab fa-facebook"></i>
+                </a>
+                <a href="https://youtube.com/niyakipham" class="social-link" target="_blank">
+                    <i class="fab fa-youtube"></i>
+                </a>
+            </div>
+            <p class="copyright">© 2025 ANISUB-CLI | BY NIYAKI PHAM</p>
+        </div>
+    </footer>
+</body>
+</html>
