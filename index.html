@@ -1,448 +1,410 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anisub CLI - Terminal Anime Streaming</title>
+    <title>ANISUB-CLI - Xem Anime Trên Terminal</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap');
+
         :root {
-            --primary: #6e45e2;
-            --secondary: #88d3ce;
-            --dark: #1a1a2e;
-            --light: #f5f5f5;
-            --accent: #ff6b6b;
-            --terminal: #0f0f23;
+            --bg-color: #0a0a0f;
+            --card-bg: rgba(20, 20, 30, 0.4);
+            --text-primary: #e0e0ff;
+            --text-secondary: #a0a0c0;
+            --accent-purple: #b026ff;
+            --accent-cyan: #00d1f5;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --shadow-color: rgba(176, 38, 255, 0.3);
+            --code-bg: #111119;
         }
-        
-        body {
+
+        *, *::before, *::after {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: 'Courier New', monospace;
-            background-color: var(--dark);
-            color: var(--light);
-            background-image: 
-                radial-gradient(circle at 10% 20%, rgba(110, 69, 226, 0.1) 0%, transparent 20%),
-                radial-gradient(circle at 90% 80%, rgba(136, 211, 206, 0.1) 0%, transparent 20%);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
             overflow-x: hidden;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 3rem;
             position: relative;
         }
-        
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        
-        .logo-icon {
-            font-size: 3rem;
-            color: var(--primary);
-            text-shadow: 0 0 15px rgba(110, 69, 226, 0.7);
-            animation: pulse 2s infinite alternate;
-        }
-        
-        .logo-text {
-            font-size: 2.5rem;
-            font-weight: bold;
-            background: linear-gradient(to right, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-            text-shadow: 0 0 10px rgba(110, 69, 226, 0.3);
-        }
-        
-        .hero {
-            text-align: center;
-            margin-bottom: 4rem;
-            position: relative;
-        }
-        
-        .hero h1 {
-            font-size: 3.5rem;
-            margin-bottom: 1rem;
-            background: linear-gradient(to right, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-        }
-        
-        .hero p {
-            font-size: 1.2rem;
-            max-width: 800px;
-            margin: 0 auto;
-            line-height: 1.6;
-        }
-        
-        .terminal-window {
-            background-color: var(--terminal);
-            border-radius: 10px;
-            padding: 2rem;
-            margin: 3rem 0;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .terminal-header {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .terminal-btn {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-        
-        .btn-red { background-color: #ff5f56; }
-        .btn-yellow { background-color: #ffbd2e; }
-        .btn-green { background-color: #27c93f; }
-        
-        .terminal-content {
-            font-family: 'Courier New', monospace;
-            line-height: 1.6;
-        }
-        
-        .prompt {
-            color: var(--secondary);
-        }
-        
-        .command {
-            color: var(--light);
-        }
-        
-        .output {
-            color: #888;
-        }
-        
-        .features {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin: 4rem 0;
-        }
-        
-        .feature-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            padding: 2rem;
-            transition: transform 0.3s, box-shadow 0.3s;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
-            background: rgba(255, 255, 255, 0.08);
-        }
-        
-        .feature-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(45deg, transparent, rgba(110, 69, 226, 0.1), transparent);
-            transform: translateX(-100%);
-            transition: transform 0.6s;
-        }
-        
-        .feature-card:hover::before {
-            transform: translateX(100%);
-        }
-        
-        .feature-icon {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            color: var(--primary);
-        }
-        
-        .feature-title {
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
-            color: var(--secondary);
-        }
-        
-        .section-title {
-            font-size: 2rem;
-            margin: 3rem 0 1.5rem;
-            color: var(--secondary);
-            position: relative;
-            display: inline-block;
-        }
-        
-        .section-title::after {
-            content: '';
-            position: absolute;
-            bottom: -10px;
-            left: 0;
-            width: 50%;
-            height: 3px;
-            background: linear-gradient(to right, var(--primary), transparent);
-        }
-        
-        .code-block {
-            background-color: rgba(0, 0, 0, 0.3);
-            padding: 1rem;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            margin: 1rem 0;
-            overflow-x: auto;
-            border-left: 3px solid var(--primary);
-        }
-        
-        .footer {
-            text-align: center;
-            margin-top: 4rem;
-            padding: 2rem 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .glow {
-            position: absolute;
-            width: 300px;
-            height: 300px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(110, 69, 226, 0.3) 0%, transparent 70%);
-            filter: blur(30px);
-            z-index: -1;
-        }
-        
-        .glow-1 {
-            top: -100px;
-            right: -100px;
-        }
-        
-        .glow-2 {
-            bottom: -100px;
-            left: -100px;
-            background: radial-gradient(circle, rgba(136, 211, 206, 0.3) 0%, transparent 70%);
-        }
-        
-        @keyframes pulse {
-            0% {
-                transform: scale(1);
-                opacity: 1;
-            }
-            100% {
-                transform: scale(1.1);
-                opacity: 0.8;
-            }
-        }
-        
-        @keyframes float {
-            0% {
-                transform: translateY(0);
-            }
-            50% {
-                transform: translateY(-10px);
-            }
-            100% {
-                transform: translateY(0);
-            }
-        }
-        
-        .floating {
-            animation: float 6s ease-in-out infinite;
-        }
-        
-        .grid-bg {
+
+        .background-aura {
             position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            background-image: 
-                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-            background-size: 50px 50px;
-            z-index: -2;
+            width: 800px;
+            height: 800px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(176, 38, 255, 0.15) 0%, rgba(0, 209, 245, 0.1) 40%, rgba(10, 10, 15, 0) 70%);
+            filter: blur(100px);
+            pointer-events: none;
+            z-index: -1;
+            transform: translate(-50%, -50%);
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 5rem 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 5rem;
+            position: relative;
+        }
+        
+        .icon-wave {
+             font-size: 3rem;
+             margin-bottom: 1rem;
+             display: inline-block;
+        }
+
+        h1, h2, h3 {
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+        
+        h1 {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px var(--shadow-color);
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            font-size: 2.25rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid;
+            padding-bottom: 0.5rem;
+            display: inline-block;
+            border-image-source: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+            border-image-slice: 1;
+        }
+
+        .sub-heading {
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        section {
+            margin-bottom: 4rem;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(12px) saturate(150%);
+            -webkit-backdrop-filter: blur(12px) saturate(150%);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+             transform: translateY(-8px);
+             box-shadow: 0 15px 40px rgba(0,0,0,0.3), 0 0 25px var(--shadow-color);
+        }
+
+        .card-icon {
+            font-size: 1.5rem;
+            margin-right: 1rem;
+            float: left;
+            margin-top: 4px;
+        }
+        
+        .card p {
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        strong {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .install-section, .run-section {
+            background: var(--code-bg);
+            border-radius: 16px;
+            padding: 2.5rem;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+        }
+        
+        .distro {
+            margin-bottom: 1.5rem;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        pre {
+            background-color: #0c0c12;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            position: relative;
+        }
+
+        code {
+            font-family: 'Fira Code', 'JetBrains Mono', monospace;
+            color: #d1d5db; 
+        }
+
+        .contact-section, .note-section {
+             background: rgba(176, 38, 255, 0.05);
+             padding: 2rem;
+             border-radius: 16px;
+             border: 1px solid var(--border-color);
+             font-size: 0.95rem;
+        }
+        
+        .note-section h3{
+            color: #ff9a9a;
+            border-bottom: 2px solid #ff9a9a;
+            padding-bottom: 0.5rem;
+            display: inline-block;
+        }
+        
+        .note-section {
+            background: rgba(255, 100, 100, 0.05);
+            border-color: rgba(255, 100, 100, 0.2);
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .animate-on-scroll {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+        }
+
+        .animate-on-scroll.is-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .terminal-prompt::before {
+             content: '$ ';
+             color: var(--accent-cyan);
+             font-weight: bold;
         }
     </style>
 </head>
 <body>
-    <div class="grid-bg"></div>
+    <div class="background-aura"></div>
     <div class="container">
-        <div class="glow glow-1"></div>
-        <div class="glow glow-2"></div>
-        
         <header>
-            <div class="logo">
-                <div class="logo-icon">▶</div>
-                <div class="logo-text">Anisub CLI</div>
-            </div>
+            <div class="icon-wave animate-on-scroll">👋</div>
+            <h1 class="animate-on-scroll">We are ANISUB-CLI</h1>
+            <p class="sub-heading animate-on-scroll">
+                ANISUB-CLI là trình xem anime vietsub trên terminal được lấy cảm hứng từ ani-cli.
+            </p>
         </header>
-        
-        <section class="hero">
-            <h1>Terminal Anime Streaming Tool</h1>
-            <p>Anisub là một công cụ dòng lệnh mạnh mẽ để xem anime trực tiếp từ terminal, với giao diện đơn giản và nhiều tính năng hữu ích.</p>
-        </section>
-        
-        <section>
-            <h2 class="section-title">🌟 Tính năng chính</h2>
-            <div class="features">
-                <div class="feature-card floating">
-                    <div class="feature-icon">🎬</div>
-                    <h3 class="feature-title">Phát anime từ nhiều nguồn</h3>
-                    <p>Hỗ trợ OPhim, AniData và nhiều nguồn khác với chất lượng cao.</p>
+
+        <main>
+            <section class="animate-on-scroll">
+                <h2>UPDATE</h2>
+                <div class="cards-grid">
+                    <div class="card">
+                        <span class="card-icon">📺</span>
+                        <p><strong>Dữ liệu mới:</strong> Thêm data từ Google Drive thông qua file CSV.</p>
+                    </div>
+                    <div class="card">
+                        <span class="card-icon">📖</span>
+                        <p><strong>Tích hợp Manga:</strong> Tích hợp Manga-tui với hỗ trợ vietsub.</p>
+                    </div>
+                    <div class="card">
+                        <span class="card-icon">✂️</span>
+                        <p><strong>Cắt video:</strong> Bổ sung tính năng cắt video 1 lần và cắt nhiều lần.</p>
+                    </div>
+                    <div class="card">
+                        <span class="card-icon">﬚</span>
+                        <p><strong>Ghép video:</strong> Bổ sung tính năng ghép nhiều video lại với nhau.</p>
+                    </div>
                 </div>
+            </section>
+
+            <section class="animate-on-scroll">
+                <h2>FEATURE</h2>
+                <div class="cards-grid">
+                    <div class="card">
+                        <span class="card-icon">👀</span>
+                        <p><strong>Tìm kiếm mạnh mẽ:</strong> Tìm Anime, hiển thị các bộ có cùng từ khóa liên quan.</p>
+                    </div>
+                    <div class="card">
+                        <span class="card-icon">📺</span>
+                        <p><strong>Xem phim đa dạng:</strong> Ngoài Anime, bạn có thể xem được cả phim truyền hình.</p>
+                    </div>
+                     <div class="card">
+                        <span class="card-icon">✂️</span>
+                        <p><strong>Cắt video chính xác:</strong> Cắt video theo khoảng thời gian tùy chọn.</p>
+                    </div>
+                    <div class="card">
+                        <span class="card-icon">🔗</span>
+                        <p><strong>Tải về tiện lợi:</strong> Tải video về thư mục được đặt tên theo tên Anime.</p>
+                    </div>
+                    <div class="card">
+                        <span class="card-icon">👈</span>
+                        <p><strong>Điều hướng tập:</strong> Phát tập trước một cách dễ dàng.</p>
+                    </div>
+                     <div class="card">
+                        <span class="card-icon">👉</span>
+                        <p><strong>Điều hướng tập:</strong> Phát tập sau một cách nhanh chóng.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="install-section animate-on-scroll">
+                <h2>INSTALL</h2>
+                <div class="distro">
+                    <h3>UBUNTU</h3>
+                    <pre><code class="terminal-prompt">sudo apt install ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut</code></pre>
+                </div>
+                <div class="distro">
+                    <h3>ARCH LINUX</h3>
+                    <pre><code class="terminal-prompt">yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut</code></pre>
+                </div>
+            </section>
+
+            <section class="run-section animate-on-scroll">
+                <h2>RUN</h2>
+                <h3>Cấp quyền cho file</h3>
+                <pre><code class="terminal-prompt">chmod +x anisub.sh</code></pre>
                 
-                <div class="feature-card floating" style="animation-delay: 0.5s;">
-                    <div class="feature-icon">📺</div>
-                    <h3 class="feature-title">Hỗ trợ nhiều trình phát</h3>
-                    <p>MPV, VLC và các trình phát khác với tuỳ chỉnh linh hoạt.</p>
-                </div>
+                <h3>Chạy File</h3>
+                <pre><code class="terminal-prompt">./anisub.sh</code></pre>
+
+                <p style="margin-top: 1.5rem; color: var(--text-secondary);">
+                    Nếu bạn dùng <strong>bashrc</strong> (hoặc <strong>zshrc</strong> như ví dụ bên dưới), hãy mở file config của bạn và gán lệnh này vào để tạo bí danh tiện lợi:
+                </p>
+                <pre><code class="terminal-prompt">alias anisub='bash $HOME/anilink/anisub.sh'</code></pre>
+                 <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-secondary);">
+                    Hãy chắc chắn rằng đường dẫn trỏ đúng đến vị trí bạn lưu file <strong>anisub.sh</strong>. Lệnh <strong>alias</strong> này cho phép ngụy trang câu lệnh để bạn có thể chạy chỉ bằng cách gõ <strong>anisub</strong>. Sau khi gán, khởi động lại terminal.
+                </p>
+            </section>
+
+            <section class="contact-section animate-on-scroll">
+                <h2>CONTACT & SUCCESS</h2>
+                <p>Nếu trong quá trình thực hiện mà bạn gặp lỗi, đừng ngần ngại liên hệ qua Facebook.</p>
+                <p style="margin-top: 1rem;">Cảm ơn các bạn đã đọc. Nếu thấy project này thú vị, đừng quên cho mình xin một sao trên GitHub để mình có động lực ra nhiều tính năng hay hơn nữa nhé. <strong>CẢM ƠN CÁC CẬU.</strong></p>
                 
-                <div class="feature-card floating" style="animation-delay: 1s;">
-                    <div class="feature-icon">⬇️</div>
-                    <h3 class="feature-title">Tải tập phim</h3>
-                    <p>Dễ dàng tải anime về thiết bị với nhiều chất lượng khác nhau.</p>
-                </div>
-                
-                <div class="feature-card floating" style="animation-delay: 1.5s;">
-                    <div class="feature-icon">✂️</div>
-                    <h3 class="feature-title">Công cụ video</h3>
-                    <p>Cắt/ghép video tích hợp ngay trong terminal.</p>
-                </div>
-                
-                <div class="feature-card floating" style="animation-delay: 2s;">
-                    <div class="feature-icon">📚</div>
-                    <h3 class="feature-title">Lịch sử & yêu thích</h3>
-                    <p>Theo dõi lịch sử xem và quản lý danh sách yêu thích.</p>
-                </div>
-                
-                <div class="feature-card floating" style="animation-delay: 2.5s;">
-                    <div class="feature-icon">🎨</div>
-                    <h3 class="feature-title">Tuỳ chỉnh giao diện</h3>
-                    <p>Nhiều theme màu sắc để cá nhân hoá trải nghiệm.</p>
-                </div>
-            </div>
-        </section>
-        
-        <section>
-            <h2 class="section-title">📦 Yêu cầu hệ thống</h2>
-            <div class="terminal-window">
-                <div class="terminal-header">
-                    <div class="terminal-btn btn-red"></div>
-                    <div class="terminal-btn btn-yellow"></div>
-                    <div class="terminal-btn btn-green"></div>
-                </div>
-                <div class="terminal-content">
-                    <div><span class="prompt">$</span> <span class="command">bash --version</span></div>
-                    <div class="output">Bash 4.0+ required</div>
-                    <br>
-                    <div><span class="prompt">$</span> <span class="command">which curl jq pup fzf</span></div>
-                    <div class="output">/usr/bin/curl /usr/bin/jq /usr/bin/pup /usr/bin/fzf</div>
-                    <br>
-                    <div><span class="prompt">$</span> <span class="command">mpv --version</span></div>
-                    <div class="output">mpv 0.35.0 (or VLC/other players)</div>
-                    <br>
-                    <div><span class="prompt">$</span> <span class="command">yt-dlp --version</span></div>
-                    <div class="output">2023.11.16 (with ffmpeg for download/edit features)</div>
-                </div>
-            </div>
-        </section>
-        
-        <section>
-            <h2 class="section-title">🛠 Cài đặt</h2>
-            <div class="code-block">
-                # Tải script:<br>
-                curl -o anisub.sh https://raw.githubusercontent.com/kidtomboy/Remake-Anisub/main/anisub.sh
-            </div>
-            
-            <div class="code-block">
-                # Cấp quyền thực thi:<br>
-                chmod +x anisub.sh
-            </div>
-            
-            <div class="code-block">
-                # Chạy chương trình:<br>
-                ./anisub.sh
-            </div>
-            
-            <p>Chương trình sẽ tự động kiểm tra và cài đặt các phụ thuộc cần thiết.</p>
-        </section>
-        
-        <section>
-            <h2 class="section-title">🎮 Cách sử dụng</h2>
-            <div class="code-block">
-                ./anisub.sh [TÙY_CHỌN]<br><br>
-                Tùy chọn:<br>
-                -u, --update: Cập nhật lên phiên bản mới nhất<br>
-                -v, --version: Hiển thị phiên bản<br>
-                -h, --help: Hiển thị trợ giúp
-            </div>
-            
-            <h3 style="margin-top: 2rem; color: var(--secondary);">Menu chính:</h3>
-            <ul style="line-height: 2;">
-                <li>Tìm kiếm và phát anime</li>
-                <li>Lịch sử xem</li>
-                <li>Danh sách yêu thích</li>
-                <li>Công cụ video (cắt/ghép)</li>
-                <li>Đọc manga (đang phát triển)</li>
-                <li>Cài đặt</li>
-                <li>Kiểm tra cập nhật</li>
-                <li>Thông tin tác giả</li>
-            </ul>
-        </section>
-        
-        <section>
-            <h2 class="section-title">⚙️ Cấu hình</h2>
-            <p>Tất cả cấu hình được lưu tại <code style="background: rgba(0,0,0,0.3); padding: 0.2rem 0.4rem; border-radius: 3px;">~/.config/anisub_cli/config.cfg</code>. Bạn có thể chỉnh sửa:</p>
-            <ul style="line-height: 2;">
-                <li>Thư mục tải xuống</li>
-                <li>Trình phát mặc định</li>
-                <li>Chất lượng video</li>
-                <li>Chủ đề màu sắc</li>
-                <li>Bật/tắt thông báo</li>
-            </ul>
-        </section>
-        
-        <section>
-            <h2 class="section-title">📜 Lịch sử phiên bản</h2>
-            <ul style="line-height: 2;">
-                <li><strong>v1.0:</strong> Phát hành ban đầu</li>
-                <li><strong>v1.1:</strong> Thêm tính năng tải video</li>
-                <li><strong>v1.2:</strong> Thêm công cụ cắt/ghép video</li>
-                <li><strong>v1.3:</strong> Cải thiện hiệu suất và sửa lỗi</li>
-                <li><strong>Unknown1337:</strong> Nâng cấp lên gần 1500 dòng</li>
-            </ul>
-        </section>
-        
-        <section>
-            <h2 class="section-title">🙏 Tác giả</h2>
-            <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
-                <div style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 10px; flex: 1; min-width: 250px;">
-                    <h3 style="color: var(--secondary); margin-top: 0;">Kidtomboy (Remake)</h3>
-                    <p>GitHub: <a href="https://github.com/kidtomboy/Anisub" style="color: var(--secondary);">github.com/kidtomboy</a></p>
-                </div>
-                <div style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 10px; flex: 1; min-width: 250px;">
-                    <h3 style="color: var(--secondary); margin-top: 0;">NiyakiPham (Original)</h3>
-                    <p>GitHub: <a href="https://github.com/NiyakiPham/anisub" style="color: var(--secondary);">github.com/NiyakiPham</a></p>
-                </div>
-            </div>
-        </section>
-        
-        <footer class="footer">
-            <p>© 2025 Anisub CLI Project | Niyaki Pham & kidtomboy</p>
-        </footer>
+                <h3 style="margin-top:2rem">CHÚC CÁC BẠN THÀNH CÔNG</h3>
+            </section>
+
+            <section class="note-section animate-on-scroll">
+                <h3>LƯU Ý</h3>
+                <p>Web mà mình đang sử dụng có chứa quảng cáo. Nhà cung cấp đã tính toán và sẽ chèn một nguồn nhúng vào tệp m3u8. Khi video phát đến một khoảng thời gian nhất định, quảng cáo sẽ xuất hiện. Nếu bạn cố tình bỏ qua (skip), video sẽ bị phát lại từ đầu.</p>
+            </section>
+        </main>
     </div>
+    
+    <footer>
+        <p>© 2025 ANISUB-CLI Project.</p>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            const aura = document.querySelector('.background-aura');
+            if(aura) {
+                 document.body.addEventListener('mousemove', e => {
+                    anime({
+                        targets: '.background-aura',
+                        left: e.clientX,
+                        top: e.clientY + window.scrollY,
+                        scale: 1.1,
+                        duration: 1000,
+                        easing: 'easeOutSine'
+                    });
+                });
+            }
+
+            const scrollElements = document.querySelectorAll('.animate-on-scroll');
+            if(scrollElements.length > 0) {
+                 const elementInView = (el, dividend = 1) => {
+                    const elementTop = el.getBoundingClientRect().top;
+                    return (
+                        elementTop <= (window.innerHeight || document.documentElement.clientHeight) / dividend
+                    );
+                };
+
+                const displayScrollElement = (element) => {
+                    element.classList.add('is-visible');
+                };
+                
+                const hideScrollElement = (element) => {
+                    element.classList.remove('is-visible');
+                }
+
+                const handleScrollAnimation = () => {
+                    scrollElements.forEach((el) => {
+                        if (elementInView(el, 1.25)) {
+                            displayScrollElement(el);
+                        } 
+                    });
+                }
+                
+                window.addEventListener('scroll', () => {
+                   handleScrollAnimation();
+                });
+                
+                handleScrollAnimation();
+            }
+
+            const cards = document.querySelectorAll('.card');
+            cards.forEach(card => {
+                card.addEventListener('mousemove', e => {
+                    const rect = card.getBoundingClientRect();
+                    const x = e.clientX - rect.left - rect.width / 2;
+                    const y = e.clientY - rect.top - rect.height / 2;
+                    
+                    const rotateY = (1/15) * x;
+                    const rotateX = (-1/15) * y;
+                    
+                    card.style.transform = `perspective(1000px) translateY(-5px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+                    card.style.boxShadow = `0 25px 50px rgba(0,0,0,0.4), 0 0 40px var(--shadow-color)`;
+                });
+                
+                card.addEventListener('mouseleave', () => {
+                   card.style.transform = 'perspective(1000px) translateY(0) rotateX(0deg) rotateY(0deg)';
+                   card.style.boxShadow = '0 15px 40px rgba(0,0,0,0.3), 0 0 25px var(--shadow-color)';
+                });
+            });
+
+        });
+    </script>
 </body>
 </html>
