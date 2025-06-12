@@ -23,7 +23,8 @@
 《📺》- Thêm data từ google drive trong file csv <br>
 《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub ) <br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
-《﬚》- Bổ sung tính năng ghép nhiều video với nhau
+《﬚》- Bổ sung tính năng ghép nhiều video với nhau <br>
+#### Và còn nhiều tính năng khác!!! <br>
 ## FEARTURE
 
 《👀》- Tìm kiếm Anime, hiển thị các bộ anime có cùng tư khóa liên quan <br>
