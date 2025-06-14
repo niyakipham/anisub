@@ -40,7 +40,7 @@ save_config() {
 
 check_dependencies() {
     local missing_deps=()
-    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "pup" "manga-tui" "jq" "awk" "cut")
+    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "pup" "jq" "awk" "cut")
     echo "Kiểm tra các phụ thuộc..."
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
