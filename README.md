@@ -41,8 +41,9 @@
 
 UBUNTU
 ```shell
-sudo apt install ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut
+sudo apt install ffmpeg curl grep yt-dlp fzf pup jq mawk cut
 ```
+Nếu có gói nào chưa đưọc cài đặt thì bạn cài riêng ra nhé< br>
 
 ARCH LINUX
 ```shell
