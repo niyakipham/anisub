@@ -3,34 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <title>ANISUB-CLI | Xem Anime, Manga Trên Terminal</title>
+    
     <meta name="description" content="ANISUB-CLI là trình xem anime, manga có vietsub trực tiếp trên terminal, lấy cảm hứng từ ani-cli. Nhanh, nhẹ, mạnh mẽ và đầy đủ tính năng.">
     <meta name="keywords" content="anime, cli, terminal, manga, vietsub, anisub-cli, ani-cli, ffmpeg, linux">
+    <meta name="author" content="NiyakiPham">
     
     <meta property="og:title" content="ANISUB-CLI | Trải nghiệm Anime & Manga ngay trên Terminal">
     <meta property="og:description" content="ANISUB-CLI là một script mạnh mẽ cho phép bạn tìm kiếm, xem, tải anime và đọc manga trực tiếp trên giao diện dòng lệnh, hỗ trợ vietsub đầy đủ.">
-    <meta property="og:url" content="https://github.com/niyakipham/anisub">
     <meta property="og:type" content="website">
+    <meta property="og:url" content="https://github.com/niyakipham/anisub">
 
-
+    <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="ANISUB-CLI | Trải nghiệm Anime & Manga ngay trên Terminal">
     <meta name="twitter:description" content="ANISUB-CLI là một script mạnh mẽ cho phép bạn tìm kiếm, xem, tải anime và đọc manga trực tiếp trên giao diện dòng lệnh, hỗ trợ vietsub đầy đủ.">
+    
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/niyakipham/niyakipham/main/assets/favicon.ico">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet"/>
 
     <style>
         :root {
-            --background-start: #0a0a1f;
+            --background-start: #060814;
             --background-end: #010103;
-            --text-primary: #e0e0ff;
+            --text-primary: #f0f0ff;
             --text-secondary: #a3a3d2;
             --accent-primary: #00d1f5;
             --accent-secondary: #b026ff;
-            --card-bg: rgba(25, 25, 45, 0.4);
-            --card-border: rgba(176, 38, 255, 0.2);
-            --glow-color: rgba(176, 38, 255, 0.15);
+            --card-bg: rgba(22, 22, 36, 0.4);
+            --card-border: rgba(176, 38, 255, 0.15);
+            --glow-accent-1: rgba(176, 38, 255, 0.5);
+            --glow-accent-2: rgba(0, 209, 245, 0.5);
+            --shadow-color: rgba(0, 0, 0, 0.3);
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --font-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
         }
 
         *, *::before, *::after {
@@ -44,8 +54,8 @@
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, var(--background-start) 0%, var(--background-end) 100%);
+            font-family: var(--font-main);
+            background: var(--background-end);
             color: var(--text-primary);
             overflow-x: hidden;
             line-height: 1.7;
@@ -53,67 +63,68 @@
             -moz-osx-font-smoothing: grayscale;
             position: relative;
         }
-
-        body::before {
+        
+        body::before, body::after {
             content: '';
             position: fixed;
-            top: -20%;
-            left: -20%;
             width: 80vmax;
             height: 80vmax;
-            background-image: radial-gradient(circle, var(--accent-secondary), transparent 40%);
             border-radius: 50%;
-            filter: blur(150px);
-            opacity: 0.1;
             z-index: -2;
-            animation: move-glow 25s ease-in-out infinite alternate;
+            transition: opacity 1s ease-in-out;
+            will-change: transform;
+            opacity: 0.15;
+            filter: blur(200px);
+        }
+
+        body::before {
+            top: -20%; left: -30%;
+            background-image: radial-gradient(circle, var(--glow-accent-1), transparent 40%);
+            animation: move-glow 30s cubic-bezier(0.25, 0.1, 0.25, 1) infinite alternate;
         }
 
         body::after {
-            content: '';
+            bottom: -30%; right: -30%;
+            background-image: radial-gradient(circle, var(--glow-accent-2), transparent 40%);
+            animation: move-glow-alt 35s cubic-bezier(0.25, 0.1, 0.25, 1) infinite alternate;
+        }
+        
+        #cursor-glow {
             position: fixed;
-            bottom: -30%;
-            right: -20%;
-            width: 90vmax;
-            height: 90vmax;
-            background-image: radial-gradient(circle, var(--accent-primary), transparent 40%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, var(--glow-accent-1), transparent 60%);
             border-radius: 50%;
-            filter: blur(180px);
-            opacity: 0.1;
+            filter: blur(100px);
+            opacity: 0.08;
+            pointer-events: none;
             z-index: -1;
-            animation: move-glow-alt 30s ease-in-out infinite alternate;
+            transform: translate(-50%, -50%);
+            transition: left 0.2s ease-out, top 0.2s ease-out;
         }
 
+
         @keyframes move-glow {
-            from {
-                transform: translate(0, 0) rotate(0deg);
-            }
-            to {
-                transform: translate(40vw, 30vh) rotate(180deg);
-            }
+            0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            100% { transform: translate(30vw, 40vh) rotate(180deg) scale(1.2); }
         }
 
         @keyframes move-glow-alt {
-            from {
-                transform: translate(0, 0) rotate(0deg);
-            }
-            to {
-                transform: translate(-50vw, -20vh) rotate(-180deg);
-            }
+            0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            100% { transform: translate(-40vw, -30vh) rotate(-180deg) scale(0.9); }
         }
 
         .container {
-            max-width: 1100px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 0 2rem;
-            width: 100%;
+            padding: 0 1.5rem;
         }
 
         section {
-            padding: 8rem 0;
+            padding: clamp(6rem, 15vh, 10rem) 0;
             position: relative;
         }
-
+        
         .hero {
             display: flex;
             flex-direction: column;
@@ -124,61 +135,63 @@
         }
 
         .hero h1 {
-            font-size: clamp(3rem, 10vw, 6rem);
-            font-weight: 800;
-            background: linear-gradient(90deg, var(--accent-primary), var(--text-primary), var(--accent-secondary));
+            font-size: clamp(3rem, 12vw, 7rem);
+            font-weight: 900;
+            letter-spacing: -0.05em;
+            background: linear-gradient(90deg, #fff, #a3a3d2);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 1.5rem;
-            line-height: 1.2;
+            margin-bottom: 1rem;
+            line-height: 1.1;
+            text-shadow: 0 0 50px rgba(176, 38, 255, 0.3);
         }
 
         .hero p {
-            max-width: 650px;
-            font-size: 1.15rem;
+            max-width: 700px;
+            font-size: clamp(1rem, 3vw, 1.2rem);
             color: var(--text-secondary);
-            margin-bottom: 2rem;
+            margin-bottom: 2.5rem;
         }
 
-        .hero-buttons {
-            display: flex;
-            gap: 1.5rem;
-            margin-top: 1rem;
-        }
+        .hero-buttons { display: flex; gap: 1rem; }
         
         .cta-button {
-            padding: 0.9rem 2.5rem;
+            padding: 1rem 2.5rem;
             border-radius: 50px;
             font-weight: 700;
             text-decoration: none;
-            transition: all 0.3s ease;
-            font-size: 1rem;
+            transition: all 0.3s ease-in-out;
+            border: 2px solid transparent;
             position: relative;
-            overflow: hidden;
-            display: inline-block;
+            z-index: 1;
         }
 
         .cta-button.primary {
-            background-color: var(--accent-primary);
+            background-color: var(--text-primary);
             color: #030305;
-            box-shadow: 0 0 25px var(--accent-primary);
+            box-shadow: 0 0 25px rgba(224, 224, 255, 0.2), inset 0 0 10px rgba(0, 0, 0, 0.1);
         }
 
         .cta-button.secondary {
-            background-color: transparent;
-            color: var(--text-primary);
             border: 2px solid var(--accent-primary);
+            color: var(--text-primary);
         }
 
         .cta-button:hover {
             transform: translateY(-5px) scale(1.05);
             box-shadow: 0 10px 40px -10px var(--accent-primary);
         }
+         .cta-button.secondary:hover {
+            background: var(--accent-primary);
+            box-shadow: 0 10px 40px -10px var(--accent-primary);
+            color: #030305;
+        }
 
         .section-title {
             text-align: center;
-            font-size: 2.8rem;
-            font-weight: 800;
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 900;
             margin-bottom: 4rem;
         }
         .section-title::after {
@@ -186,264 +199,155 @@
             display: block;
             width: 80px;
             height: 4px;
-            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
-            margin: 1.5rem auto 0;
+            background: linear-gradient(90deg, var(--accent-secondary), var(--accent-primary));
+            margin: 1rem auto 0;
             border-radius: 2px;
         }
         
-        .grid {
-            display: grid;
-            gap: 2rem;
-        }
+        .grid { display: grid; gap: 2.5rem; }
         
         .card {
             background: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 16px;
             padding: 2.5rem;
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
             transition: all 0.3s ease-out;
             position: relative;
+            z-index: 1;
         }
+
         .card:hover {
-            transform: translateY(-10px) scale(1.02);
-            box-shadow: 0 20px 50px var(--glow-color);
-            border-color: rgba(176, 38, 255, 0.4);
+            transform: translateY(-12px);
+            box-shadow: 0 25px 50px -12px var(--shadow-color);
+            border: 1px solid rgba(176, 38, 255, 0.4);
         }
         
-        .grid-2-cols { grid-template-columns: 1fr; }
-        @media(min-width: 768px) { .grid-2-cols { grid-template-columns: repeat(2, 1fr); } }
+        .grid-2-cols { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+       
+        .feature-grid .card i, .update-grid .card i {
+            font-size: 2rem;
+            color: var(--accent-primary);
+            line-height: 1;
+            margin-right: 1.5rem;
+        }
 
         .feature-grid .card, .update-grid .card {
-            display: flex;
-            align-items: flex-start;
-            gap: 1.5rem;
+            display: flex; align-items: flex-start;
         }
 
-        .feature-grid .card i, .update-grid .card i {
-            font-size: 1.5rem;
-            color: var(--accent-primary);
-            background: rgba(0, 209, 245, 0.1);
-            padding: 0.8rem;
-            border-radius: 12px;
-            margin-top: 0.25rem;
-        }
+        .card h3 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; }
+        .card p { color: var(--text-secondary); line-height: 1.6; }
 
-        .card h3 {
-            font-size: 1.3rem;
-            margin-bottom: 0.8rem;
-        }
+        .install-section { display: grid; gap: 2rem; align-items: start; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); }
 
-        .card p {
-            color: var(--text-secondary);
+        .run-section {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 4rem; align-items: center;
         }
-
-        .install-section, .run-section {
-            display: grid;
-            gap: 2rem;
-            align-items: start;
-        }
-
-        @media(min-width: 992px) {
-             .install-section, .run-section { grid-template-columns: 1fr 1fr; }
+        @media (max-width: 992px) {
+            .run-section { grid-template-columns: 1fr; }
         }
         
         pre {
-            background-color: #030305;
-            padding: 1.5rem;
+            background-color: #040409;
+            padding: 1.75rem;
             border-radius: 12px;
             overflow-x: auto;
-            border: 1px solid var(--card-border);
+            border: 1px solid rgba(0, 209, 245, 0.1);
             color: var(--text-primary);
             position: relative;
+            box-shadow: 0 4px 6px -1px var(--shadow-color), inset 0 0 10px rgba(0, 0, 0, 0.4);
         }
         code {
-            font-family: 'Courier New', Courier, monospace;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+            font-family: var(--font-mono);
+            white-space: pre;
             font-size: 0.95rem;
         }
 
         .code-block button.copy-btn {
-            position: absolute;
-            top: 1rem;
-            right: 1rem;
+            position: absolute; top: 1rem; right: 1rem;
             background-color: var(--card-bg);
             border: 1px solid var(--card-border);
-            color: var(--text-primary);
-            padding: 0.5rem 0.8rem;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            color: var(--text-secondary); padding: 0.4rem 0.8rem;
+            border-radius: 8px; cursor: pointer; transition: all 0.2s ease;
+            font-size: 0.8rem;
         }
+        .code-block button.copy-btn:hover { background-color: var(--accent-primary); color: #000; }
         
-        .code-block button.copy-btn:hover {
-            background-color: var(--accent-secondary);
-            border-color: var(--accent-secondary);
-            color: #fff;
-        }
-        
-        .run-alias p {
-            color: var(--text-secondary);
-            margin-top: 1rem;
-        }
-        
-        .run-alias {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            height: 100%;
-        }
-
         .note-card {
             border-left: 4px solid var(--accent-primary);
-            padding: 2rem;
-            background: linear-gradient(90deg, rgba(0, 209, 245, 0.05), transparent);
+            padding: 2.5rem;
+            background: linear-gradient(90deg, rgba(0, 209, 245, 0.08), transparent);
             border-radius: 0 16px 16px 0;
-            text-align: left;
-            margin: 4rem 0;
+            margin: 6rem 0;
         }
-        .note-card h3 {
-            color: var(--accent-primary);
-            margin-bottom: 1rem;
-            font-size: 1.5rem;
-        }
-
-        footer {
-            padding: 4rem 0 2rem;
-            text-align: center;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            position: relative;
-        }
-
-        footer h2 {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-        }
-        footer p {
-            max-width: 600px;
-            margin: 0 auto 2.5rem;
-            color: var(--text-secondary);
-        }
-        footer a {
-            text-decoration: none;
-            color: var(--accent-primary);
-            font-weight: 500;
-            position: relative;
-            padding-bottom: 4px;
-        }
+        .note-card h3 { color: var(--accent-primary); font-size: 1.3rem; margin-bottom: 0.5rem;}
+        .note-card p {color: var(--text-secondary);}
         
-        footer a::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 0%;
-            height: 2px;
-            background-color: var(--accent-primary);
-            transition: width 0.3s ease-out;
-        }
-        
-        footer a:hover::after {
-            width: 100%;
-        }
+        footer { padding: 4rem 2rem 3rem; text-align: center; }
 
-        .donate-card {
-            padding: 3rem;
-            border-radius: 20px;
-            text-align: center;
-            margin: 0 auto 4rem;
-            max-width: 700px;
-            border: 1px solid var(--card-border);
-            background: var(--card-bg);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-        
-        .donate-card h3 {
-            font-size: 1.8rem;
-            font-weight: 700;
-            background: linear-gradient(90deg, var(--accent-secondary), var(--accent-primary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
+        .footer-cta { margin: 0 auto 3rem; max-width: 650px;}
 
-        .account-details {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 2rem;
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-top: 2rem;
-            letter-spacing: 1px;
-            flex-wrap: wrap;
-        }
+        footer a { color: var(--accent-primary); font-weight: 500; text-decoration: none;}
+
+        .social-link i { font-size: 1.5rem; transition: transform 0.3s ease; }
+        .social-link:hover i { transform: scale(1.2); color: var(--text-primary); }
 
         [data-hidden] {
             opacity: 0;
-            transform: translateY(30px);
+            transform: translateY(40px);
+            transition: all 0.8s cubic-bezier(0.165, 0.84, 0.44, 1);
         }
 
     </style>
 </head>
 
 <body>
+    <div id="cursor-glow"></div>
     <header class="container hero">
-        <h1 data-animate-hero>ANISUB-CLI</h1>
-        <p data-animate-hero>
+        <h1 data-hidden>ANISUB-CLI</h1>
+        <p data-hidden>
             Trình xem anime vietsub thế hệ mới trực tiếp trên terminal, lấy cảm hứng từ ani-cli, mang lại trải nghiệm nhanh, nhẹ, và mạnh mẽ.
         </p>
-        <div class="hero-buttons">
-            <a href="#install" class="cta-button primary">Cài đặt</a>
-            <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener noreferrer" class="cta-button secondary">GitHub</a>
+        <div class="hero-buttons" data-hidden>
+            <a href="#install" class="cta-button primary">Cài Đặt</a>
+            <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener noreferrer" class="cta-button secondary">Mã Nguồn</a>
         </div>
     </header>
 
     <main>
-        <section id="donate" class="donate">
+        <section id="updates" class="updates">
             <div class="container">
-                <div class="donate-card" data-animate>
-                    <h3>Ủng hộ nhà phát triển</h3>
-                    <div class="account-details">
-                        <span>VCB BANK</span> | <span>1057813771</span> | <span>PHAM VAN HOANG</span>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section id="updates">
-            <div class="container">
-                <h2 class="section-title" data-animate>Cập Nhật Mới Nhất</h2>
+                <h2 class="section-title" data-hidden>Tính Năng Mới Nhất</h2>
                 <div class="grid grid-2-cols update-grid">
-                    <div class="card" data-animate>
-                        <i>📺</i>
+                    <div class="card" data-hidden>
+                        <i class="ri-google-drive-fill"></i>
                         <div>
                             <h3>Google Drive & CSV</h3>
-                            <p>Tích hợp dữ liệu từ Google Drive qua file CSV, mở rộng nguồn anime một cách linh hoạt.</p>
+                            <p>Tích hợp dữ liệu anime linh hoạt từ Google Drive thông qua file CSV.</p>
                         </div>
                     </div>
-                     <div class="card" data-animate>
-                        <i>📖</i>
+                     <div class="card" data-hidden>
+                        <i class="ri-book-read-fill"></i>
                         <div>
                             <h3>Hỗ Trợ Manga-tui</h3>
                             <p>Tích hợp thêm manga-tui, giúp bạn có thể đọc manga yêu thích với đầy đủ hỗ trợ vietsub.</p>
                         </div>
                     </div>
-                    <div class="card" data-animate>
-                        <i>✂️</i>
+                    <div class="card" data-hidden>
+                        <i class="ri-scissors-2-fill"></i>
                         <div>
                             <h3>Công Cụ Video Nâng Cao</h3>
                             <p>Bổ sung tính năng cắt video một hoặc nhiều lần, cung cấp sự linh hoạt tối đa khi xử lý video.</p>
                         </div>
                     </div>
-                    <div class="card" data-animate>
-                        <i>🎞️</i>
+                    <div class="card" data-hidden>
+                        <i class="ri-film-fill"></i>
                         <div>
                             <h3>Ghép Video Đa Năng</h3>
-                            <p>Thêm tiện ích ghép nhiều video với nhau, một công cụ hữu ích cho việc tạo nội dung.</p>
+                            <p>Thêm tiện ích ghép nhiều video với nhau, một công cụ hữu ích cho việc tạo nội dung của riêng bạn.</p>
                         </div>
                     </div>
                 </div>
@@ -452,34 +356,34 @@
 
         <section id="features">
             <div class="container">
-                <h2 class="section-title" data-animate>Tính Năng Nổi Bật</h2>
+                <h2 class="section-title" data-hidden>Đặc Điểm Nổi Bật</h2>
                 <div class="grid grid-2-cols feature-grid">
-                    <div class="card" data-animate>
-                        <i>👀</i>
+                    <div class="card" data-hidden>
+                        <i class="ri-search-eye-line"></i>
                         <div>
                             <h3>Tìm Kiếm Thông Minh</h3>
-                            <p>Tìm kiếm anime nhanh chóng, hiển thị các bộ anime có từ khóa liên quan, giúp bạn không bỏ lỡ phim hay.</p>
+                            <p>Tìm kiếm anime nhanh chóng và chính xác. Không bao giờ bỏ lỡ bộ phim yêu thích của bạn.</p>
                         </div>
                     </div>
-                    <div class="card" data-animate>
-                        <i>🔗</i>
+                    <div class="card" data-hidden>
+                        <i class="ri-download-cloud-2-line"></i>
                         <div>
                             <h3>Tải Về Dễ Dàng</h3>
-                            <p>Tải video yêu thích về máy tính và lưu trữ gọn gàng vào thư mục theo tên của Anime.</p>
+                            <p>Tải video yêu thích về máy tính và lưu trữ gọn gàng vào thư mục riêng theo từng bộ phim.</p>
                         </div>
                     </div>
-                    <div class="card" data-animate>
-                        <i>📺</i>
+                    <div class="card" data-hidden>
+                        <i class="ri-tv-2-line"></i>
                         <div>
                             <h3>Không Chỉ Anime</h3>
-                            <p>Ngoài thế giới anime, bạn cũng có thể khám phá và thưởng thức cả các bộ phim truyền hình hấp dẫn.</p>
+                            <p>Ngoài thế giới anime phong phú, bạn còn có thể khám phá và thưởng thức các bộ phim truyền hình.</p>
                         </div>
                     </div>
-                    <div class="card" data-animate>
-                        <i>↔️</i>
+                    <div class="card" data-hidden>
+                        <i class="ri-skip-forward-line"></i>
                         <div>
                             <h3>Điều Hướng Tiện Lợi</h3>
-                            <p>Dễ dàng chuyển đổi giữa các tập phim với tính năng phát tập trước và tập kế tiếp.</p>
+                            <p>Chuyển đổi liền mạch giữa các tập phim với tính năng phát tập trước và tập kế tiếp.</p>
                         </div>
                     </div>
                 </div>
@@ -487,30 +391,33 @@
         </section>
         
         <div class="container">
-            <div class="note-card" data-animate>
-                <h3>Lưu ý quan trọng</h3>
-                <p>Nguồn phát video mà script đang sử dụng có thể chứa quảng cáo. Các quảng cáo này được nhúng trực tiếp vào file M3U8. Việc cố gắng bỏ qua có thể dẫn đến việc phải xem lại từ đầu.</p>
+            <div class="note-card" data-hidden>
+                <h3>Lưu Ý Quan Trọng</h3>
+                <p>Nguồn phát video mà script đang sử dụng có thể chứa quảng cáo. Các quảng cáo này được nhúng trực tiếp vào file M3U8. Việc cố gắng bỏ qua chúng có thể khiến quá trình xem bị gián đoạn.</p>
             </div>
         </div>
 
         <section id="install">
             <div class="container">
-                <h2 class="section-title" data-animate>Cài Đặt Dễ Dàng</h2>
+                <h2 class="section-title" data-hidden>Hướng Dẫn Cài Đặt</h2>
                 <div class="install-section">
-                    <div data-animate>
-                        <h3>Trên Ubuntu/Debian</h3>
-                        <p>Nếu bạn không install đưọc bằng lệnh dưói thì cài riêng từng package bị lỗi nhé</p>
+                    <div data-hidden>
+                        <h3>Trên Ubuntu / Debian</h3>
                         <div class="code-block">
-<button class="copy-btn">Copy</button>
-<pre><code>sudo apt install ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut</code></pre>
+							<button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+							<pre><code>sudo apt install ffmpeg curl grep yt-dlp fzf pup jq mawk cut
+</code></pre>
                         </div>
+                        <p style="color:var(--text-secondary); margin-top: 1rem;">Lưu ý: Cài đặt riêng từng gói nếu gặp lỗi để dễ dàng gỡ rối.</p>
                     </div>
-                     <div data-animate>
-                        <h3>Trên Arch Linux</h3>
+                     <div data-hidden>
+                        <h3>Trên Arch Linux / Manjaro</h3>
                         <div class="code-block">
-<button class="copy-btn">Copy</button>
-<pre><code>yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut</code></pre>
+							<button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+							<pre><code>yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut
+</code></pre>
                         </div>
+                         <p style="color:var(--text-secondary); margin-top: 1rem;">Bạn có thể sử dụng `paru` hoặc bất kỳ trình trợ giúp AUR nào khác.</p>
                     </div>
                 </div>
             </div>
@@ -518,89 +425,86 @@
 
         <section id="run" class="run-section-wrapper">
              <div class="container">
-                 <h2 class="section-title" data-animate>Khởi chạy & Sử dụng</h2>
+                 <h2 class="section-title" data-hidden>Bắt Đầu Sử Dụng</h2>
                 <div class="run-section">
-                    <div data-animate>
-                         <h3>Cấp quyền & Chạy Script</h3>
+                    <div data-hidden>
+                         <h3>Cấp Quyền & Khởi Chạy</h3>
                         <div class="code-block">
-                            <button class="copy-btn">Copy</button>
-<pre><code># Cấp quyền thực thi cho file
-chmod +x anisub.sh
+							<button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+<pre><code>chmod +x anisub.sh
 
-# Chạy file trực tiếp
 ./anisub.sh</code></pre>
                         </div>
                     </div>
-                    <div class="run-alias" data-animate>
-                        <h3>Tạo Alias (Lối tắt)</h3>
-                        <p>Để tiện lợi hơn, hãy tạo một lối tắt trong file `.bashrc` hoặc `.zshrc` của bạn. Dòng lệnh này giúp bạn chạy script chỉ bằng một từ khóa ngắn gọn.</p>
+                    <div data-hidden>
+                        <h3>Tạo Lệnh Tắt Tiện Lợi (Alias)</h3>
+                        <p>Thêm dòng sau vào file `.bashrc` hoặc `.zshrc` của bạn để có thể gọi script ở bất kỳ đâu chỉ bằng lệnh `anisub`.</p>
                         <div class="code-block">
-                             <button class="copy-btn">Copy</button>
-<pre><code># Thay thế đường dẫn tới file anisub.sh
-alias anisub='bash $HOME/path/to/anisub.sh'
-</code></pre>
+							<button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+<pre><code>echo "alias anisub='bash /path/to/your/anisub.sh'" >> ~/.bashrc
+
+source ~/.bashrc</code></pre>
                         </div>
-                        <p>Sau khi thêm, khởi động lại terminal và gõ `anisub` để bắt đầu. Chúc bạn thành công!</p>
+                         <p style="color:var(--text-secondary); margin-top: 1rem;">Nhớ thay thế `/path/to/your/anisub.sh` bằng đường dẫn chính xác nhé!</p>
                     </div>
                 </div>
              </div>
         </section>
-
     </main>
-
-    <footer>
+    <footer data-hidden>
         <div class="container">
-            <h2>Hãy Giúp Dự Án Phát Triển</h2>
-            <p>Nếu bạn thấy ANISUB-CLI thú vị và hữu ích, đừng quên tặng một ngôi sao trên GitHub và liên hệ với chúng tôi qua Facebook nếu có bất kỳ vấn đề nào. Sự ủng hộ của bạn là động lực to lớn!</p>
-            <a href="https://www.facebook.com/niyakipham/" target="_blank" rel="noopener noreferrer">Liên hệ qua Facebook</a>
+            <div class="footer-cta">
+                 <h2>Giúp Dự Án Phát Triển</h2>
+                 <p>Sự ủng hộ của bạn, dù chỉ là một ngôi sao trên GitHub, cũng là động lực vô giá để dự án tiếp tục phát triển và trở nên tốt hơn. Cảm ơn bạn!</p>
+            </div>
+             <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener noreferrer" class="cta-button secondary"><i class="ri-github-fill"></i> Tặng sao trên GitHub</a>
         </div>
     </footer>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            gsap.registerPlugin(ScrollTrigger);
 
-            const heroElements = document.querySelectorAll('[data-animate-hero]');
-            gsap.from(heroElements, {
-                opacity: 0,
-                y: 50,
-                duration: 1.2,
-                ease: 'power4.out',
-                stagger: 0.2,
-                delay: 0.3
-            });
+            const cursorGlow = document.getElementById('cursor-glow');
+            if (window.matchMedia("(min-width: 768px)").matches) {
+                 window.addEventListener('mousemove', e => {
+                    cursorGlow.style.left = e.clientX + 'px';
+                    cursorGlow.style.top = e.clientY + 'px';
+                });
+            } else {
+                 cursorGlow.style.display = 'none';
+            }
 
-            const animatedElements = document.querySelectorAll('[data-animate]');
-            animatedElements.forEach((el, i) => {
-                gsap.fromTo(el, { 
-                    autoAlpha: 0, 
-                    y: 40 
-                }, {
-                    autoAlpha: 1,
-                    y: 0,
-                    duration: 1,
-                    ease: 'expo.out',
-                    scrollTrigger: {
-                        trigger: el,
-                        start: 'top 85%',
-                        toggleActions: 'play none none none',
+
+            const observerOptions = {
+                root: null,
+                rootMargin: '0px',
+                threshold: 0.1
+            };
+
+            const observerCallback = (entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.removeAttribute('data-hidden');
+                        observer.unobserve(entry.target);
                     }
                 });
-            });
+            };
+
+            const observer = new IntersectionObserver(observerCallback, observerOptions);
+            const animatedElements = document.querySelectorAll('[data-hidden]');
+            animatedElements.forEach(el => observer.observe(el));
 
             document.querySelectorAll('button.copy-btn').forEach(button => {
                 button.addEventListener('click', () => {
                     const pre = button.nextElementSibling;
                     const code = pre.querySelector('code');
                     navigator.clipboard.writeText(code.innerText).then(() => {
-                        button.textContent = 'Copied!';
+                        const originalText = button.innerHTML;
+                        button.innerHTML = '<i class="ri-check-line"></i> Copied!';
                         setTimeout(() => {
-                            button.textContent = 'Copy';
+                           button.innerHTML = originalText;
                         }, 2000);
                     }).catch(err => {
-                        console.error('Lỗi khi sao chép: ', err);
+                        console.error('Lỗi khi sao chép:', err);
                     });
                 });
             });
