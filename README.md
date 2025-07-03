@@ -14,10 +14,8 @@
 <br>
 
 ## Hi Everyone 👋
-### We are ANISUB-CLI
-> ANISUB-CLI là trình xem anime vietsub trên terminal được lấy cảm hứng từ ani-cli <br>
-> DONNATE: 1057813771 | PHAM VAN HOANG <br>
-> NAME CARD: VCB BANK <br>
+### DONATE
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://buymeacoffee.com/niyakiphamn)
 <br>
 
 ## UPDATE
