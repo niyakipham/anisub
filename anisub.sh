@@ -178,7 +178,7 @@ play_anime() {
         local anime_list
 
         anime_list=$(
-            curl -s "https://ophim17.cc/tim-kiem?keyword=$keyword" |
+            curl -s "https://kkphim.com/tim-kiem?keyword=$keyword" |
             pup '.ml-4 > a attr{href}' |
             awk '{print "https://ophim17.cc" $0}' |
             while IFS= read -r link; do
