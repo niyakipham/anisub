@@ -9,7 +9,7 @@ SCRIPT_URL="https://raw.githubusercontent.com/NiyakiPham/anisub/main/anisub.sh"
 
 # Detect script location to find the local CSV file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
+LOCAL_DATA_FILE="$SCRIPT_DIR/aniw_export_2026-01-14.csv"
 
 # --- DEFAULTS ---
 DEFAULT_PLAYER="mpv"
