@@ -292,7 +292,7 @@ play_anime() {
                     [ $? -eq 0 ] && play_video "$sel"
                 fi
                 ;;
-            "Xem từ file (AniW data)")
+            "Xem từ file (Anidata Local)")
                 play_anidata_local
                 ;;
             "Lịch sử xem") show_history ;;
