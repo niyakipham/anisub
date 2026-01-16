@@ -46,7 +46,6 @@ save_config() {
 
 check_dependencies() {
     local missing_deps=()
-    # Removed 'pup' as we moved to JSON API
     local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "jq" "awk" "sed")
     echo "Kiểm tra các phụ thuộc hệ thống..."
     for dep in "${deps[@]}"; do
@@ -77,7 +76,6 @@ show_history() {
         sleep 2
         return
     fi
-    # Use tac to show newest first
     selected_history=$(tac "$HISTORY_FILE" | fzf --prompt="Lịch sử xem (Enter để xem lại): " --delimiter='|' --with-nth=1,2,3)
     if [ -n "$selected_history" ]; then
         local link=$(echo "$selected_history" | cut -d'|' -f4)
@@ -107,7 +105,6 @@ show_favorites() {
         sleep 2
         return 1
     fi
-    # Returns format: Name|Slug
     selected_favorite=$(fzf --prompt="Anime yêu thích: " --delimiter='|' --with-nth=1 < "$FAVORITES_FILE")
     if [ -n "$selected_favorite" ]; then
         echo "$selected_favorite" 
@@ -117,11 +114,9 @@ show_favorites() {
     fi
 }
 
-# --- KKPHIM API FUNCTIONS (Replacing OPhim HTML parsing) ---
-
+# --- KKPHIM API FUNCTIONS ---
 api_search_kkphim() {
     local keyword="$1"
-    # Simple URL encoding for keyword
     keyword=$(echo "$keyword" | sed 's/ /%20/g')
     
     local api_url="https://phimapi.com/v1/api/tim-kiem?keyword=$keyword&limit=20"
@@ -132,7 +127,6 @@ api_search_kkphim() {
         return 1
     fi
 
-    # Output: "Name (Year)|Slug"
     echo "$json" | jq -r '.data.items[] | "\(.name) (\(.year))|\(.slug)"'
 }
 
@@ -146,8 +140,6 @@ api_get_episodes_kkphim() {
         return 1
     fi
     
-    # Extract: "TapName|Link"
-    # Taking only from the first server available to avoid duplicates
     echo "$json" | jq -r '.episodes[0].server_data[] | "\(.name)|\(.link_m3u8)"'
 }
 
@@ -155,24 +147,20 @@ play_stream() {
     local url="$1"
     local title="$2"
     
-    # Launch player in background and detached, suppress output
     "$PLAYER" "$url" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window --title="Anisub: $title" &
     PLAYER_PID=$!
 }
 
 # --- MEDIA PROCESSING FUNCTIONS ---
-# Function to download current stream
 download_video() {
     local url="$1"
     local filename="$2"
-    local folder="$DOWNLOAD_DIR/$(echo "$filename" | awk -F' - ' '{print $1}')" # Create folder based on anime name
+    local folder="$DOWNLOAD_DIR/$(echo "$filename" | awk -F' - ' '{print $1}')"
     
     mkdir -p "$folder"
-    # Sanitize filename
     safe_name=$(echo "$filename" | sed 's/[^a-zA-Z0-9 .-]/_/g')
     
     echo "Đang tải xuống: $safe_name..."
-    # yt-dlp is better for streams, ffmpeg as fallback
     if command -v yt-dlp &> /dev/null; then
         yt-dlp "$url" -o "$folder/$safe_name.mp4"
     else
@@ -182,23 +170,26 @@ download_video() {
     sleep 2
 }
 
-# Function to cut video segments using ffmpeg
 cut_video_logic() {
     local input_url="$1"
     local mode="$2"
     local dest_dir="$DOWNLOAD_DIR/cut"
     mkdir -p "$dest_dir"
 
-    echo "=== CHẾ ĐỘ CẮT VIDEO ==="
-    echo "Lưu ý: Xem timestamp (thời gian) trên trình phát đang mở."
+    echo "=== CHẾ ĐỘ CẮT VIDEO (Đã sửa lỗi màn hình đen) ==="
+    echo "Lưu ý: Nhập chính xác thời gian trên trình phát đang xem."
     
     if [ "$mode" == "single" ]; then
         read -r -p "Nhập thời gian bắt đầu (VD: 00:10:30): " start_time
         read -r -p "Nhập thời gian kết thúc (VD: 00:11:00): " end_time
         output_name="cut_$(date +%s).mp4"
         
-        echo "Đang xử lý..."
-        ffmpeg -i "$input_url" -ss "$start_time" -to "$end_time" -c copy "$dest_dir/$output_name" -hide_banner -loglevel error
+        echo "Đang xử lý (Re-encoding để sửa lỗi hình ảnh)..."
+        # Đã thay đổi -c copy thành re-encode libx264 để đảm bảo có hình ảnh
+        ffmpeg -i "$input_url" -ss "$start_time" -to "$end_time" \
+            -c:v libx264 -preset fast -crf 23 -c:a aac \
+            "$dest_dir/$output_name" -hide_banner -loglevel error
+        
         echo "Xong! File lưu tại: $dest_dir/$output_name"
     
     elif [ "$mode" == "multi" ]; then
@@ -208,7 +199,12 @@ cut_video_logic() {
             read -r -p "Bắt đầu (HH:MM:SS): " start_t
             read -r -p "Kết thúc (HH:MM:SS): " end_t
             output_name="cut_${i}_$(date +%s).mp4"
-            ffmpeg -i "$input_url" -ss "$start_t" -to "$end_t" -c copy "$dest_dir/$output_name" -hide_banner -loglevel error
+            
+            echo "Đang xử lý đoạn $i..."
+            ffmpeg -i "$input_url" -ss "$start_t" -to "$end_t" \
+                -c:v libx264 -preset fast -crf 23 -c:a aac \
+                "$dest_dir/$output_name" -hide_banner -loglevel error
+                
             echo "Đã lưu đoạn $i: $output_name"
         done
         echo "Hoàn tất cắt nhiều đoạn."
@@ -216,7 +212,6 @@ cut_video_logic() {
     sleep 3
 }
 
-# Function to merge/graft videos
 merge_video_logic() {
     local cut_dir="$DOWNLOAD_DIR/cut"
     local merge_dir="$DOWNLOAD_DIR/merged"
@@ -228,7 +223,6 @@ merge_video_logic() {
         return
     fi
 
-    # Use fzf multi-select
     echo "Chọn các video để ghép (Sử dụng TAB để chọn nhiều file, ENTER để xác nhận):"
     cd "$cut_dir" || return
     selected_files=$(find . -maxdepth 1 -name "*.mp4" | sed 's|^\./||' | fzf -m --prompt="Chọn file để ghép > ")
@@ -237,12 +231,10 @@ merge_video_logic() {
         return
     fi
 
-    # Create list file for ffmpeg concat
     list_txt="$cut_dir/merge_list.txt"
     > "$list_txt"
     
     echo "File đã chọn:"
-    # Fix spaces in filenames for the list
     while IFS= read -r file; do
         echo "file '$file'" >> "$list_txt"
         echo " - $file"
@@ -250,6 +242,7 @@ merge_video_logic() {
     
     output_name="merged_$(date +%s).mp4"
     echo "Đang ghép video..."
+    # Dùng re-encode cho an toàn khi ghép các file đã cắt
     ffmpeg -f concat -safe 0 -i "$list_txt" -c copy "$merge_dir/$output_name" -hide_banner -loglevel error
     
     rm "$list_txt"
@@ -262,27 +255,19 @@ manage_currently_playing() {
     local name="$1"
     local current_ep_name="$2"
     local link="$3"
-    local episode_list_raw="$4" # Should carry list for prev/next
+    local episode_list_raw="$4"
     local anime_slug="$5"
     
-    # Store playing PID to manage it
     play_stream "$link" "$name - Tập $current_ep_name"
     
     while kill -0 "$PLAYER_PID" 2>/dev/null; do
-        # Build menu header
         header="Đang phát: $name - Tập $current_ep_name"
         
-        # Menu options
         action=$(echo -e "⏭ Tiếp theo\n⏮ Trước đó\n📜 Chọn tập khác\n⬇ Tải tập này\n✂ Cắt Video (1 lần)\n✂✂ Cắt Video (Nhiều lần)\n🧬 Ghép Video (Grafting)\n❤️ Thêm vào Yêu Thích\n🔙 Quay lại Menu Chính" | fzf --prompt="$header > " --header="[Player đang chạy dưới nền. Chọn tác vụ mà không cần tắt player]")
         
         case "$action" in
             "⏭ Tiếp theo")
-                # Simple logic to find next line in raw list. 
-                # Assumes list is ordered. Needs sophisticated parsing or simpler logic.
-                # For KKPhim, ep list usually sorted 1..N.
                 kill "$PLAYER_PID" 2>/dev/null
-                # Here we just re-open selection list to simulate 'Next' manually for reliability
-                # Or calculate index. Let's redirect to Select Episode for stability in this snippet version.
                 new_selection=$(echo "$episode_list_raw" | fzf --prompt="Chọn tập tiếp theo: " --delimiter='|' --with-nth=1)
                 if [ -n "$new_selection" ]; then
                      current_ep_name=$(echo "$new_selection" | cut -d'|' -f1)
@@ -292,7 +277,6 @@ manage_currently_playing() {
                 fi
                 ;;
             "⏮ Trước đó"|"📜 Chọn tập khác")
-                # Stop current
                 kill "$PLAYER_PID" 2>/dev/null
                 new_selection=$(echo "$episode_list_raw" | fzf --prompt="Chọn tập: " --delimiter='|' --with-nth=1)
                  if [ -n "$new_selection" ]; then
@@ -303,7 +287,6 @@ manage_currently_playing() {
                  fi
                 ;;
             "⬇ Tải tập này")
-                 # Run in background to let watching continue
                  download_video "$link" "$name - Tap $current_ep_name" &
                  ;;
             "✂ Cắt Video (1 lần)")
@@ -323,8 +306,6 @@ manage_currently_playing() {
                  return 0
                  ;;
              *)
-                 # If User presses ESC, keep player running but return to loop or main menu? 
-                 # Best to kill to ensure clean exit state.
                  kill "$PLAYER_PID" 2>/dev/null
                  return 0
                  ;;
@@ -333,7 +314,7 @@ manage_currently_playing() {
 }
 
 
-# --- LOCAL FILE HANDLER (UPDATED) ---
+# --- LOCAL FILE HANDLER ---
 play_anidata_local() {
     echo "Đang kiểm tra dữ liệu Anidata tại: $LOCAL_DATA_FILE"
     
@@ -351,17 +332,14 @@ play_anidata_local() {
         echo "Đã tải dữ liệu mới."
     fi
 
-    # 1st col: Name
     local anime_list=$(sed '1d;s/"//g' "$LOCAL_DATA_FILE" | awk -F',' '{print $1}' | sort -u)
     
     local selected_anime=$(echo "$anime_list" | fzf --prompt="[Local] Chọn Anime: ")
     if [ -z "$selected_anime" ]; then return; fi
 
-    # Filter EPs for selected Anime. Col 2 is EP Name, Col 4 is Link
     local episodes=$(grep "^\"${selected_anime}\"," "$LOCAL_DATA_FILE" | sed 's/"//g' | awk -F',' '{print "Tập " $2 "|" $4}')
     
     if [ -z "$episodes" ]; then
-         # Fallback search if grep needs slack
          episodes=$(grep "^${selected_anime}," "$LOCAL_DATA_FILE" | sed 's/"//g' | awk -F',' '{print "Tập " $2 "|" $4}')
     fi
 
@@ -372,8 +350,6 @@ play_anidata_local() {
          local link=$(echo "$selected_line" | cut -d'|' -f2 | tr -d '[:space:]')
          
          add_to_history "$selected_anime (Local)" "$ep_name" "$link"
-         
-         # Reuse the manage function, pass slug as empty since local
          manage_currently_playing "$selected_anime" "$ep_name" "$link" "$episodes" "local_file"
     fi
 }
@@ -417,7 +393,6 @@ update_script() {
 
 # --- MAIN LOGIC ---
 main() {
-    # Cleanup on exit
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
 
     check_dependencies
@@ -448,8 +423,6 @@ main() {
                              ename=$(echo "$sel_ep" | cut -d'|' -f1)
                              elink=$(echo "$sel_ep" | cut -d'|' -f2)
                              add_to_history "$name" "$ename" "$elink"
-                             
-                             # Enter Player Controller
                              manage_currently_playing "$name" "$ename" "$elink" "$eps" "$slug"
                         fi
                     fi
