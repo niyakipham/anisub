@@ -7,7 +7,7 @@ HISTORY_FILE="$CONFIG_DIR/history.log"
 FAVORITES_FILE="$CONFIG_DIR/favorites.txt"
 SCRIPT_URL="https://raw.githubusercontent.com/NiyakiPham/anisub/main/anisub.sh"
 
-# Detect script location to find the local CSV file
+# Local Data File
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 
@@ -32,6 +32,8 @@ load_config() {
     PLAYER=${PLAYER:-$DEFAULT_PLAYER}
     DOWNLOAD_DIR=${DOWNLOAD_DIR:-$DEFAULT_DOWNLOAD_DIR}
     mkdir -p "$DOWNLOAD_DIR"
+    mkdir -p "$DOWNLOAD_DIR/cut" # Folder for video cuts
+    mkdir -p "$DOWNLOAD_DIR/merged" # Folder for merged videos
     touch "$HISTORY_FILE" "$FAVORITES_FILE"
 }
 
@@ -44,8 +46,9 @@ save_config() {
 
 check_dependencies() {
     local missing_deps=()
-    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "pup" "jq" "awk" "cut" "sed")
-    echo "Kiểm tra các phụ thuộc..."
+    # Removed 'pup' as we moved to JSON API
+    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "jq" "awk" "sed")
+    echo "Kiểm tra các phụ thuộc hệ thống..."
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
             missing_deps+=("$dep")
@@ -54,7 +57,7 @@ check_dependencies() {
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
         echo "LỖI: Thiếu các phụ thuộc sau: ${missing_deps[*]}"
-        echo "Vui lòng cài đặt chúng."
+        echo "Vui lòng cài đặt chúng trước khi sử dụng."
         exit 1
     fi
 }
@@ -74,25 +77,26 @@ show_history() {
         sleep 2
         return
     fi
-    selected_history=$(tac "$HISTORY_FILE" | fzf --prompt="Lịch sử xem: " --delimiter='|' --with-nth=1,2,3)
+    # Use tac to show newest first
+    selected_history=$(tac "$HISTORY_FILE" | fzf --prompt="Lịch sử xem (Enter để xem lại): " --delimiter='|' --with-nth=1,2,3)
     if [ -n "$selected_history" ]; then
         local link=$(echo "$selected_history" | cut -d'|' -f4)
         local anime_name=$(echo "$selected_history" | cut -d'|' -f2)
         local episode_number=$(echo "$selected_history" | cut -d'|' -f3)
         echo "Đang phát lại: $anime_name - Tập $episode_number..."
-        "$PLAYER" "$link" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window
+        play_stream "$link" "$anime_name - $episode_number"
     fi
 }
 
 # --- FAVORITES FUNCTIONS ---
 add_to_favorites() {
-    local anime_name="$1"
-    local anime_url="$2"
-    if grep -q "|$anime_url\$" "$FAVORITES_FILE"; then
-        echo "'$anime_name' đã có trong danh sách yêu thích."
+    local name="$1"
+    local slug="$2"
+    if grep -q "|$slug\$" "$FAVORITES_FILE"; then
+        echo "'$name' đã có trong danh sách yêu thích."
     else
-        echo "$anime_name|$anime_url" >> "$FAVORITES_FILE"
-        echo "'$anime_name' đã thêm vào danh sách yêu thích."
+        echo "$name|$slug" >> "$FAVORITES_FILE"
+        echo "Đã thêm '$name' vào danh sách yêu thích."
     fi
     sleep 2
 }
@@ -103,214 +107,385 @@ show_favorites() {
         sleep 2
         return 1
     fi
-    selected_favorite=$(fzf --prompt="Chọn anime yêu thích: " < "$FAVORITES_FILE")
+    # Returns format: Name|Slug
+    selected_favorite=$(fzf --prompt="Anime yêu thích: " --delimiter='|' --with-nth=1 < "$FAVORITES_FILE")
     if [ -n "$selected_favorite" ]; then
-        echo "$selected_favorite" | cut -d'|' -f2
+        echo "$selected_favorite" 
         return 0
     else
         return 1
     fi
 }
 
-# --- SETTINGS & UPDATE ---
-show_settings() {
-    while true; do
-        setting_option=$(echo -e "Trình phát hiện tại: $PLAYER\nThư mục tải xuống: $DOWNLOAD_DIR\nĐặt lại trình phát\nĐặt lại thư mục tải xuống\nQuay lại" | fzf --prompt="Cài đặt: ")
-        case "$setting_option" in
-            "Đặt lại trình phát")
-                read -r -p "Nhập trình phát mới: " new_player
-                if command -v "$new_player" &> /dev/null; then
-                    PLAYER="$new_player"
-                    save_config
-                else
-                    echo "Lỗi: Trình phát không tồn tại."
-                    sleep 2
+# --- KKPHIM API FUNCTIONS (Replacing OPhim HTML parsing) ---
+
+api_search_kkphim() {
+    local keyword="$1"
+    # Simple URL encoding for keyword
+    keyword=$(echo "$keyword" | sed 's/ /%20/g')
+    
+    local api_url="https://phimapi.com/v1/api/tim-kiem?keyword=$keyword&limit=20"
+    local json=$(curl -s "$api_url")
+    
+    local status=$(echo "$json" | jq -r '.status')
+    if [ "$status" != "success" ]; then
+        return 1
+    fi
+
+    # Output: "Name (Year)|Slug"
+    echo "$json" | jq -r '.data.items[] | "\(.name) (\(.year))|\(.slug)"'
+}
+
+api_get_episodes_kkphim() {
+    local slug="$1"
+    local api_url="https://phimapi.com/phim/$slug"
+    local json=$(curl -s "$api_url")
+    
+    local status=$(echo "$json" | jq -r '.status')
+    if [ "$status" = "false" ]; then 
+        return 1
+    fi
+    
+    # Extract: "TapName|Link"
+    # Taking only from the first server available to avoid duplicates
+    echo "$json" | jq -r '.episodes[0].server_data[] | "\(.name)|\(.link_m3u8)"'
+}
+
+play_stream() {
+    local url="$1"
+    local title="$2"
+    
+    # Launch player in background and detached, suppress output
+    "$PLAYER" "$url" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window --title="Anisub: $title" &
+    PLAYER_PID=$!
+}
+
+# --- MEDIA PROCESSING FUNCTIONS ---
+# Function to download current stream
+download_video() {
+    local url="$1"
+    local filename="$2"
+    local folder="$DOWNLOAD_DIR/$(echo "$filename" | awk -F' - ' '{print $1}')" # Create folder based on anime name
+    
+    mkdir -p "$folder"
+    # Sanitize filename
+    safe_name=$(echo "$filename" | sed 's/[^a-zA-Z0-9 .-]/_/g')
+    
+    echo "Đang tải xuống: $safe_name..."
+    # yt-dlp is better for streams, ffmpeg as fallback
+    if command -v yt-dlp &> /dev/null; then
+        yt-dlp "$url" -o "$folder/$safe_name.mp4"
+    else
+        ffmpeg -i "$url" -c copy -bsf:a aac_adtstoasc "$folder/$safe_name.mp4"
+    fi
+    echo "Đã tải xong: $folder/$safe_name.mp4"
+    sleep 2
+}
+
+# Function to cut video segments using ffmpeg
+cut_video_logic() {
+    local input_url="$1"
+    local mode="$2"
+    local dest_dir="$DOWNLOAD_DIR/cut"
+    mkdir -p "$dest_dir"
+
+    echo "=== CHẾ ĐỘ CẮT VIDEO ==="
+    echo "Lưu ý: Xem timestamp (thời gian) trên trình phát đang mở."
+    
+    if [ "$mode" == "single" ]; then
+        read -r -p "Nhập thời gian bắt đầu (VD: 00:10:30): " start_time
+        read -r -p "Nhập thời gian kết thúc (VD: 00:11:00): " end_time
+        output_name="cut_$(date +%s).mp4"
+        
+        echo "Đang xử lý..."
+        ffmpeg -i "$input_url" -ss "$start_time" -to "$end_time" -c copy "$dest_dir/$output_name" -hide_banner -loglevel error
+        echo "Xong! File lưu tại: $dest_dir/$output_name"
+    
+    elif [ "$mode" == "multi" ]; then
+        read -r -p "Số lượng đoạn cần cắt: " count
+        for ((i=1; i<=count; i++)); do
+            echo "--- Đoạn $i ---"
+            read -r -p "Bắt đầu (HH:MM:SS): " start_t
+            read -r -p "Kết thúc (HH:MM:SS): " end_t
+            output_name="cut_${i}_$(date +%s).mp4"
+            ffmpeg -i "$input_url" -ss "$start_t" -to "$end_t" -c copy "$dest_dir/$output_name" -hide_banner -loglevel error
+            echo "Đã lưu đoạn $i: $output_name"
+        done
+        echo "Hoàn tất cắt nhiều đoạn."
+    fi
+    sleep 3
+}
+
+# Function to merge/graft videos
+merge_video_logic() {
+    local cut_dir="$DOWNLOAD_DIR/cut"
+    local merge_dir="$DOWNLOAD_DIR/merged"
+    mkdir -p "$merge_dir"
+    
+    if [ -z "$(ls -A "$cut_dir")" ]; then
+        echo "Thư mục '$cut_dir' trống. Hãy cắt video trước."
+        sleep 2
+        return
+    fi
+
+    # Use fzf multi-select
+    echo "Chọn các video để ghép (Sử dụng TAB để chọn nhiều file, ENTER để xác nhận):"
+    cd "$cut_dir" || return
+    selected_files=$(find . -maxdepth 1 -name "*.mp4" | sed 's|^\./||' | fzf -m --prompt="Chọn file để ghép > ")
+    
+    if [ -z "$selected_files" ]; then
+        return
+    fi
+
+    # Create list file for ffmpeg concat
+    list_txt="$cut_dir/merge_list.txt"
+    > "$list_txt"
+    
+    echo "File đã chọn:"
+    # Fix spaces in filenames for the list
+    while IFS= read -r file; do
+        echo "file '$file'" >> "$list_txt"
+        echo " - $file"
+    done <<< "$selected_files"
+    
+    output_name="merged_$(date +%s).mp4"
+    echo "Đang ghép video..."
+    ffmpeg -f concat -safe 0 -i "$list_txt" -c copy "$merge_dir/$output_name" -hide_banner -loglevel error
+    
+    rm "$list_txt"
+    echo "Xong! Video ghép lưu tại: $merge_dir/$output_name"
+    sleep 3
+}
+
+# --- CONTROL PLAYER MENU ---
+manage_currently_playing() {
+    local name="$1"
+    local current_ep_name="$2"
+    local link="$3"
+    local episode_list_raw="$4" # Should carry list for prev/next
+    local anime_slug="$5"
+    
+    # Store playing PID to manage it
+    play_stream "$link" "$name - Tập $current_ep_name"
+    
+    while kill -0 "$PLAYER_PID" 2>/dev/null; do
+        # Build menu header
+        header="Đang phát: $name - Tập $current_ep_name"
+        
+        # Menu options
+        action=$(echo -e "⏭ Tiếp theo\n⏮ Trước đó\n📜 Chọn tập khác\n⬇ Tải tập này\n✂ Cắt Video (1 lần)\n✂✂ Cắt Video (Nhiều lần)\n🧬 Ghép Video (Grafting)\n❤️ Thêm vào Yêu Thích\n🔙 Quay lại Menu Chính" | fzf --prompt="$header > " --header="[Player đang chạy dưới nền. Chọn tác vụ mà không cần tắt player]")
+        
+        case "$action" in
+            "⏭ Tiếp theo")
+                # Simple logic to find next line in raw list. 
+                # Assumes list is ordered. Needs sophisticated parsing or simpler logic.
+                # For KKPhim, ep list usually sorted 1..N.
+                kill "$PLAYER_PID" 2>/dev/null
+                # Here we just re-open selection list to simulate 'Next' manually for reliability
+                # Or calculate index. Let's redirect to Select Episode for stability in this snippet version.
+                new_selection=$(echo "$episode_list_raw" | fzf --prompt="Chọn tập tiếp theo: " --delimiter='|' --with-nth=1)
+                if [ -n "$new_selection" ]; then
+                     current_ep_name=$(echo "$new_selection" | cut -d'|' -f1)
+                     link=$(echo "$new_selection" | cut -d'|' -f2)
+                     add_to_history "$name" "$current_ep_name" "$link"
+                     play_stream "$link" "$name - Tập $current_ep_name"
                 fi
                 ;;
-            "Đặt lại thư mục tải xuống")
-                read -r -p "Nhập thư mục mới: " new_dir
-                DOWNLOAD_DIR="$new_dir"
-                mkdir -p "$DOWNLOAD_DIR"
-                save_config
+            "⏮ Trước đó"|"📜 Chọn tập khác")
+                # Stop current
+                kill "$PLAYER_PID" 2>/dev/null
+                new_selection=$(echo "$episode_list_raw" | fzf --prompt="Chọn tập: " --delimiter='|' --with-nth=1)
+                 if [ -n "$new_selection" ]; then
+                     current_ep_name=$(echo "$new_selection" | cut -d'|' -f1)
+                     link=$(echo "$new_selection" | cut -d'|' -f2)
+                     add_to_history "$name" "$current_ep_name" "$link"
+                     play_stream "$link" "$name - Tập $current_ep_name"
+                 fi
                 ;;
-            "Quay lại") break ;;
-            *) ;;
+            "⬇ Tải tập này")
+                 # Run in background to let watching continue
+                 download_video "$link" "$name - Tap $current_ep_name" &
+                 ;;
+            "✂ Cắt Video (1 lần)")
+                 cut_video_logic "$link" "single"
+                 ;;
+            "✂✂ Cắt Video (Nhiều lần)")
+                 cut_video_logic "$link" "multi"
+                 ;;
+            "🧬 Ghép Video (Grafting)")
+                 merge_video_logic
+                 ;;
+            "❤️ Thêm vào Yêu Thích")
+                 add_to_favorites "$name" "$anime_slug"
+                 ;;
+            "🔙 Quay lại Menu Chính")
+                 kill "$PLAYER_PID" 2>/dev/null
+                 return 0
+                 ;;
+             *)
+                 # If User presses ESC, keep player running but return to loop or main menu? 
+                 # Best to kill to ensure clean exit state.
+                 kill "$PLAYER_PID" 2>/dev/null
+                 return 0
+                 ;;
+        esac
+    done
+}
+
+
+# --- LOCAL FILE HANDLER (UPDATED) ---
+play_anidata_local() {
+    echo "Đang kiểm tra dữ liệu Anidata tại: $LOCAL_DATA_FILE"
+    
+    if [ ! -f "$LOCAL_DATA_FILE" ]; then
+        echo "Không tìm thấy file: $LOCAL_DATA_FILE"
+        echo "Đang thử tải về bản mới nhất..."
+        local data_url="https://raw.githubusercontent.com/niyakipham/anisub/refs/heads/main/assets/aniw_export_2026-01-14.csv"
+        mkdir -p "$SCRIPT_DIR/assets"
+        curl -L "$data_url" -o "$LOCAL_DATA_FILE"
+        if [ ! -f "$LOCAL_DATA_FILE" ]; then
+            echo "Lỗi: Không thể tải hoặc tìm thấy file dữ liệu."
+            sleep 2
+            return
+        fi
+        echo "Đã tải dữ liệu mới."
+    fi
+
+    # 1st col: Name
+    local anime_list=$(sed '1d;s/"//g' "$LOCAL_DATA_FILE" | awk -F',' '{print $1}' | sort -u)
+    
+    local selected_anime=$(echo "$anime_list" | fzf --prompt="[Local] Chọn Anime: ")
+    if [ -z "$selected_anime" ]; then return; fi
+
+    # Filter EPs for selected Anime. Col 2 is EP Name, Col 4 is Link
+    local episodes=$(grep "^\"${selected_anime}\"," "$LOCAL_DATA_FILE" | sed 's/"//g' | awk -F',' '{print "Tập " $2 "|" $4}')
+    
+    if [ -z "$episodes" ]; then
+         # Fallback search if grep needs slack
+         episodes=$(grep "^${selected_anime}," "$LOCAL_DATA_FILE" | sed 's/"//g' | awk -F',' '{print "Tập " $2 "|" $4}')
+    fi
+
+    local selected_line=$(echo "$episodes" | fzf --prompt="Chọn tập: " --delimiter='|' --with-nth=1)
+    
+    if [ -n "$selected_line" ]; then
+         local ep_name=$(echo "$selected_line" | cut -d'|' -f1)
+         local link=$(echo "$selected_line" | cut -d'|' -f2 | tr -d '[:space:]')
+         
+         add_to_history "$selected_anime (Local)" "$ep_name" "$link"
+         
+         # Reuse the manage function, pass slug as empty since local
+         manage_currently_playing "$selected_anime" "$ep_name" "$link" "$episodes" "local_file"
+    fi
+}
+
+# --- SETTINGS MENU ---
+show_settings() {
+    while true; do
+        opt=$(echo -e "Đổi trình phát (Hiện tại: $PLAYER)\nĐổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\nQuay lại" | fzf --prompt="Cài đặt > ")
+        case "$opt" in
+            "Đổi trình phát"*)
+                read -r -p "Nhập tên lệnh trình phát mới (ví dụ vlc): " inp
+                if command -v "$inp" &> /dev/null; then PLAYER="$inp"; save_config; fi
+                ;;
+            "Đổi thư mục tải"*)
+                read -r -p "Nhập đường dẫn tuyệt đối: " inp
+                DOWNLOAD_DIR="$inp"; mkdir -p "$inp"; save_config
+                ;;
+            *) break ;;
         esac
     done
 }
 
 update_script() {
-    echo "Đang kiểm tra cập nhật..."
-    local latest_script=$(curl -s "$SCRIPT_URL")
-    if [ -z "$latest_script" ]; then
-        echo "Lỗi kết nối mạng."
-        sleep 2
-        return
-    fi
-    if ! diff -q "$0" <(echo "$latest_script") >/dev/null; then
-        read -r -p "Có phiên bản mới. Cập nhật? (y/n) " confirm
-        if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            echo "$latest_script" > "$0"
-            echo "Đã cập nhật. Vui lòng chạy lại."
-            exit 0
-        fi
+    local remote=$(curl -s "$SCRIPT_URL")
+    if [ -n "$remote" ]; then
+         if ! diff -q "$0" <(echo "$remote") >/dev/null; then
+             echo "Phát hiện bản cập nhật. Đang cài..."
+             echo "$remote" > "$0"
+             echo "Xong. Hãy khởi động lại."
+             exit 0
+         else
+             echo "Bạn đang ở phiên bản mới nhất."
+             sleep 1
+         fi
     else
-        echo "Đang dùng phiên bản mới nhất."
+        echo "Lỗi kết nối server cập nhật."
+        sleep 2
     fi
-    sleep 2
 }
 
-# --- CORE FUNCTIONS ---
-play_anime() {
 
-    # Logic cũ cho OPhim (Giữ nguyên)
-    select_anime() {
-        local keyword="$1"
-        local anime_list
-        anime_list=$(curl -s "https://ophim17.cc/tim-kiem?keyword=$keyword" | pup '.ml-4 > a attr{href}' | awk '{print "https://ophim17.cc" $0}' | while read l; do t=$(curl -s "$l" | pup 'h1 text{}'); echo "$l@@@$t"; done | awk -F '@@@' '{print NR ". " $2 " (" $1 ")"}')
-        if [[ -z "$anime_list" ]]; then return 1; fi
-        echo "$anime_list" | fzf --prompt="Chọn anime: " | sed 's/.*(\(.*\))/\1/'
-    }
+# --- MAIN LOGIC ---
+main() {
+    # Cleanup on exit
+    trap 'kill $(jobs -p) 2>/dev/null' EXIT
 
-    get_episode_list_from_url() {
-        local html=$(curl -s "$1")
-        [ -z "$html" ] && return 1
-        echo "$html" | pup 'script json{}' | jq -r '.[].text | @text' | grep -oE '"(http|https)://[^"]*index.m3u8"' | sed 's/"//g' | awk '{print NR "|" $0}'
-    }
+    check_dependencies
+    load_config
 
-    get_episode_title() {
-        local t=$(curl -s "$1" | pup ".ep-name text{}" | sed -n "${2}p" | tr -d '[:space:]')
-        [ -z "$t" ] && t="Tap_$2"
-        echo "$t" | tr -d '/\:*?"<>|'
-    }
-
-    play_video() {
-        local selected_line="$1"
-        local url=$(echo "$selected_line" | sed 's/.*(\(.*\))/\1/')
-        local name=$(echo "$selected_line" | sed 's/^[^(]*(\([^)]*\)) \+//;s/ ([^ ]*)$//')
-        local eps=$(get_episode_list_from_url "$url")
-        [ -z "$eps" ] && { echo "Lỗi tải tập phim."; return 1; }
-        
-        # OPhim play menu... (Giản lược để tập trung vào anidata)
-        local sel_ep=$(echo "$eps" | fzf --prompt="Chọn tập: ")
-        if [ -n "$sel_ep" ]; then
-             local ep_num=$(echo "$sel_ep" | cut -d'|' -f1)
-             local ep_link=$(echo "$sel_ep" | cut -d'|' -f2)
-             add_to_history "$name" "$ep_num" "$ep_link"
-             "$PLAYER" "$ep_link" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window
-        fi
-    }
-    
-    play_video_from_url() {
-        local url="$1"
-        # Quick fallback name extraction
-        local name=$(echo "$url" | awk -F'/' '{print $5}')
-        local eps=$(get_episode_list_from_url "$url")
-        [ -z "$eps" ] && return 1
-        local sel_ep=$(echo "$eps" | fzf --prompt="Chọn tập: ")
-        [ -n "$sel_ep" ] && "$PLAYER" "$(echo "$sel_ep" | cut -d'|' -f2)"
-    }
-
-    # --- HÀM MỚI: Xử lý file local CSV có cột Link là m3u8 ---
-    play_anidata_local() {
-        echo "Đang kiểm tra dữ liệu Anidata tại: $LOCAL_DATA_FILE"
-        
-        # Kiểm tra file tồn tại chưa
-        if [ ! -f "$LOCAL_DATA_FILE" ]; then
-            echo "Không tìm thấy file: $LOCAL_DATA_FILE"
-            echo "Đang thử tải về bản mới nhất..."
-            curl -L "https://raw.githubusercontent.com/niyakipham/anisub/refs/heads/main/assets/aniw_export_2026-01-14.csv" -o "$LOCAL_DATA_FILE"
-            if [ ! -f "$LOCAL_DATA_FILE" ]; then
-                echo "Lỗi: Không thể tải hoặc tìm thấy file dữ liệu."
-                sleep 2
-                return
-            fi
-            echo "Đã tải dữ liệu mới."
-        fi
-
-        # 1. Làm sạch CSV: Loại bỏ dấu ngoặc kép "" để dễ xử lý bằng awk
-        # Cấu trúc: name,episodes,url,link
-        # awk tách dấu phẩy (,) -> Cột 1=Name, Cột 2=Ep, Cột 4=Link M3U8
-        
-        # Lấy danh sách Anime (Cột 1)
-        local ANIME_LIST=$(sed '1d;s/"//g' "$LOCAL_DATA_FILE" | awk -F',' '{print $1}' | sort -u)
-        
-        local SELECTED_ANIME=$(echo "$ANIME_LIST" | fzf --prompt="[Local] Chọn Anime: ")
-        
-        if [ -z "$SELECTED_ANIME" ]; then
-            return
-        fi
-
-        # Lấy danh sách tập của Anime đã chọn (Lọc theo tên, lấy cột 2 và 4)
-        # Sử dụng delimiter @@ để hiển thị trong fzf cho đẹp
-        local EPISODES=$(sed 's/"//g' "$LOCAL_DATA_FILE" | grep "^$SELECTED_ANIME," | awk -F',' '{print $2 " @@ " $4}')
-        
-        # Chọn tập phim
-        # Hiển thị: Tập 1 @@ https://...m3u8
-        # Chỉ hiển thị phần tên tập ($1) trong preview hoặc chọn
-        local SELECTED_LINE=$(echo "$EPISODES" | fzf --prompt="Chọn tập phim: " --with-nth=1)
-
-        if [ -z "$SELECTED_LINE" ]; then
-            return
-        fi
-
-        # Tách Link (phần sau @@) và Tên tập (phần trước @@)
-        local EP_NAME=$(echo "$SELECTED_LINE" | awk -F' @@ ' '{print $1}')
-        local PLAY_LINK=$(echo "$SELECTED_LINE" | awk -F' @@ ' '{print $2}' | tr -d '[:space:]')
-
-        if [ -z "$PLAY_LINK" ]; then
-             echo "Lỗi: Không tìm thấy link M3U8 trong dữ liệu."
-             sleep 2
-             return
-        fi
-
-        echo "------------------------------------------------"
-        echo "Anime: $SELECTED_ANIME"
-        echo "Tập:   $EP_NAME"
-        echo "Link:  $PLAY_LINK"
-        echo "------------------------------------------------"
-
-        # Thêm vào lịch sử và phát
-        add_to_history "$SELECTED_ANIME (Local)" "$EP_NAME" "$PLAY_LINK"
-        "$PLAYER" "$PLAY_LINK" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window --force-window=immediate
-    }
-
-    # --- MAIN LOOP ---
     while true; do
-        selected_option=$(echo -e "Tìm kiếm Anime (OPhim)\nXem từ file (Anidata Local)\nLịch sử xem\nDanh sách yêu thích\nCài đặt\nCập nhật Script\nThoát" | fzf --prompt="MENU CHÍNH: ")
+        clear
+        echo "=== ANISUB CLI ULTIMATE ==="
+        main_opt=$(echo -e "🔎 Tìm kiếm Anime (KKPhim API)\n📂 Xem từ Local Anidata\n📜 Lịch sử xem\n⭐ Danh sách yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="Menu > ")
 
-        case "$selected_option" in
-            "Tìm kiếm Anime (OPhim)")
-                while true; do
-                    read -r -p "Nhập tên hoặc URL: " input
-                    [ -n "$input" ] && break
-                done
-                if [[ "$input" =~ ^https?:// ]]; then
-                    play_video_from_url "$input"
-                else
-                    sel=$(select_anime "$(echo "$input" | sed 's/ /+/g')")
-                    [ $? -eq 0 ] && play_video "$sel"
+        case "$main_opt" in
+            "🔎 Tìm kiếm Anime (KKPhim API)")
+                read -r -p "Nhập tên anime: " k
+                if [ -n "$k" ]; then
+                    res=$(api_search_kkphim "$k")
+                    if [ -z "$res" ]; then echo "Không thấy phim."; sleep 1; continue; fi
+                    
+                    sel=$(echo "$res" | fzf --prompt="Kết quả > " --delimiter='|' --with-nth=1)
+                    if [ -n "$sel" ]; then
+                        name=$(echo "$sel" | cut -d'|' -f1)
+                        slug=$(echo "$sel" | cut -d'|' -f2)
+                        
+                        eps=$(api_get_episodes_kkphim "$slug")
+                        if [ -z "$eps" ]; then echo "Lỗi lấy danh sách tập."; sleep 1; continue; fi
+                        
+                        sel_ep=$(echo "$eps" | fzf --prompt="Chọn tập > " --delimiter='|' --with-nth=1)
+                        if [ -n "$sel_ep" ]; then
+                             ename=$(echo "$sel_ep" | cut -d'|' -f1)
+                             elink=$(echo "$sel_ep" | cut -d'|' -f2)
+                             add_to_history "$name" "$ename" "$elink"
+                             
+                             # Enter Player Controller
+                             manage_currently_playing "$name" "$ename" "$elink" "$eps" "$slug"
+                        fi
+                    fi
                 fi
                 ;;
-            "Xem từ file (Anidata Local)")
+            "📂 Xem từ Local Anidata")
                 play_anidata_local
                 ;;
-            "Lịch sử xem") show_history ;;
-            "Danh sách yêu thích") 
-                f=$(show_favorites)
-                [ $? -eq 0 ] && play_video_from_url "$f"
+            "📜 Lịch sử xem")
+                show_history
                 ;;
-            "Cài đặt") show_settings ;;
-            "Cập nhật Script") update_script ;;
-            "Thoát"|"") exit 0 ;;
-            *) ;;
+            "⭐ Danh sách yêu thích")
+                fav_line=$(show_favorites)
+                if [ $? -eq 0 ]; then
+                     fname=$(echo "$fav_line" | cut -d'|' -f1)
+                     fslug=$(echo "$fav_line" | cut -d'|' -f2)
+                     
+                     eps=$(api_get_episodes_kkphim "$fslug")
+                     if [ -n "$eps" ]; then
+                         sel_ep=$(echo "$eps" | fzf --prompt="[$fname] Chọn tập > " --delimiter='|' --with-nth=1)
+                         if [ -n "$sel_ep" ]; then
+                              ename=$(echo "$sel_ep" | cut -d'|' -f1)
+                              elink=$(echo "$sel_ep" | cut -d'|' -f2)
+                              manage_currently_playing "$fname" "$ename" "$elink" "$eps" "$fslug"
+                         fi
+                     else
+                         echo "Không tải được tập phim (Có thể link API đã đổi hoặc Anime bị xóa)."
+                         sleep 2
+                     fi
+                fi
+                ;;
+            "⚙️ Cài đặt") show_settings ;;
+            "🔄 Cập nhật") update_script ;;
+            "🚪 Thoát"*) exit 0 ;;
         esac
     done
 }
 
-# --- START ---
-clear
-echo "Khởi động..."
-check_dependencies
-load_config
-play_anime
+main
