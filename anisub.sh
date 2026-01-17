@@ -46,7 +46,8 @@ save_config() {
 
 check_dependencies() {
     local missing_deps=()
-    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "jq" "awk" "sed")
+    # Added 'chafa' for image preview support
+    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "jq" "awk" "sed" "chafa")
     echo "Kiểm tra các phụ thuộc hệ thống..."
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
@@ -57,6 +58,9 @@ check_dependencies() {
     if [ ${#missing_deps[@]} -ne 0 ]; then
         echo "LỖI: Thiếu các phụ thuộc sau: ${missing_deps[*]}"
         echo "Vui lòng cài đặt chúng trước khi sử dụng."
+        if [[ " ${missing_deps[*]} " == *"chafa"* ]]; then
+            echo "Gợi ý: Cài đặt chafa để xem được hình ảnh (apt install chafa / brew install chafa / pkg install chafa)"
+        fi
         exit 1
     fi
 }
@@ -76,6 +80,7 @@ show_history() {
         sleep 2
         return
     fi
+    # Use tac to show newest first
     selected_history=$(tac "$HISTORY_FILE" | fzf --prompt="Lịch sử xem (Enter để xem lại): " --delimiter='|' --with-nth=1,2,3)
     if [ -n "$selected_history" ]; then
         local link=$(echo "$selected_history" | cut -d'|' -f4)
@@ -105,6 +110,7 @@ show_favorites() {
         sleep 2
         return 1
     fi
+    # Returns format: Name|Slug
     selected_favorite=$(fzf --prompt="Anime yêu thích: " --delimiter='|' --with-nth=1 < "$FAVORITES_FILE")
     if [ -n "$selected_favorite" ]; then
         echo "$selected_favorite" 
@@ -115,8 +121,10 @@ show_favorites() {
 }
 
 # --- KKPHIM API FUNCTIONS ---
+
 api_search_kkphim() {
     local keyword="$1"
+    # Simple URL encoding for keyword
     keyword=$(echo "$keyword" | sed 's/ /%20/g')
     
     local api_url="https://phimapi.com/v1/api/tim-kiem?keyword=$keyword&limit=20"
@@ -127,7 +135,12 @@ api_search_kkphim() {
         return 1
     fi
 
-    echo "$json" | jq -r '.data.items[] | "\(.name) (\(.year))|\(.slug)"'
+    # Retrieve Domain CDN
+    local cdn_domain=$(echo "$json" | jq -r '.data.APP_DOMAIN_CDN_IMAGE')
+    
+    # Update Output: "Name (Year)|Slug|ImageURL"
+    # Using 'poster_url' combined with CDN domain
+    echo "$json" | jq -r --arg domain "$cdn_domain" '.data.items[] | "\(.name) (\(.year))|\(.slug)|\($domain)/\(.poster_url)"'
 }
 
 api_get_episodes_kkphim() {
@@ -140,6 +153,8 @@ api_get_episodes_kkphim() {
         return 1
     fi
     
+    # Extract: "TapName|Link"
+    # Taking only from the first server available
     echo "$json" | jq -r '.episodes[0].server_data[] | "\(.name)|\(.link_m3u8)"'
 }
 
@@ -147,20 +162,24 @@ play_stream() {
     local url="$1"
     local title="$2"
     
+    # Launch player in background and detached, suppress output
     "$PLAYER" "$url" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window --title="Anisub: $title" &
     PLAYER_PID=$!
 }
 
 # --- MEDIA PROCESSING FUNCTIONS ---
+# Function to download current stream
 download_video() {
     local url="$1"
     local filename="$2"
     local folder="$DOWNLOAD_DIR/$(echo "$filename" | awk -F' - ' '{print $1}')"
     
     mkdir -p "$folder"
+    # Sanitize filename
     safe_name=$(echo "$filename" | sed 's/[^a-zA-Z0-9 .-]/_/g')
     
     echo "Đang tải xuống: $safe_name..."
+    # yt-dlp is better for streams, ffmpeg as fallback
     if command -v yt-dlp &> /dev/null; then
         yt-dlp "$url" -o "$folder/$safe_name.mp4"
     else
@@ -170,13 +189,14 @@ download_video() {
     sleep 2
 }
 
+# Function to cut video segments
 cut_video_logic() {
     local input_url="$1"
     local mode="$2"
     local dest_dir="$DOWNLOAD_DIR/cut"
     mkdir -p "$dest_dir"
 
-    echo "=== CHẾ ĐỘ CẮT VIDEO (Đã sửa lỗi màn hình đen) ==="
+    echo "=== CHẾ ĐỘ CẮT VIDEO (Đã fix lỗi màn hình đen) ==="
     echo "Lưu ý: Nhập chính xác thời gian trên trình phát đang xem."
     
     if [ "$mode" == "single" ]; then
@@ -185,7 +205,6 @@ cut_video_logic() {
         output_name="cut_$(date +%s).mp4"
         
         echo "Đang xử lý (Re-encoding để sửa lỗi hình ảnh)..."
-        # Đã thay đổi -c copy thành re-encode libx264 để đảm bảo có hình ảnh
         ffmpeg -i "$input_url" -ss "$start_time" -to "$end_time" \
             -c:v libx264 -preset fast -crf 23 -c:a aac \
             "$dest_dir/$output_name" -hide_banner -loglevel error
@@ -204,7 +223,7 @@ cut_video_logic() {
             ffmpeg -i "$input_url" -ss "$start_t" -to "$end_t" \
                 -c:v libx264 -preset fast -crf 23 -c:a aac \
                 "$dest_dir/$output_name" -hide_banner -loglevel error
-                
+
             echo "Đã lưu đoạn $i: $output_name"
         done
         echo "Hoàn tất cắt nhiều đoạn."
@@ -212,6 +231,7 @@ cut_video_logic() {
     sleep 3
 }
 
+# Function to merge/graft videos
 merge_video_logic() {
     local cut_dir="$DOWNLOAD_DIR/cut"
     local merge_dir="$DOWNLOAD_DIR/merged"
@@ -231,6 +251,7 @@ merge_video_logic() {
         return
     fi
 
+    # Create list file for ffmpeg concat
     list_txt="$cut_dir/merge_list.txt"
     > "$list_txt"
     
@@ -242,7 +263,6 @@ merge_video_logic() {
     
     output_name="merged_$(date +%s).mp4"
     echo "Đang ghép video..."
-    # Dùng re-encode cho an toàn khi ghép các file đã cắt
     ffmpeg -f concat -safe 0 -i "$list_txt" -c copy "$merge_dir/$output_name" -hide_banner -loglevel error
     
     rm "$list_txt"
@@ -400,7 +420,7 @@ main() {
 
     while true; do
         clear
-        echo "=== ANISUB CLI ULTIMATE ==="
+        echo "=== ANISUB CLI ==="
         main_opt=$(echo -e "🔎 Tìm kiếm Anime (KKPhim API)\n📂 Xem từ Local Anidata\n📜 Lịch sử xem\n⭐ Danh sách yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="Menu > ")
 
         case "$main_opt" in
@@ -410,10 +430,17 @@ main() {
                     res=$(api_search_kkphim "$k")
                     if [ -z "$res" ]; then echo "Không thấy phim."; sleep 1; continue; fi
                     
-                    sel=$(echo "$res" | fzf --prompt="Kết quả > " --delimiter='|' --with-nth=1)
+                    sel=$(echo "$res" | fzf \
+                        --prompt="Kết quả > " \
+                        --delimiter='|' \
+                        --with-nth=1 \
+                        --preview "curl -s {3} | chafa -s 40x20 - 2>/dev/null" \
+                        --preview-window=right:40%:wrap)
+                    
                     if [ -n "$sel" ]; then
                         name=$(echo "$sel" | cut -d'|' -f1)
                         slug=$(echo "$sel" | cut -d'|' -f2)
+                        # No need to grab ImageURL anymore
                         
                         eps=$(api_get_episodes_kkphim "$slug")
                         if [ -z "$eps" ]; then echo "Lỗi lấy danh sách tập."; sleep 1; continue; fi
@@ -423,6 +450,7 @@ main() {
                              ename=$(echo "$sel_ep" | cut -d'|' -f1)
                              elink=$(echo "$sel_ep" | cut -d'|' -f2)
                              add_to_history "$name" "$ename" "$elink"
+                             
                              manage_currently_playing "$name" "$ename" "$elink" "$eps" "$slug"
                         fi
                     fi
