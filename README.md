@@ -39,13 +39,13 @@
 
 UBUNTU
 ```shell
-sudo apt install ffmpeg curl grep yt-dlp fzf pup jq mawk cut
+sudo apt install ffmpeg curl grep yt-dlp fzf pup jq mawk cut chafa
 ```
 Nếu có gói nào chưa đưọc cài đặt thì bạn cài riêng ra nhé <br>
 
 ARCH LINUX
 ```shell
-yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cut
+yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cutafa chafa
 ```
 
 ## RUN
