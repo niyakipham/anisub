@@ -14,13 +14,19 @@
 <br>
 
 ## Hi Everyone 👋
+
+[![Anisub on J2TEAM Launch](https://launch.j2team.dev/badge/anisub/light)](https://launch.j2team.dev/products/anisub) <br>
+
 ### DONATE
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://buymeacoffee.com/niyakiphamn)
 <br>
 
+## DỰ KIẾN
+《📺》- Thêm gợi ý từ khóa<br>
+《🪟》- Chạy trên windows<br>
 ## UPDATE
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
-《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub <br>
+《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub )<br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
 《﬚》- Bổ sung tính năng ghép nhiều video với nhau <br>
 #### Và còn nhiều tính năng khác!!! <br>
