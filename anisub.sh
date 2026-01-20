@@ -32,8 +32,8 @@ load_config() {
     PLAYER=${PLAYER:-$DEFAULT_PLAYER}
     DOWNLOAD_DIR=${DOWNLOAD_DIR:-$DEFAULT_DOWNLOAD_DIR}
     mkdir -p "$DOWNLOAD_DIR"
-    mkdir -p "$DOWNLOAD_DIR/cut" # Folder for video cuts
-    mkdir -p "$DOWNLOAD_DIR/merged" # Folder for merged videos
+    mkdir -p "$DOWNLOAD_DIR/cut"
+    mkdir -p "$DOWNLOAD_DIR/merged"
     touch "$HISTORY_FILE" "$FAVORITES_FILE"
 }
 
@@ -79,7 +79,6 @@ show_history() {
         sleep 2
         return
     fi
-    # Use tac to show newest first
     selected_history=$(tac "$HISTORY_FILE" | fzf --prompt="Lịch sử xem (Enter để xem lại): " --delimiter='|' --with-nth=1,2,3)
     if [ -n "$selected_history" ]; then
         local link=$(echo "$selected_history" | cut -d'|' -f4)
@@ -109,7 +108,6 @@ show_favorites() {
         sleep 2
         return 1
     fi
-    # Returns format: Name|Slug
     selected_favorite=$(fzf --prompt="Anime yêu thích: " --delimiter='|' --with-nth=1 < "$FAVORITES_FILE")
     if [ -n "$selected_favorite" ]; then
         echo "$selected_favorite" 
@@ -120,7 +118,6 @@ show_favorites() {
 }
 
 # --- KKPHIM API FUNCTIONS ---
-
 api_get_episodes_kkphim() {
     local slug="$1"
     local api_url="https://phimapi.com/phim/$slug"
@@ -131,8 +128,6 @@ api_get_episodes_kkphim() {
         return 1
     fi
     
-    # Extract: "TapName|Link"
-    # Taking only from the first server available
     echo "$json" | jq -r '.episodes[0].server_data[] | "\(.name)|\(.link_m3u8)"'
 }
 
@@ -140,20 +135,167 @@ play_stream() {
     local url="$1"
     local title="$2"
     
-    # Launch player in background and detached, suppress output
+    # Kill any existing player instance to avoid conflicts
+    killall "$PLAYER" 2>/dev/null
+    
+    # Launch player in background
     "$PLAYER" "$url" --no-terminal --profile=sw-fast --audio-display=no --no-keepaspect-window --title="Anisub: $title" &
     PLAYER_PID=$!
 }
 
+# --- HELPER FOR NEXT/PREV LOGIC ---
+find_adjacent_episode() {
+    local current_name="$1"
+    local list_raw="$2"
+    local mode="$3" # "next" or "prev"
+    
+    # Convert list to array
+    mapfile -t eps_array <<< "$list_raw"
+    
+    local current_index=-1
+    for i in "${!eps_array[@]}"; do
+        # Extract name from "Name|Link"
+        local ep_name=$(echo "${eps_array[$i]}" | cut -d'|' -f1)
+        if [ "$ep_name" = "$current_name" ]; then
+            current_index=$i
+            break
+        fi
+    done
+    
+    if [ $current_index -eq -1 ]; then
+        return 1
+    fi
+    
+    local target_index
+    if [ "$mode" = "next" ]; then
+        target_index=$((current_index + 1))
+    else
+        target_index=$((current_index - 1))
+    fi
+    
+    if [ $target_index -ge 0 ] && [ $target_index -lt ${#eps_array[@]} ]; then
+        echo "${eps_array[$target_index]}"
+        return 0
+    fi
+    
+    return 1
+}
+
+# --- CONTROL PLAYER MENU ---
+manage_currently_playing() {
+    local name="$1"
+    local current_ep_name="$2"
+    local link="$3"
+    local episode_list_raw="$4"
+    local anime_slug="$5"
+    local user_wants_quit=0
+    
+    play_stream "$link" "$name - Tập $current_ep_name"
+    
+    # Loop while player is running
+    while kill -0 "$PLAYER_PID" 2>/dev/null; do
+        header="Đang phát: $name - Tập $current_ep_name"
+        action=$(echo -e "⏭ Tiếp theo\n⏮ Trước đó\n📜 Chọn tập khác\n⬇ Tải tập này\n✂ Cắt Video (1 lần)\n✂✂ Cắt Video (Nhiều lần)\n🧬 Ghép Video\n❤️ Thêm vào Yêu Thích\n🔙 Quay lại Menu Chính" | fzf --prompt="$header > " --header="[Player đang chạy. Chọn tác vụ không cần tắt player]")
+        
+        case "$action" in
+            "⏭ Tiếp theo")
+                kill "$PLAYER_PID" 2>/dev/null
+                sleep 0.5
+                # Logic tự động chuyển tập tiếp theo
+                next_data=$(find_adjacent_episode "$current_ep_name" "$episode_list_raw" "next")
+                if [ -n "$next_data" ]; then
+                    current_ep_name=$(echo "$next_data" | cut -d'|' -f1)
+                    link=$(echo "$next_data" | cut -d'|' -f2)
+                    add_to_history "$name" "$current_ep_name" "$link"
+                    play_stream "$link" "$name - Tập $current_ep_name"
+                else
+                    echo "Đã hết tập (Tập cuối)."
+                    sleep 1
+                    # If end of list, maybe restart player with current ep or just stop
+                    # Here we break loop to return to selection or exit
+                    user_wants_quit=1
+                fi
+                ;;
+            "⏮ Trước đó")
+                kill "$PLAYER_PID" 2>/dev/null
+                sleep 0.5
+                # Logic tự động chuyển tập trước
+                prev_data=$(find_adjacent_episode "$current_ep_name" "$episode_list_raw" "prev")
+                if [ -n "$prev_data" ]; then
+                    current_ep_name=$(echo "$prev_data" | cut -d'|' -f1)
+                    link=$(echo "$prev_data" | cut -d'|' -f2)
+                    add_to_history "$name" "$current_ep_name" "$link"
+                    play_stream "$link" "$name - Tập $current_ep_name"
+                else
+                    echo "Đây là tập đầu tiên."
+                    sleep 1
+                    play_stream "$link" "$name - Tập $current_ep_name" # Resume
+                fi
+                ;;
+            "📜 Chọn tập khác")
+                kill "$PLAYER_PID" 2>/dev/null
+                new_selection=$(echo "$episode_list_raw" | fzf --prompt="Chọn tập: " --delimiter='|' --with-nth=1)
+                 if [ -n "$new_selection" ]; then
+                     current_ep_name=$(echo "$new_selection" | cut -d'|' -f1)
+                     link=$(echo "$new_selection" | cut -d'|' -f2)
+                     add_to_history "$name" "$current_ep_name" "$link"
+                     play_stream "$link" "$name - Tập $current_ep_name"
+                 else
+                     # User cancelled selection, replay current
+                     play_stream "$link" "$name - Tập $current_ep_name"
+                 fi
+                ;;
+            "⬇ Tải tập này") download_video "$link" "$name - Tap $current_ep_name" & ;;
+            "✂ Cắt Video (1 lần)") cut_video_logic "$link" "single" ;;
+            "✂✂ Cắt Video (Nhiều lần)") cut_video_logic "$link" "multi" ;;
+            "🧬 Ghép Video") merge_video_logic ;;
+            "❤️ Thêm vào Yêu Thích") add_to_favorites "$name" "$anime_slug" ;;
+            "🔙 Quay lại Menu Chính") kill "$PLAYER_PID" 2>/dev/null; user_wants_quit=1; break ;;
+             *) kill "$PLAYER_PID" 2>/dev/null; user_wants_quit=1; break ;;
+        esac
+    done
+
+    # --- XỬ LÝ KHI VIDEO XEM HẾT (KHI PLAYER TỰ ĐỘNG TẮT) ---
+    if [ $user_wants_quit -eq 0 ]; then
+        clear
+        echo "-----------------------------------"
+        echo "  Đã xem xong: $name - $current_ep_name"
+        echo "-----------------------------------"
+        
+        # Tìm tập tiếp theo để gợi ý
+        next_ep_data=$(find_adjacent_episode "$current_ep_name" "$episode_list_raw" "next")
+        local next_option=""
+        if [ -n "$next_ep_data" ]; then
+            local next_name=$(echo "$next_ep_data" | cut -d'|' -f1)
+            next_option="▶ Phát Tập Tiếp Theo: $next_name\n"
+        fi
+
+        end_action=$(echo -e "${next_option}🔄 Xem lại tập này\n🔙 Quay lại Menu Chính" | fzf --prompt="Bạn muốn làm gì tiếp theo? > ")
+        
+        case "$end_action" in
+            "▶ Phát Tập Tiếp Theo"*)
+                # Recursive call để chơi tập tiếp theo
+                local n_name=$(echo "$next_ep_data" | cut -d'|' -f1)
+                local n_link=$(echo "$next_ep_data" | cut -d'|' -f2)
+                manage_currently_playing "$name" "$n_name" "$n_link" "$episode_list_raw" "$anime_slug"
+                ;;
+            "🔄 Xem lại tập này")
+                manage_currently_playing "$name" "$current_ep_name" "$link" "$episode_list_raw" "$anime_slug"
+                ;;
+            *)
+                # Quay lại menu chính (không làm gì cả, loop sẽ thoát)
+                ;;
+        esac
+    fi
+}
+
 # --- MEDIA PROCESSING FUNCTIONS ---
-# Function to download current stream
 download_video() {
     local url="$1"
     local filename="$2"
     local folder="$DOWNLOAD_DIR/$(echo "$filename" | awk -F' - ' '{print $1}')"
     
     mkdir -p "$folder"
-    # Sanitize filename
     safe_name=$(echo "$filename" | sed 's/[^a-zA-Z0-9 .-]/_/g')
     
     echo "Đang tải xuống: $safe_name..."
@@ -244,53 +386,6 @@ merge_video_logic() {
     sleep 3
 }
 
-# --- CONTROL PLAYER MENU ---
-manage_currently_playing() {
-    local name="$1"
-    local current_ep_name="$2"
-    local link="$3"
-    local episode_list_raw="$4"
-    local anime_slug="$5"
-    
-    play_stream "$link" "$name - Tập $current_ep_name"
-    
-    while kill -0 "$PLAYER_PID" 2>/dev/null; do
-        header="Đang phát: $name - Tập $current_ep_name"
-        action=$(echo -e "⏭ Tiếp theo\n⏮ Trước đó\n📜 Chọn tập khác\n⬇ Tải tập này\n✂ Cắt Video (1 lần)\n✂✂ Cắt Video (Nhiều lần)\n🧬 Ghép Video\n❤️ Thêm vào Yêu Thích\n🔙 Quay lại Menu Chính" | fzf --prompt="$header > " --header="[Player đang chạy. Chọn tác vụ không cần tắt player]")
-        
-        case "$action" in
-            "⏭ Tiếp theo")
-                kill "$PLAYER_PID" 2>/dev/null
-                new_selection=$(echo "$episode_list_raw" | fzf --prompt="Chọn tập tiếp theo: " --delimiter='|' --with-nth=1)
-                if [ -n "$new_selection" ]; then
-                     current_ep_name=$(echo "$new_selection" | cut -d'|' -f1)
-                     link=$(echo "$new_selection" | cut -d'|' -f2)
-                     add_to_history "$name" "$current_ep_name" "$link"
-                     play_stream "$link" "$name - Tập $current_ep_name"
-                fi
-                ;;
-            "⏮ Trước đó"|"📜 Chọn tập khác")
-                kill "$PLAYER_PID" 2>/dev/null
-                new_selection=$(echo "$episode_list_raw" | fzf --prompt="Chọn tập: " --delimiter='|' --with-nth=1)
-                 if [ -n "$new_selection" ]; then
-                     current_ep_name=$(echo "$new_selection" | cut -d'|' -f1)
-                     link=$(echo "$new_selection" | cut -d'|' -f2)
-                     add_to_history "$name" "$current_ep_name" "$link"
-                     play_stream "$link" "$name - Tập $current_ep_name"
-                 fi
-                ;;
-            "⬇ Tải tập này") download_video "$link" "$name - Tap $current_ep_name" & ;;
-            "✂ Cắt Video (1 lần)") cut_video_logic "$link" "single" ;;
-            "✂✂ Cắt Video (Nhiều lần)") cut_video_logic "$link" "multi" ;;
-            "🧬 Ghép Video") merge_video_logic ;;
-            "❤️ Thêm vào Yêu Thích") add_to_favorites "$name" "$anime_slug" ;;
-            "🔙 Quay lại Menu Chính") kill "$PLAYER_PID" 2>/dev/null; return 0 ;;
-             *) kill "$PLAYER_PID" 2>/dev/null; return 0 ;;
-        esac
-    done
-}
-
-
 # --- LOCAL FILE HANDLER ---
 play_anidata_local() {
     echo "Kiểm tra dữ liệu Local tại: $LOCAL_DATA_FILE"
@@ -369,20 +464,17 @@ main() {
 
         case "$main_opt" in
             "🔎 Tìm kiếm Anime (KKPhim)")
-                # Sử dụng fzf --disabled --bind 'change:reload' để tạo hiệu ứng gõ đến đâu tìm đến đó
-                # {q} đại diện cho chuỗi người dùng đang gõ
                 sel=$(fzf --disabled \
                     --prompt="Gõ tên Anime: " \
                     --header="vui lòng gõ (Nhập >= 2 ký tự) để gợi ý từ khóa" \
                     --bind "change:reload:
                         query={q};
                         if [ \${#query} -ge 2 ]; then
-                            # Encode URL (thay khoảng trắng bằng %20)
                             encoded_q=\$(echo \"\$query\" | sed 's/ /%20/g');
                             curl -s \"https://phimapi.com/v1/api/tim-kiem?keyword=\$encoded_q&limit=20\" | 
                             jq -r 'if .status == \"success\" then .data.APP_DOMAIN_CDN_IMAGE as \$dom | .data.items[] | \"\(.name) (\(.year))|\(.slug)|\(\$dom)/\(.poster_url)\" else \"Không có dữ liệu...\" end';
                         else
-                            echo 'Vui lòng nhập tên anime...'
+                            echo 'Vui lòng nhập tên anime...';
                         fi" \
                     --delimiter='|' \
                     --with-nth=1 \
