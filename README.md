@@ -22,9 +22,10 @@
 <br>
 
 ## DỰ KIẾN
-《📺》- Thêm gợi ý từ khóa<br>
+《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《📺》- Thêm gợi ý từ khóa<br>
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
 《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub )<br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
