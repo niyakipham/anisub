@@ -46,7 +46,6 @@ save_config() {
 
 check_dependencies() {
     local missing_deps=()
-    # Added 'chafa' for image preview support
     local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "jq" "awk" "sed" "chafa")
     echo "Kiểm tra các phụ thuộc hệ thống..."
     for dep in "${deps[@]}"; do
@@ -122,27 +121,6 @@ show_favorites() {
 
 # --- KKPHIM API FUNCTIONS ---
 
-api_search_kkphim() {
-    local keyword="$1"
-    # Simple URL encoding for keyword
-    keyword=$(echo "$keyword" | sed 's/ /%20/g')
-    
-    local api_url="https://phimapi.com/v1/api/tim-kiem?keyword=$keyword&limit=20"
-    local json=$(curl -s "$api_url")
-    
-    local status=$(echo "$json" | jq -r '.status')
-    if [ "$status" != "success" ]; then
-        return 1
-    fi
-
-    # Retrieve Domain CDN
-    local cdn_domain=$(echo "$json" | jq -r '.data.APP_DOMAIN_CDN_IMAGE')
-    
-    # Update Output: "Name (Year)|Slug|ImageURL"
-    # Using 'poster_url' combined with CDN domain
-    echo "$json" | jq -r --arg domain "$cdn_domain" '.data.items[] | "\(.name) (\(.year))|\(.slug)|\($domain)/\(.poster_url)"'
-}
-
 api_get_episodes_kkphim() {
     local slug="$1"
     local api_url="https://phimapi.com/phim/$slug"
@@ -179,7 +157,6 @@ download_video() {
     safe_name=$(echo "$filename" | sed 's/[^a-zA-Z0-9 .-]/_/g')
     
     echo "Đang tải xuống: $safe_name..."
-    # yt-dlp is better for streams, ffmpeg as fallback
     if command -v yt-dlp &> /dev/null; then
         yt-dlp "$url" -o "$folder/$safe_name.mp4"
     else
@@ -189,14 +166,13 @@ download_video() {
     sleep 2
 }
 
-# Function to cut video segments
 cut_video_logic() {
     local input_url="$1"
     local mode="$2"
     local dest_dir="$DOWNLOAD_DIR/cut"
     mkdir -p "$dest_dir"
 
-    echo "=== CHẾ ĐỘ CẮT VIDEO (Đã fix lỗi màn hình đen) ==="
+    echo "=== CHẾ ĐỘ CẮT VIDEO (Fix lỗi hình ảnh) ==="
     echo "Lưu ý: Nhập chính xác thời gian trên trình phát đang xem."
     
     if [ "$mode" == "single" ]; then
@@ -204,7 +180,7 @@ cut_video_logic() {
         read -r -p "Nhập thời gian kết thúc (VD: 00:11:00): " end_time
         output_name="cut_$(date +%s).mp4"
         
-        echo "Đang xử lý (Re-encoding để sửa lỗi hình ảnh)..."
+        echo "Đang xử lý (Re-encoding)..."
         ffmpeg -i "$input_url" -ss "$start_time" -to "$end_time" \
             -c:v libx264 -preset fast -crf 23 -c:a aac \
             "$dest_dir/$output_name" -hide_banner -loglevel error
@@ -231,7 +207,6 @@ cut_video_logic() {
     sleep 3
 }
 
-# Function to merge/graft videos
 merge_video_logic() {
     local cut_dir="$DOWNLOAD_DIR/cut"
     local merge_dir="$DOWNLOAD_DIR/merged"
@@ -243,7 +218,7 @@ merge_video_logic() {
         return
     fi
 
-    echo "Chọn các video để ghép (Sử dụng TAB để chọn nhiều file, ENTER để xác nhận):"
+    echo "Chọn các video để ghép (TAB để chọn nhiều, ENTER xác nhận):"
     cd "$cut_dir" || return
     selected_files=$(find . -maxdepth 1 -name "*.mp4" | sed 's|^\./||' | fzf -m --prompt="Chọn file để ghép > ")
     
@@ -251,7 +226,6 @@ merge_video_logic() {
         return
     fi
 
-    # Create list file for ffmpeg concat
     list_txt="$cut_dir/merge_list.txt"
     > "$list_txt"
     
@@ -282,8 +256,7 @@ manage_currently_playing() {
     
     while kill -0 "$PLAYER_PID" 2>/dev/null; do
         header="Đang phát: $name - Tập $current_ep_name"
-        
-        action=$(echo -e "⏭ Tiếp theo\n⏮ Trước đó\n📜 Chọn tập khác\n⬇ Tải tập này\n✂ Cắt Video (1 lần)\n✂✂ Cắt Video (Nhiều lần)\n🧬 Ghép Video (Grafting)\n❤️ Thêm vào Yêu Thích\n🔙 Quay lại Menu Chính" | fzf --prompt="$header > " --header="[Player đang chạy dưới nền. Chọn tác vụ mà không cần tắt player]")
+        action=$(echo -e "⏭ Tiếp theo\n⏮ Trước đó\n📜 Chọn tập khác\n⬇ Tải tập này\n✂ Cắt Video (1 lần)\n✂✂ Cắt Video (Nhiều lần)\n🧬 Ghép Video\n❤️ Thêm vào Yêu Thích\n🔙 Quay lại Menu Chính" | fzf --prompt="$header > " --header="[Player đang chạy. Chọn tác vụ không cần tắt player]")
         
         case "$action" in
             "⏭ Tiếp theo")
@@ -306,29 +279,13 @@ manage_currently_playing() {
                      play_stream "$link" "$name - Tập $current_ep_name"
                  fi
                 ;;
-            "⬇ Tải tập này")
-                 download_video "$link" "$name - Tap $current_ep_name" &
-                 ;;
-            "✂ Cắt Video (1 lần)")
-                 cut_video_logic "$link" "single"
-                 ;;
-            "✂✂ Cắt Video (Nhiều lần)")
-                 cut_video_logic "$link" "multi"
-                 ;;
-            "🧬 Ghép Video (Grafting)")
-                 merge_video_logic
-                 ;;
-            "❤️ Thêm vào Yêu Thích")
-                 add_to_favorites "$name" "$anime_slug"
-                 ;;
-            "🔙 Quay lại Menu Chính")
-                 kill "$PLAYER_PID" 2>/dev/null
-                 return 0
-                 ;;
-             *)
-                 kill "$PLAYER_PID" 2>/dev/null
-                 return 0
-                 ;;
+            "⬇ Tải tập này") download_video "$link" "$name - Tap $current_ep_name" & ;;
+            "✂ Cắt Video (1 lần)") cut_video_logic "$link" "single" ;;
+            "✂✂ Cắt Video (Nhiều lần)") cut_video_logic "$link" "multi" ;;
+            "🧬 Ghép Video") merge_video_logic ;;
+            "❤️ Thêm vào Yêu Thích") add_to_favorites "$name" "$anime_slug" ;;
+            "🔙 Quay lại Menu Chính") kill "$PLAYER_PID" 2>/dev/null; return 0 ;;
+             *) kill "$PLAYER_PID" 2>/dev/null; return 0 ;;
         esac
     done
 }
@@ -336,35 +293,29 @@ manage_currently_playing() {
 
 # --- LOCAL FILE HANDLER ---
 play_anidata_local() {
-    echo "Đang kiểm tra dữ liệu Anidata tại: $LOCAL_DATA_FILE"
+    echo "Kiểm tra dữ liệu Local tại: $LOCAL_DATA_FILE"
     
     if [ ! -f "$LOCAL_DATA_FILE" ]; then
-        echo "Không tìm thấy file: $LOCAL_DATA_FILE"
-        echo "Đang thử tải về bản mới nhất..."
+        echo "Đang tải dữ liệu mới..."
         local data_url="https://raw.githubusercontent.com/niyakipham/anisub/refs/heads/main/assets/aniw_export_2026-01-14.csv"
         mkdir -p "$SCRIPT_DIR/assets"
         curl -L "$data_url" -o "$LOCAL_DATA_FILE"
         if [ ! -f "$LOCAL_DATA_FILE" ]; then
-            echo "Lỗi: Không thể tải hoặc tìm thấy file dữ liệu."
-            sleep 2
-            return
+            echo "Lỗi: Không tải được file dữ liệu."
+            sleep 2; return
         fi
-        echo "Đã tải dữ liệu mới."
     fi
 
     local anime_list=$(sed '1d;s/"//g' "$LOCAL_DATA_FILE" | awk -F',' '{print $1}' | sort -u)
-    
     local selected_anime=$(echo "$anime_list" | fzf --prompt="[Local] Chọn Anime: ")
     if [ -z "$selected_anime" ]; then return; fi
 
     local episodes=$(grep "^\"${selected_anime}\"," "$LOCAL_DATA_FILE" | sed 's/"//g' | awk -F',' '{print "Tập " $2 "|" $4}')
-    
     if [ -z "$episodes" ]; then
          episodes=$(grep "^${selected_anime}," "$LOCAL_DATA_FILE" | sed 's/"//g' | awk -F',' '{print "Tập " $2 "|" $4}')
     fi
 
     local selected_line=$(echo "$episodes" | fzf --prompt="Chọn tập: " --delimiter='|' --with-nth=1)
-    
     if [ -n "$selected_line" ]; then
          local ep_name=$(echo "$selected_line" | cut -d'|' -f1)
          local link=$(echo "$selected_line" | cut -d'|' -f2 | tr -d '[:space:]')
@@ -374,19 +325,17 @@ play_anidata_local() {
     fi
 }
 
-# --- SETTINGS MENU ---
+# --- SETTINGS & UPDATE ---
 show_settings() {
     while true; do
         opt=$(echo -e "Đổi trình phát (Hiện tại: $PLAYER)\nĐổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\nQuay lại" | fzf --prompt="Cài đặt > ")
         case "$opt" in
             "Đổi trình phát"*)
-                read -r -p "Nhập tên lệnh trình phát mới (ví dụ vlc): " inp
-                if command -v "$inp" &> /dev/null; then PLAYER="$inp"; save_config; fi
-                ;;
+                read -r -p "Nhập lệnh trình phát (vd vlc): " inp
+                if command -v "$inp" &> /dev/null; then PLAYER="$inp"; save_config; fi ;;
             "Đổi thư mục tải"*)
                 read -r -p "Nhập đường dẫn tuyệt đối: " inp
-                DOWNLOAD_DIR="$inp"; mkdir -p "$inp"; save_config
-                ;;
+                DOWNLOAD_DIR="$inp"; mkdir -p "$inp"; save_config ;;
             *) break ;;
         esac
     done
@@ -401,73 +350,73 @@ update_script() {
              echo "Xong. Hãy khởi động lại."
              exit 0
          else
-             echo "Bạn đang ở phiên bản mới nhất."
+             echo "Phiên bản hiện tại là mới nhất."
              sleep 1
          fi
-    else
-        echo "Lỗi kết nối server cập nhật."
-        sleep 2
     fi
 }
-
 
 # --- MAIN LOGIC ---
 main() {
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
-
     check_dependencies
     load_config
 
     while true; do
         clear
         echo "=== ANISUB CLI ==="
-        main_opt=$(echo -e "🔎 Tìm kiếm Anime (KKPhim API)\n📂 Xem từ Local Anidata\n📜 Lịch sử xem\n⭐ Danh sách yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="Menu > ")
+        main_opt=$(echo -e "🔎 Tìm kiếm Anime (KKPhim)\n📂 Xem từ Local Anidata\n📜 Lịch sử xem\n⭐ Danh sách yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="Menu > ")
 
         case "$main_opt" in
-            "🔎 Tìm kiếm Anime (KKPhim API)")
-                read -r -p "Nhập tên anime: " k
-                if [ -n "$k" ]; then
-                    res=$(api_search_kkphim "$k")
-                    if [ -z "$res" ]; then echo "Không thấy phim."; sleep 1; continue; fi
+            "🔎 Tìm kiếm Anime (KKPhim)")
+                # Sử dụng fzf --disabled --bind 'change:reload' để tạo hiệu ứng gõ đến đâu tìm đến đó
+                # {q} đại diện cho chuỗi người dùng đang gõ
+                sel=$(fzf --disabled \
+                    --prompt="Gõ tên Anime: " \
+                    --header="vui lòng gõ (Nhập >= 2 ký tự) để gợi ý từ khóa" \
+                    --bind "change:reload:
+                        query={q};
+                        if [ \${#query} -ge 2 ]; then
+                            # Encode URL (thay khoảng trắng bằng %20)
+                            encoded_q=\$(echo \"\$query\" | sed 's/ /%20/g');
+                            curl -s \"https://phimapi.com/v1/api/tim-kiem?keyword=\$encoded_q&limit=20\" | 
+                            jq -r 'if .status == \"success\" then .data.APP_DOMAIN_CDN_IMAGE as \$dom | .data.items[] | \"\(.name) (\(.year))|\(.slug)|\(\$dom)/\(.poster_url)\" else \"Không có dữ liệu...\" end';
+                        else
+                            echo 'Vui lòng nhập tên anime...'
+                        fi" \
+                    --delimiter='|' \
+                    --with-nth=1 \
+                    --preview "echo {} | cut -d'|' -f3 | xargs -I {} curl -s {} | chafa -s 40x20 - 2>/dev/null" \
+                    --preview-window=right:40%:wrap)
+                
+                if [ -n "$sel" ]; then
+                    name=$(echo "$sel" | cut -d'|' -f1)
+                    slug=$(echo "$sel" | cut -d'|' -f2)
                     
-                    sel=$(echo "$res" | fzf \
-                        --prompt="Kết quả > " \
-                        --delimiter='|' \
-                        --with-nth=1 \
-                        --preview "curl -s {3} | chafa -s 40x20 - 2>/dev/null" \
-                        --preview-window=right:40%:wrap)
+                    if [ "$slug" == "" ] || [[ "$sel" == *"Không có dữ liệu"* ]]; then
+                        continue
+                    fi
+
+                    eps=$(api_get_episodes_kkphim "$slug")
+                    if [ -z "$eps" ]; then echo "Lỗi lấy danh sách tập."; sleep 1; continue; fi
                     
-                    if [ -n "$sel" ]; then
-                        name=$(echo "$sel" | cut -d'|' -f1)
-                        slug=$(echo "$sel" | cut -d'|' -f2)
-                        # No need to grab ImageURL anymore
-                        
-                        eps=$(api_get_episodes_kkphim "$slug")
-                        if [ -z "$eps" ]; then echo "Lỗi lấy danh sách tập."; sleep 1; continue; fi
-                        
-                        sel_ep=$(echo "$eps" | fzf --prompt="Chọn tập > " --delimiter='|' --with-nth=1)
-                        if [ -n "$sel_ep" ]; then
-                             ename=$(echo "$sel_ep" | cut -d'|' -f1)
-                             elink=$(echo "$sel_ep" | cut -d'|' -f2)
-                             add_to_history "$name" "$ename" "$elink"
-                             
-                             manage_currently_playing "$name" "$ename" "$elink" "$eps" "$slug"
-                        fi
+                    sel_ep=$(echo "$eps" | fzf --prompt="[$name] Chọn tập > " --delimiter='|' --with-nth=1)
+                    if [ -n "$sel_ep" ]; then
+                         ename=$(echo "$sel_ep" | cut -d'|' -f1)
+                         elink=$(echo "$sel_ep" | cut -d'|' -f2)
+                         add_to_history "$name" "$ename" "$elink"
+                         
+                         manage_currently_playing "$name" "$ename" "$elink" "$eps" "$slug"
                     fi
                 fi
                 ;;
-            "📂 Xem từ Local Anidata")
-                play_anidata_local
-                ;;
-            "📜 Lịch sử xem")
-                show_history
-                ;;
+            "📂 Xem từ Local Anidata") play_anidata_local ;;
+            "📜 Lịch sử xem") show_history ;;
             "⭐ Danh sách yêu thích")
                 fav_line=$(show_favorites)
                 if [ $? -eq 0 ]; then
                      fname=$(echo "$fav_line" | cut -d'|' -f1)
                      fslug=$(echo "$fav_line" | cut -d'|' -f2)
-                     
                      eps=$(api_get_episodes_kkphim "$fslug")
                      if [ -n "$eps" ]; then
                          sel_ep=$(echo "$eps" | fzf --prompt="[$fname] Chọn tập > " --delimiter='|' --with-nth=1)
@@ -477,7 +426,7 @@ main() {
                               manage_currently_playing "$fname" "$ename" "$elink" "$eps" "$fslug"
                          fi
                      else
-                         echo "Không tải được tập phim (Có thể link API đã đổi hoặc Anime bị xóa)."
+                         echo "Lỗi: Không tìm thấy link tập."
                          sleep 2
                      fi
                 fi
