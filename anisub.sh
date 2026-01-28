@@ -678,7 +678,8 @@ prefetch_chapter_images() {
     wait # Wait for all remaining jobs
 }
 
-# --- DISPLAY FULL CHAPTER (FZF View + Prefetch) ---
+# --- DISPLAY FULL CHAPTER (FZF "Smart Mode") ---
+# --- DISPLAY FULL CHAPTER (FZF "Smart Mode" + Fallback) ---
 display_full_chapter() {
     local manga_name="$1"
     local chapter_name="$2"
@@ -691,48 +692,126 @@ display_full_chapter() {
     local cache_dir="/tmp/anisub_cache_$session_id"
     mkdir -p "$cache_dir"
     
+    # 1. Create URL Map for Fallback (lines 1..N)
+    local url_file="$cache_dir/urls.txt"
+    printf "%s\n" "${images[@]}" > "$url_file"
+    
+    # 2. Create Open Helper
+    cat <<EOF > "$cache_dir/open.sh"
+#!/bin/bash
+current_line="\$1"
+page_num=\$(echo "\$current_line" | awk '{print \$2}' | cut -d'/' -f1)
+target_file="$cache_dir/\${page_num}.jpg"
+# Try downloading if missing (using curl line from url file)
+if [ ! -f "\$target_file" ]; then
+    idx=\$(echo "\$page_num" | sed 's/^0*//')
+    url=\$(sed -n "\${idx}p" "$url_file")
+    curl -sL "\$url" \
+         -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+         -H "Referer: ${MANGA_BASE_URL}/" \
+         -o "\$target_file.tmp" && mv "\$target_file.tmp" "\$target_file"
+fi
+if [ -f "\$target_file" ]; then
+    xdg-open "\$target_file" >/dev/null 2>&1 &
+fi
+EOF
+    chmod +x "$cache_dir/open.sh"
+
     # Create Preview Script Helper
     cat <<EOF > "$cache_dir/preview.sh"
 #!/bin/bash
 current_line="\$1"
-# Extract page number using simple logic assuming format "Page XXX" or similar logic from input
-# Input format expected: "Trang 001/010"
 page_num=\$(echo "\$current_line" | awk '{print \$2}' | cut -d'/' -f1)
 target_file="$cache_dir/\${page_num}.jpg"
 
-# Retry logic
-wait_count=0
-while [ ! -s "\$target_file" ]; do
-    echo "⚡ Đang tải \${page_num}..."
-    sleep 0.5
-    ((wait_count++))
-    if [ \$wait_count -gt 10 ]; then
-        echo "⚠️ Timeout waiting for \${page_num}"
-        exit 1
-    fi
-done
+# DEBOUNCE
+sleep 0.15
 
-# Render
-if command -v chafa &>/dev/null; then
-    # Calibrate width to prevent wrapping (allow 2 cols padding)
-    # Force format to 'symbols' to avoid Sixel/Kitty graphics bleeding out of FZF frame
-    img_width=\$((FZF_PREVIEW_COLUMNS - 2))
-    chafa -f symbols -s "\${img_width}x8000" --animate=off "\$target_file"
+# [ CLEANUP ] Force clear previous graphics (Crucial for Kitty)
+if [[ "\$TERM" == "xterm-kitty" ]]; then
+    printf '\x1b_Ga=d,d=A\x1b\\'
+fi
+
+# [ FALLBACK ] Check Cache or Download
+if [ ! -s "\$target_file" ]; then
+    idx=\$(echo "\$page_num" | sed 's/^0*//'); [ -z "\$idx" ] && idx=0 
+    url=\$(sed -n "\${idx}p" "$url_file")
+    
+    if [ -n "\$url" ]; then
+        # Try download silently
+        curl -fsL "\$url" -H "Referer: ${MANGA_BASE_URL}/" -H "User-Agent: Mozilla/5.0" -o "\$target_file.tmp" >/dev/null 2>&1
+        
+        if [ -s "\$target_file.tmp" ]; then
+            mv "\$target_file.tmp" "\$target_file" >/dev/null 2>&1
+        else
+            rm -f "\$target_file.tmp" >/dev/null 2>&1
+        fi
+    fi
+fi
+
+if [ ! -s "\$target_file" ]; then
+    echo "❌ Tải lỗi. (Mạng kém?)"
+    exit 1
+fi
+
+# [ INFO ]
+fsize=\$(du -h "\$target_file" | cut -f1)
+
+# [ DIMENSION CHECK ]
+width=0
+height=0
+
+if command -v identify &>/dev/null; then
+    dims=\$(identify -format "%w %h" "\$target_file" 2>/dev/null)
+    width=\$(echo "\$dims" | awk '{print \$1}')
+    height=\$(echo "\$dims" | awk '{print \$2}')
+elif command -v file &>/dev/null; then
+    res=\$(file "\$target_file")
+    if [[ \$res =~ ([0-9]+)x([0-9]+) ]]; then
+        width=\${BASH_REMATCH[1]}
+        height=\${BASH_REMATCH[2]}
+    fi
+fi
+
+if [ -z "\$width" ] || [ "\$width" -eq 0 ]; then width=1; height=1; fi
+ratio=\$((height / width))
+
+echo "📁 \${page_num} [\$fsize]"
+
+# [ RENDER ] Logic
+# 1. Webtoon Strip (Ratio >= 3) -> Text Mode for Scrolling
+if [ \$ratio -ge 3 ]; then
+     safe_cols=\$((FZF_PREVIEW_COLUMNS - 4))
+     if [ \$safe_cols -lt 10 ]; then safe_cols=10; fi
+     chafa -f symbols --symbols=all --size="\${safe_cols}x" --animate=off "\$target_file"
+
+# 2. Normal Page -> Graphic Mode (Kitty/Sixel)
 else
-    echo "Missing chafa dependency."
+    safe_cols=\$((FZF_PREVIEW_COLUMNS - 4))
+    safe_lines=\$((FZF_PREVIEW_LINES - 3))
+    if [ \$safe_cols -lt 10 ]; then safe_cols=10; fi
+
+    if [[ "\$TERM" == "xterm-kitty" ]]; then
+        # Force Kitty Protocol
+        chafa -f kitty --size="\${safe_cols}x\${safe_lines}" --animate=off "\$target_file"
+    else
+        # Force Sixel Protocol (Assuming terminal supports it if not Kitty)
+        # We REMOVE the fallback to symbols to force HD or nothing.
+        # If chafa fails (exit code), FZF will just show nothing or error, better than blurry symbols.
+        chafa -f sixels --size="\${safe_cols}x\${safe_lines}" --animate=off "\$target_file"
+    fi
 fi
 EOF
     chmod +x "$cache_dir/preview.sh"
 
     # Start Prefetching in Background
-    prefetch_chapter_images "$cache_dir" "${images[@]}" &
+    prefetch_chapter_images "$cache_dir" "${images[@]}" >/dev/null 2>&1 &
     local prefetch_pid=$!
     
     # Cleanup Trap (ensure cache is deleted on exit)
     trap "rm -rf '$cache_dir'; kill $prefetch_pid 2>/dev/null" EXIT
     
     # Prepare Input list for FZF
-    # Format: "Trang 001/Total"
     list_input=""
     for ((i=1; i<=total_pages; i++)); do
         p_str=$(printf "%03d" $i)
@@ -740,17 +819,15 @@ EOF
     done
     
     # FZF Execution
-    # --preview will call our helper script
-    # --preview-window set to 80% to give maximum space to image
-    # Input is piped via echo to avoid creating huge temp file
     echo -n "$list_input" | fzf \
         --layout=reverse \
         --ansi \
         --header="📖 $manga_name - $chapter_name" \
-        --prompt="Phím điều hướng để xem ảnh > " \
+        --prompt="Xem ảnh HD | Enter: Mở ngoài > " \
         --preview "$cache_dir/preview.sh {}" \
-        --preview-window="right:80%" \
-        --bind "enter:accept"
+        --preview-window="right:75%" \
+        --bind "enter:execute-silent($cache_dir/open.sh {})" \
+        --bind "ctrl-c:abort"
         
     # Clean up at end of chapter
     rm -rf "$cache_dir"
