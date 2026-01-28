@@ -27,7 +27,7 @@
 ## UPDATE
 《📺》- Thêm gợi ý từ khóa<br>
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
-《📖》- Tích hợp Manga-tui ( có hỗ trợ vietsub )<br>
+《📖》- Tích hợp truyenvn ( manga thì đọc oke còn webtoon thì như hạch ) <br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
 《﬚》- Bổ sung tính năng ghép nhiều video với nhau <br>
 #### Và còn nhiều tính năng khác!!! <br>
