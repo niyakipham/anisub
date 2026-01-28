@@ -5,6 +5,8 @@ CONFIG_DIR="$HOME/.config/anisub_cli"
 CONFIG_FILE="$CONFIG_DIR/config.cfg"
 HISTORY_FILE="$CONFIG_DIR/history.log"
 FAVORITES_FILE="$CONFIG_DIR/favorites.txt"
+MANGA_HISTORY_FILE="$CONFIG_DIR/manga_history.log"
+MANGA_FAVORITES_FILE="$CONFIG_DIR/manga_favorites.txt"
 SCRIPT_URL="https://raw.githubusercontent.com/NiyakiPham/anisub/main/anisub.sh"
 
 # Local Data File
@@ -14,8 +16,10 @@ LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 # --- DEFAULTS ---
 DEFAULT_PLAYER="mpv"
 DEFAULT_DOWNLOAD_DIR="$HOME/Downloads/anime"
+DEFAULT_MANGA_IMAGE_SCALE=130  # Phần trăm kích thước hình ảnh (100 = full terminal, 130 = 30% lớn hơn)
 PLAYER=""
 DOWNLOAD_DIR=""
+MANGA_IMAGE_SCALE=""
 
 # --- UTILITY FUNCTIONS ---
 ensure_config_dir() {
@@ -31,22 +35,24 @@ load_config() {
     source "$CONFIG_FILE"
     PLAYER=${PLAYER:-$DEFAULT_PLAYER}
     DOWNLOAD_DIR=${DOWNLOAD_DIR:-$DEFAULT_DOWNLOAD_DIR}
+    MANGA_IMAGE_SCALE=${MANGA_IMAGE_SCALE:-$DEFAULT_MANGA_IMAGE_SCALE}
     mkdir -p "$DOWNLOAD_DIR"
     mkdir -p "$DOWNLOAD_DIR/cut"
     mkdir -p "$DOWNLOAD_DIR/merged"
-    touch "$HISTORY_FILE" "$FAVORITES_FILE"
+    touch "$HISTORY_FILE" "$FAVORITES_FILE" "$MANGA_HISTORY_FILE" "$MANGA_FAVORITES_FILE"
 }
 
 save_config() {
     echo "PLAYER=$PLAYER" > "$CONFIG_FILE"
     echo "DOWNLOAD_DIR=$DOWNLOAD_DIR" >> "$CONFIG_FILE"
+    echo "MANGA_IMAGE_SCALE=$MANGA_IMAGE_SCALE" >> "$CONFIG_FILE"
     echo "Cấu hình đã được lưu."
     sleep 1
 }
 
 check_dependencies() {
     local missing_deps=()
-    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "jq" "awk" "sed" "chafa")
+    local deps=("ffmpeg" "curl" "grep" "yt-dlp" "fzf" "jq" "awk" "sed" "chafa" "perl")
     echo "Kiểm tra các phụ thuộc hệ thống..."
     for dep in "${deps[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
@@ -423,14 +429,33 @@ play_anidata_local() {
 # --- SETTINGS & UPDATE ---
 show_settings() {
     while true; do
-        opt=$(echo -e "Đổi trình phát (Hiện tại: $PLAYER)\nĐổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\nQuay lại" | fzf --prompt="Cài đặt > ")
+        opt=$(echo -e "🎬 Đổi trình phát (Hiện tại: $PLAYER)\n📁 Đổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\n🖼️ Kích thước ảnh manga (Hiện tại: ${MANGA_IMAGE_SCALE}%)\n🔙 Quay lại" | fzf --prompt="⚙️ Cài đặt > ")
         case "$opt" in
-            "Đổi trình phát"*)
+            *"Đổi trình phát"*)
                 read -r -p "Nhập lệnh trình phát (vd vlc): " inp
                 if command -v "$inp" &> /dev/null; then PLAYER="$inp"; save_config; fi ;;
-            "Đổi thư mục tải"*)
+            *"Đổi thư mục tải"*)
                 read -r -p "Nhập đường dẫn tuyệt đối: " inp
                 DOWNLOAD_DIR="$inp"; mkdir -p "$inp"; save_config ;;
+            *"Kích thước ảnh manga"*)
+                echo ""
+                echo "╔═══════════════════════════════════════════════════════════╗"
+                echo "║  🖼️ ĐIỀU CHỈNH KÍCH THƯỚC HÌNH ẢNH MANGA                  ║"
+                echo "║  Giá trị hiện tại: ${MANGA_IMAGE_SCALE}%                                     ║"
+                echo "║  Phạm vi cho phép: 50% - 200%                              ║"
+                echo "║  Mẹo: 100% = vừa terminal, 130% = 30% lớn hơn              ║"
+                echo "╚═══════════════════════════════════════════════════════════╝"
+                read -r -p "Nhập kích thước (50-200): " inp
+                if [[ "$inp" =~ ^[0-9]+$ ]] && [ "$inp" -ge 50 ] && [ "$inp" -le 200 ]; then
+                    MANGA_IMAGE_SCALE="$inp"
+                    save_config
+                    echo "✅ Đã thay đổi kích thước thành ${MANGA_IMAGE_SCALE}%"
+                    sleep 1
+                else
+                    echo "❌ Giá trị không hợp lệ! Phải từ 50 đến 200."
+                    sleep 1
+                fi
+                ;;
             *) break ;;
         esac
     done
@@ -451,6 +476,585 @@ update_script() {
     fi
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ██████╗ ██████╗ ███╗   ██╗ ██████╗  █████╗     ██████╗ ███████╗ █████╗ ██████╗ ███████╗██████╗ 
+# ██╔══██╗██╔══██╗████╗  ██║██╔════╝ ██╔══██╗    ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗
+# ██████╔╝██████╔╝██╔██╗ ██║██║  ███╗███████║    ██████╔╝█████╗  ███████║██║  ██║█████╗  ██████╔╝
+# ██╔═══╝ ██╔══██╗██║╚██╗██║██║   ██║██╔══██║    ██╔══██╗██╔══╝  ██╔══██║██║  ██║██╔══╝  ██╔══██╗
+# ██║     ██║  ██║██║ ╚████║╚██████╔╝██║  ██║    ██║  ██║███████╗██║  ██║██████╔╝███████╗██║  ██║
+# ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝    ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝
+# MANGA READER - TRUYENVN.SHOP
+# ═══════════════════════════════════════════════════════════════════════════════
+
+MANGA_BASE_URL="https://truyenvn.shop"
+
+# --- MANGA HISTORY ---
+add_to_manga_history() {
+    local manga_name="$1"
+    local chapter_name="$2"
+    local manga_slug="$3"
+    sed -i "/|${manga_slug}|${chapter_name}|/d" "$MANGA_HISTORY_FILE"
+    echo "$(date +%Y-%m-%d\ %H:%M:%S)|${manga_name}|${chapter_name}|${manga_slug}" >> "$MANGA_HISTORY_FILE"
+}
+
+show_manga_history() {
+    if [ ! -s "$MANGA_HISTORY_FILE" ]; then
+        echo "📚 Lịch sử đọc truyện trống."
+        sleep 2
+        return 1
+    fi
+    selected=$(tac "$MANGA_HISTORY_FILE" | fzf --prompt="📜 Lịch sử đọc > " --delimiter='|' --with-nth=1,2,3 \
+        --header="╔══════════════════════════════════════════╗
+║  📚 LỊCH SỬ ĐỌC TRUYỆN TRANH             ║
+╚══════════════════════════════════════════╝")
+    if [ -n "$selected" ]; then
+        local manga_name=$(echo "$selected" | cut -d'|' -f2)
+        local chapter_name=$(echo "$selected" | cut -d'|' -f3)
+        local manga_slug=$(echo "$selected" | cut -d'|' -f4)
+        echo "$manga_name|$manga_slug|$chapter_name"
+        return 0
+    fi
+    return 1
+}
+
+# --- MANGA FAVORITES ---
+add_to_manga_favorites() {
+    local name="$1"
+    local slug="$2"
+    if grep -q "|$slug$" "$MANGA_FAVORITES_FILE"; then
+        echo "💫 '$name' đã có trong danh sách yêu thích."
+    else
+        echo "$name|$slug" >> "$MANGA_FAVORITES_FILE"
+        echo "⭐ Đã thêm '$name' vào danh sách yêu thích!"
+    fi
+    sleep 1
+}
+
+show_manga_favorites() {
+    if [ ! -s "$MANGA_FAVORITES_FILE" ]; then
+        echo "⭐ Danh sách yêu thích trống."
+        sleep 2
+        return 1
+    fi
+    selected=$(fzf --prompt="⭐ Truyện yêu thích > " --delimiter='|' --with-nth=1 \
+        --header="╔══════════════════════════════════════════╗
+║  ⭐ TRUYỆN TRANH YÊU THÍCH               ║
+╚══════════════════════════════════════════╝" < "$MANGA_FAVORITES_FILE")
+    if [ -n "$selected" ]; then
+        echo "$selected"
+        return 0
+    fi
+    return 1
+}
+
+# --- FETCH CHAPTER LIST ---
+fetch_chapter_list() {
+    local manga_slug="$1"
+    local url="${MANGA_BASE_URL}/truyen-tranh/${manga_slug}/"
+    
+    # Fetch HTML và extract tất cả chapter links
+    # Website có nhiều format khác nhau:
+    # - /truyen-tranh/soeun/chapter-1/
+    # - /truyen-tranh/one-piece/one-piece-chapter-1088/
+    curl -s "$url" \
+        -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" | \
+        grep -oP 'href="https://truyenvn\.shop/truyen-tranh/'"$manga_slug"'/[^"]+/"' | \
+        sed 's/href="//;s/"$//' | \
+        grep -v "/$manga_slug/$" | \
+        sort -u | \
+        while read -r chap_url; do
+            # Extract chapter name từ URL
+            local chap_name=$(echo "$chap_url" | sed "s|.*/truyen-tranh/$manga_slug/||;s|/$||" | \
+                sed 's/-/ /g' | sed 's/\b\(.\)/\u\1/g')
+            # Format lại cho đẹp
+            chap_name=$(echo "$chap_name" | sed 's/Chapter/Chapter/i')
+            echo "$chap_name|$chap_url"
+        done | \
+        # Sắp xếp theo số chapter (extract số từ tên)
+        sort -t'|' -k1 -V
+}
+
+# --- FETCH CHAPTER IMAGES ---
+fetch_chapter_images() {
+    local chapter_url="$1"
+    local temp_html=$(mktemp /tmp/anisub_chap_XXXXXX.html)
+    
+    # 1. Tải HTML về file tạm để xử lý ổn định
+    curl -s "$chapter_url" \
+        -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+        -H "Referer: ${MANGA_BASE_URL}/" \
+        -o "$temp_html"
+        
+    if [ ! -s "$temp_html" ]; then
+        rm -f "$temp_html"
+        return 1
+    fi
+    
+    # 2. Extract URLs - Support Lazy Loading & Scope to Content
+    # Scope vào class "reading-content" để tránh ảnh thumbnail của truyện khác
+    perl -0777 -ne '
+    my $content = $_;
+    
+    # Try to find the reading content div more loosely
+    if ($content =~ /(<div[^>]*class=[\"\x27][^\"\x27]*reading-content[^>]*>)/si) {
+        # Start from the match
+        $content = $'"'"'; # $'"'"' is post-match (using single quote hack for shell)
+        
+        # Stop at "comments", "related", "entry-footer" or common footer classes
+        # Use a list of potential footer markers
+        if ($content =~ /(class=[\"\x27][^\"\x27]*(related-reading|entry-footer|comments|footer-widgets)[^\"\x27]*[\"\x27]|id=[\"\x27]comments[\"\x27])/i) {
+             $content = $` ; 
+        }
+    }
+    
+    while ($content =~ /<img\s+([^>]+)>/gi) {
+        my $attrs = $1;
+        my $url = "";
+        # Check priority attributes
+        if ($attrs =~ /data-(?:src|original|lazy-src|eco)=[\"\x27]([^\"\x27]+)[\"\x27]/i) {
+            $url = $1;
+        } elsif ($attrs =~ /\ssrc=[\"\x27]([^\"\x27]+)[\"\x27]/i) {
+            $url = $1;
+        }
+        
+        # Clean up URL (trim whitespace)
+        $url =~ s/^\s+|\s+$//g;
+        
+        # Decode HTML entities if needed (basic chars)
+        $url =~ s/&amp;/&/g;
+        
+        if ($url ne "") { print "$url\n"; }
+    }' "$temp_html" | \
+        grep -iE '\.(jpg|jpeg|png|webp|gif)' | \
+        grep "^http" | \
+        sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+        grep -viE 'logo|icon|avatar|thumb|banner|facebook|twitter|share|google|recaptcha|popup' | \
+        grep -v '^$' | \
+        awk '!seen[$0]++' > "${temp_html}.list"
+        
+    # Check if list is empty
+    if [ ! -s "${temp_html}.list" ]; then 
+        echo "" >&2 # Suppress visual error for user, handle in caller
+    else
+        cat "${temp_html}.list"
+    fi
+    rm -f "${temp_html}" "${temp_html}.list"
+}
+
+# --- PREFETCH IMAGES ---
+prefetch_chapter_images() {
+    local cache_dir="$1"
+    shift
+    local images=("$@")
+    
+    mkdir -p "$cache_dir"
+    
+    # Download in parallel (background jobs)
+    local max_jobs=5
+    local job_count=0
+    
+    local idx=0
+    for url in "${images[@]}"; do
+        local filename=$(printf "%03d.jpg" $((idx + 1))) # 001.jpg, 002.jpg...
+        local filepath="$cache_dir/$filename"
+        
+        # Skip if exists
+        if [ ! -f "$filepath" ]; then
+            (
+                curl -sL "$url" \
+                     -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
+                     -H "Referer: ${MANGA_BASE_URL}/" \
+                     -o "$filepath.tmp" && mv "$filepath.tmp" "$filepath"
+            ) &
+            
+            ((job_count++))
+            if [ $job_count -ge $max_jobs ]; then
+                wait -n
+                ((job_count--))
+            fi
+        fi
+        ((idx++))
+    done
+    wait # Wait for all remaining jobs
+}
+
+# --- DISPLAY FULL CHAPTER (FZF View + Prefetch) ---
+display_full_chapter() {
+    local manga_name="$1"
+    local chapter_name="$2"
+    shift 2
+    local images=("$@")
+    local total_pages=${#images[@]}
+    
+    # Cache Directory Setup
+    local session_id=$(date +%s)
+    local cache_dir="/tmp/anisub_cache_$session_id"
+    mkdir -p "$cache_dir"
+    
+    # Create Preview Script Helper
+    cat <<EOF > "$cache_dir/preview.sh"
+#!/bin/bash
+current_line="\$1"
+# Extract page number using simple logic assuming format "Page XXX" or similar logic from input
+# Input format expected: "Trang 001/010"
+page_num=\$(echo "\$current_line" | awk '{print \$2}' | cut -d'/' -f1)
+target_file="$cache_dir/\${page_num}.jpg"
+
+# Retry logic
+wait_count=0
+while [ ! -s "\$target_file" ]; do
+    echo "⚡ Đang tải \${page_num}..."
+    sleep 0.5
+    ((wait_count++))
+    if [ \$wait_count -gt 10 ]; then
+        echo "⚠️ Timeout waiting for \${page_num}"
+        exit 1
+    fi
+done
+
+# Render
+if command -v chafa &>/dev/null; then
+    # Calibrate width to prevent wrapping (allow 2 cols padding)
+    # Force format to 'symbols' to avoid Sixel/Kitty graphics bleeding out of FZF frame
+    img_width=\$((FZF_PREVIEW_COLUMNS - 2))
+    chafa -f symbols -s "\${img_width}x8000" --animate=off "\$target_file"
+else
+    echo "Missing chafa dependency."
+fi
+EOF
+    chmod +x "$cache_dir/preview.sh"
+
+    # Start Prefetching in Background
+    prefetch_chapter_images "$cache_dir" "${images[@]}" &
+    local prefetch_pid=$!
+    
+    # Cleanup Trap (ensure cache is deleted on exit)
+    trap "rm -rf '$cache_dir'; kill $prefetch_pid 2>/dev/null" EXIT
+    
+    # Prepare Input list for FZF
+    # Format: "Trang 001/Total"
+    list_input=""
+    for ((i=1; i<=total_pages; i++)); do
+        p_str=$(printf "%03d" $i)
+        list_input+="Trang ${p_str}/${total_pages}"$'\n'
+    done
+    
+    # FZF Execution
+    # --preview will call our helper script
+    # --preview-window set to 80% to give maximum space to image
+    # Input is piped via echo to avoid creating huge temp file
+    echo -n "$list_input" | fzf \
+        --layout=reverse \
+        --ansi \
+        --header="📖 $manga_name - $chapter_name" \
+        --prompt="Phím điều hướng để xem ảnh > " \
+        --preview "$cache_dir/preview.sh {}" \
+        --preview-window="right:80%" \
+        --bind "enter:accept"
+        
+    # Clean up at end of chapter
+    rm -rf "$cache_dir"
+}
+
+# --- READ MANGA CHAPTER (Continuous Scroll) ---
+read_manga_chapter() {
+    local manga_name="$1"
+    local manga_slug="$2"
+    local chapter_name="$3"
+    local chapter_url="$4"
+    local chapter_list_raw="$5"
+    
+    while true; do
+        clear
+        echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+        echo "║  ⏳ ĐANG TẢI CHAPTER...                                                      ║"
+        printf "║  📖 %-70s ║\n" "$manga_name"
+        printf "║  📑 %-70s ║\n" "$chapter_name"
+        echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+        
+        # Lấy danh sách ảnh
+        mapfile -t images < <(fetch_chapter_images "$chapter_url")
+        
+        if [ ${#images[@]} -eq 0 ]; then
+            echo ""
+            echo "❌ Không tìm thấy hình ảnh trong chapter này!"
+            echo "Nhấn [r] để thử lại, [c] để chọn chapter khác, hoặc [q] để thoát."
+            read -rsn1 key
+            case "$key" in
+                'r') continue ;;
+                'c') return 0 ;;
+                'q') return 1 ;;
+            esac
+            continue
+        fi
+        
+        add_to_manga_history "$manga_name" "$chapter_name" "$manga_slug"
+        
+        # Clear và hiển thị toàn bộ chapter (continuous scroll)
+        clear
+        display_full_chapter "$manga_name" "$chapter_name" "${images[@]}"
+        
+        # Input Loop to prevent re-rendering on invalid key
+        while true; do
+            read -rsn1 key < /dev/tty
+            case "$key" in
+                'n')  # Next chapter
+                    next_chap=$(echo "$chapter_list_raw" | grep -A1 "^${chapter_name}|" | tail -1)
+                    if [ -n "$next_chap" ] && [ "$next_chap" != "${chapter_name}|"* ]; then
+                        chapter_name=$(echo "$next_chap" | cut -d'|' -f1)
+                        chapter_url=$(echo "$next_chap" | cut -d'|' -f2)
+                        break 2 # Break inner loop, continue outer (reload new chap)
+                    else
+                        echo ""
+                        echo "📚 Đây là chapter mới nhất! (Phím bất kỳ để tiếp tục)"
+                        # Stay in inner loop
+                    fi
+                    ;;
+                'p')  # Previous chapter
+                    prev_chap=$(echo "$chapter_list_raw" | grep -B1 "^${chapter_name}|" | head -1)
+                    if [ -n "$prev_chap" ] && [ "$prev_chap" != "${chapter_name}|"* ]; then
+                        chapter_name=$(echo "$prev_chap" | cut -d'|' -f1)
+                        chapter_url=$(echo "$prev_chap" | cut -d'|' -f2)
+                        break 2 # Break inner loop, continue outer (reload new chap)
+                    else
+                        echo ""
+                        echo "📚 Đây là chapter đầu tiên! (Phím bất kỳ để tiếp tục)"
+                        # Stay in inner loop
+                    fi
+                    ;;
+                'c')  # Change chapter
+                    return 0
+                    ;;
+                'f')  # Add to favorites
+                    add_to_manga_favorites "$manga_name" "$manga_slug"
+                    echo ""
+                    echo "⭐ Đã thêm vào yêu thích!"
+                    # Stay in inner loop
+                    ;;
+                'r')  # Reload current chapter
+                    break # Break inner loop, outer loop repeats (reloads current)
+                    ;;
+                '+' | '=')  # Zoom in
+                    MANGA_IMAGE_SCALE=$((MANGA_IMAGE_SCALE + 10))
+                    if [ $MANGA_IMAGE_SCALE -gt 200 ]; then MANGA_IMAGE_SCALE=200; fi
+                    save_config
+                    echo "Img Scale: $MANGA_IMAGE_SCALE%"
+                    # Stay in inner loop
+                    ;;
+                '-' | '_')  # Zoom out
+                    MANGA_IMAGE_SCALE=$((MANGA_IMAGE_SCALE - 10))
+                    if [ $MANGA_IMAGE_SCALE -lt 50 ]; then MANGA_IMAGE_SCALE=50; fi
+                    save_config
+                    echo "Img Scale: $MANGA_IMAGE_SCALE%"
+                    # Stay in inner loop
+                    ;;
+                'q')  # Quit
+                    return 1
+                    ;;
+                *) 
+                    # Invalid key, do nothing (stay in inner loop)
+                    ;;
+            esac
+        done
+    done
+}
+
+# --- MANGA MAIN MENU ---
+manga_main_menu() {
+    while true; do
+        clear
+        echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+        echo "║                                                                              ║"
+        echo "║   ████████╗██████╗ ██╗   ██╗██╗   ██╗███████╗███╗   ██╗██╗   ██╗███╗   ██╗   ║"
+        echo "║   ╚══██╔══╝██╔══██╗██║   ██║╚██╗ ██╔╝██╔════╝████╗  ██║██║   ██║████╗  ██║   ║"
+        echo "║      ██║   ██████╔╝██║   ██║ ╚████╔╝ █████╗  ██╔██╗ ██║██║   ██║██╔██╗ ██║   ║"
+        echo "║      ██║   ██╔══██╗██║   ██║  ╚██╔╝  ██╔══╝  ██║╚██╗██║╚██╗ ██╔╝██║╚██╗██║   ║"
+        echo "║      ██║   ██║  ██║╚██████╔╝   ██║   ███████╗██║ ╚████║ ╚████╔╝ ██║ ╚████║   ║"
+        echo "║      ╚═╝   ╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═══╝  ╚═══╝  ╚═╝  ╚═══╝   ║"
+        echo "║                        📚 MANGA READER 📚                                    ║"
+        echo "║                                                                              ║"
+        echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+        echo ""
+        
+        main_opt=$(echo -e "🔍 Tìm kiếm truyện tranh\n📖 Truyện mới cập nhật\n📜 Lịch sử đọc\n⭐ Truyện yêu thích\n🔙 Quay lại Menu Chính" | \
+            fzf --prompt="📚 Menu > " --height=40% --reverse)
+        
+        case "$main_opt" in
+            "🔍 Tìm kiếm truyện tranh")
+                # Search với fzf dynamic
+                sel=$(fzf --disabled \
+                    --prompt="🔍 Gõ tên truyện: " \
+                    --header="╔══════════════════════════════════════════╗
+║  Nhập >= 2 ký tự để tìm kiếm             ║
+╚══════════════════════════════════════════╝" \
+                    --bind "change:reload:
+                        query={q};
+                        if [ \${#query} -ge 2 ]; then
+                            encoded_q=\$(echo \"\$query\" | sed 's/ /%20/g');
+                            curl -s \"https://truyenvn.shop/?s=\$encoded_q&post_type=wp-manga\" | \
+                            grep -oP '<a href=\"https://truyenvn.shop/truyen-tranh/[^\"]+\"[^>]*title=\"[^\"]+\"' | \
+                            sed 's/<a href=\"\([^\"]*\)\"[^>]*title=\"\([^\"]*\)\"/\2|\1/' | \
+                            head -20;
+                        else
+                            echo 'Vui lòng nhập tên truyện...';
+                        fi" \
+                    --delimiter='|' \
+                    --with-nth=1)
+                
+                if [ -n "$sel" ] && [[ "$sel" != "Vui lòng"* ]]; then
+                    manga_name=$(echo "$sel" | cut -d'|' -f1)
+                    manga_url=$(echo "$sel" | cut -d'|' -f2)
+                    manga_slug=$(echo "$manga_url" | sed 's|.*/truyen-tranh/\([^/]*\)/.*|\1|')
+                    
+                    # Lấy danh sách chapter
+                    echo "⏳ Đang tải danh sách chapter..."
+                    chapter_list=$(fetch_chapter_list "$manga_slug")
+                    
+                    if [ -z "$chapter_list" ]; then
+                        echo "❌ Không tìm thấy chapter!"
+                        sleep 2
+                        continue
+                    fi
+                    
+                    # Chọn chapter
+                    sel_chap=$(echo "$chapter_list" | fzf --prompt="📑 Chọn chapter > " --delimiter='|' --with-nth=1 --tac \
+                        --header="╔══════════════════════════════════════════╗
+║  📖 $manga_name
+╚══════════════════════════════════════════╝")
+                    
+                    if [ -n "$sel_chap" ]; then
+                        chap_name=$(echo "$sel_chap" | cut -d'|' -f1)
+                        chap_url=$(echo "$sel_chap" | cut -d'|' -f2)
+                        
+                        while true; do
+                            read_manga_chapter "$manga_name" "$manga_slug" "$chap_name" "$chap_url" "$chapter_list"
+                            result=$?
+                            if [ $result -eq 1 ]; then
+                                break  # User quit
+                            fi
+                            # User wants to change chapter
+                            sel_chap=$(echo "$chapter_list" | fzf --prompt="📑 Chọn chapter > " --delimiter='|' --with-nth=1 --tac)
+                            if [ -z "$sel_chap" ]; then
+                                break
+                            fi
+                            chap_name=$(echo "$sel_chap" | cut -d'|' -f1)
+                            chap_url=$(echo "$sel_chap" | cut -d'|' -f2)
+                        done
+                    fi
+                fi
+                ;;
+                
+            "📖 Truyện mới cập nhật")
+                echo "⏳ Đang tải danh sách truyện mới..."
+                manga_list=$(curl -s "${MANGA_BASE_URL}/truyen-tranh/" | \
+                    grep -oP '<a href="https://truyenvn.shop/truyen-tranh/[^"]+/"[^>]*title="[^"]+"' | \
+                    sed 's/<a href="\([^"]*\)"[^>]*title="\([^"]*\)"/\2|\1/' | \
+                    head -30)
+                
+                sel=$(echo "$manga_list" | fzf --prompt="📖 Chọn truyện > " --delimiter='|' --with-nth=1 \
+                    --header="╔══════════════════════════════════════════╗
+║  📖 TRUYỆN MỚI CẬP NHẬT                  ║
+╚══════════════════════════════════════════╝")
+                
+                if [ -n "$sel" ]; then
+                    manga_name=$(echo "$sel" | cut -d'|' -f1)
+                    manga_url=$(echo "$sel" | cut -d'|' -f2)
+                    manga_slug=$(echo "$manga_url" | sed 's|.*/truyen-tranh/\([^/]*\)/.*|\1|')
+                    
+                    chapter_list=$(fetch_chapter_list "$manga_slug")
+                    
+                    if [ -z "$chapter_list" ]; then
+                        echo "❌ Không tìm thấy chapter!"
+                        sleep 2
+                        continue
+                    fi
+                    
+                    sel_chap=$(echo "$chapter_list" | fzf --prompt="📑 Chọn chapter > " --delimiter='|' --with-nth=1 --tac \
+                        --header="📖 $manga_name")
+                    
+                    if [ -n "$sel_chap" ]; then
+                        chap_name=$(echo "$sel_chap" | cut -d'|' -f1)
+                        chap_url=$(echo "$sel_chap" | cut -d'|' -f2)
+                        
+                        while true; do
+                            read_manga_chapter "$manga_name" "$manga_slug" "$chap_name" "$chap_url" "$chapter_list"
+                            result=$?
+                            if [ $result -eq 1 ]; then break; fi
+                            sel_chap=$(echo "$chapter_list" | fzf --prompt="📑 Chọn chapter > " --delimiter='|' --with-nth=1 --tac)
+                            if [ -z "$sel_chap" ]; then break; fi
+                            chap_name=$(echo "$sel_chap" | cut -d'|' -f1)
+                            chap_url=$(echo "$sel_chap" | cut -d'|' -f2)
+                        done
+                    fi
+                fi
+                ;;
+                
+            "📜 Lịch sử đọc")
+                history_result=$(show_manga_history)
+                if [ $? -eq 0 ]; then
+                    manga_name=$(echo "$history_result" | cut -d'|' -f1)
+                    manga_slug=$(echo "$history_result" | cut -d'|' -f2)
+                    chapter_name=$(echo "$history_result" | cut -d'|' -f3)
+                    
+                    chapter_list=$(fetch_chapter_list "$manga_slug")
+                    chap_url="${MANGA_BASE_URL}/truyen-tranh/${manga_slug}/${chapter_name}/"
+                    
+                    # Chuẩn hóa chapter name
+                    chap_name_display=$(echo "$chapter_name" | sed 's/chapter-/Chapter /')
+                    
+                    while true; do
+                        read_manga_chapter "$manga_name" "$manga_slug" "$chap_name_display" "$chap_url" "$chapter_list"
+                        result=$?
+                        if [ $result -eq 1 ]; then break; fi
+                        sel_chap=$(echo "$chapter_list" | fzf --prompt="📑 Chọn chapter > " --delimiter='|' --with-nth=1 --tac)
+                        if [ -z "$sel_chap" ]; then break; fi
+                        chap_name_display=$(echo "$sel_chap" | cut -d'|' -f1)
+                        chap_url=$(echo "$sel_chap" | cut -d'|' -f2)
+                    done
+                fi
+                ;;
+                
+            "⭐ Truyện yêu thích")
+                fav_result=$(show_manga_favorites)
+                if [ $? -eq 0 ]; then
+                    manga_name=$(echo "$fav_result" | cut -d'|' -f1)
+                    manga_slug=$(echo "$fav_result" | cut -d'|' -f2)
+                    
+                    chapter_list=$(fetch_chapter_list "$manga_slug")
+                    
+                    if [ -z "$chapter_list" ]; then
+                        echo "❌ Không tìm thấy chapter!"
+                        sleep 2
+                        continue
+                    fi
+                    
+                    sel_chap=$(echo "$chapter_list" | fzf --prompt="📑 Chọn chapter > " --delimiter='|' --with-nth=1 --tac \
+                        --header="⭐ $manga_name")
+                    
+                    if [ -n "$sel_chap" ]; then
+                        chap_name=$(echo "$sel_chap" | cut -d'|' -f1)
+                        chap_url=$(echo "$sel_chap" | cut -d'|' -f2)
+                        
+                        while true; do
+                            read_manga_chapter "$manga_name" "$manga_slug" "$chap_name" "$chap_url" "$chapter_list"
+                            result=$?
+                            if [ $result -eq 1 ]; then break; fi
+                            sel_chap=$(echo "$chapter_list" | fzf --prompt="📑 Chọn chapter > " --delimiter='|' --with-nth=1 --tac)
+                            if [ -z "$sel_chap" ]; then break; fi
+                            chap_name=$(echo "$sel_chap" | cut -d'|' -f1)
+                            chap_url=$(echo "$sel_chap" | cut -d'|' -f2)
+                        done
+                    fi
+                fi
+                ;;
+                
+            "🔙 Quay lại Menu Chính"|*)
+                return
+                ;;
+        esac
+    done
+}
+
 # --- MAIN LOGIC ---
 main() {
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
@@ -459,11 +1063,20 @@ main() {
 
     while true; do
         clear
-        echo "=== ANISUB CLI ==="
-        main_opt=$(echo -e "🔎 Tìm kiếm Anime (KKPhim)\n📂 Xem từ Local Anidata\n📜 Lịch sử xem\n⭐ Danh sách yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="Menu > ")
+        echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+        echo "║     █████╗ ███╗   ██╗██╗███████╗██╗   ██╗██████╗      ██████╗██╗     ██╗     ║"
+        echo "║    ██╔══██╗████╗  ██║██║██╔════╝██║   ██║██╔══██╗    ██╔════╝██║     ██║     ║"
+        echo "║    ███████║██╔██╗ ██║██║███████╗██║   ██║██████╔╝    ██║     ██║     ██║     ║"
+        echo "║    ██╔══██║██║╚██╗██║██║╚════██║██║   ██║██╔══██╗    ██║     ██║     ██║     ║"
+        echo "║    ██║  ██║██║ ╚████║██║███████║╚██████╔╝██████╔╝    ╚██████╗███████╗██║     ║"
+        echo "║    ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚══════╝ ╚═════╝ ╚═════╝      ╚═════╝╚══════╝╚═╝     ║"
+        echo "║                   🎬 Anime & 📚 Manga All-in-One CLI 🎬                      ║"
+        echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+        echo ""
+        main_opt=$(echo -e "🎬 Xem Anime (KKPhim)\n📚 Đọc Truyện Tranh (TruyenVN)\n📂 Xem từ Local Anidata\n📜 Lịch sử xem Anime\n⭐ Anime yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="🎯 Menu > " --height=50% --reverse)
 
         case "$main_opt" in
-            "🔎 Tìm kiếm Anime (KKPhim)")
+            "🎬 Xem Anime (KKPhim)")
                 sel=$(fzf --disabled \
                     --prompt="Gõ tên Anime: " \
                     --header="vui lòng gõ (Nhập >= 2 ký tự) để gợi ý từ khóa" \
@@ -502,9 +1115,10 @@ main() {
                     fi
                 fi
                 ;;
+            "📚 Đọc Truyện Tranh (TruyenVN)") manga_main_menu ;;
             "📂 Xem từ Local Anidata") play_anidata_local ;;
-            "📜 Lịch sử xem") show_history ;;
-            "⭐ Danh sách yêu thích")
+            "📜 Lịch sử xem Anime") show_history ;;
+            "⭐ Anime yêu thích")
                 fav_line=$(show_favorites)
                 if [ $? -eq 0 ]; then
                      fname=$(echo "$fav_line" | cut -d'|' -f1)
