@@ -1,691 +1,1335 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ANISUB-CLI | Trải nghiệm Anime & Manga ngay trên Terminal</title>
+    <title>ANISUB-CLI | Experience Anime & Manga directly on your Terminal</title>
 
-    <meta name="description" content="ANISUB-CLI là trình xem anime, manga vietsub thế hệ mới trực tiếp trên terminal, lấy cảm hứng từ ani-cli. Nhanh, nhẹ, mạnh mẽ và đầy đủ tính năng.">
+    <meta name="description" content="ANISUB-CLI is a next-generation anime and manga viewer directly on the terminal. Fast, lightweight, powerful, and feature-rich.">
     <meta name="keywords" content="anime, cli, terminal, manga, vietsub, anisub-cli, ani-cli, ffmpeg, linux, otaku, developer, command-line">
     <meta name="author" content="NiyakiPham">
-    <meta property="og:title" content="ANISUB-CLI | Trải nghiệm Anime & Manga ngay trên Terminal">
-    <meta property="og:description" content="Một script mạnh mẽ cho phép tìm kiếm, xem, tải anime và đọc manga trực tiếp trên giao diện dòng lệnh, hỗ trợ vietsub đầy đủ.">
+    <meta property="og:title" content="ANISUB-CLI | Experience Anime & Manga directly on your Terminal">
+    <meta property="og:description" content="A powerful script that allows searching, watching, downloading anime, and reading manga directly from the command-line interface.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://github.com/niyakipham/anisub">
-    <meta property="og:image" content="https://raw.githubusercontent.com/niyakipham/niyakipham/main/assets/og-image-anisub.png">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="ANISUB-CLI | Trải nghiệm Anime & Manga ngay trên Terminal">
-    <meta name="twitter:description" content="Một script mạnh mẽ cho phép tìm kiếm, xem, tải anime và đọc manga trực tiếp trên giao diện dòng lệnh, hỗ trợ vietsub đầy đủ.">
-    <meta name="twitter:image" content="https://raw.githubusercontent.com/niyakipham/niyakipham/main/assets/og-image-anisub.png">
+    <meta name="twitter:title" content="ANISUB-CLI | Experience Anime & Manga directly on your Terminal">
+    <meta name="twitter:description" content="A powerful script that allows searching, watching, downloading anime, and reading manga directly from the command-line interface.">
     
-    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/niyakipham/niyakipham/main/assets/favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet"/>
 
     <style>
+        /* COLOR PALETTE */
         :root {
-            --background-start: #010203;
-            --background-end: #0a0b1a;
-            --text-primary: #f0f4ff;
-            --text-secondary: #a0a8c8;
-            --accent-primary: #33a5f5;
-            --accent-secondary: #9f75ff;
-            --card-bg: rgba(23, 24, 45, 0.4);
-            --card-border: rgba(138, 92, 245, 0.2);
-            --glow-1: #6a00ff;
-            --glow-2: #00d1f5;
-            --font-main: 'Inter', -apple-system, sans-serif;
-            --font-mono: 'Fira Code', 'JetBrains Mono', monospace;
+            --bg: #07080f;
+            --bg-2: #0c0d1a;
+            --surface: rgba(255, 255, 255, 0.03);
+            --surface-hover: rgba(255, 255, 255, 0.06);
+            --border: rgba(255, 255, 255, 0.07);
+            --border-bright: rgba(255, 255, 255, 0.14);
+            --text: #eef0ff;
+            --text-muted: #9ba1cc;
+            --text-dim: #5c628a;
+            
+            /* Gradient Accents */
+            --accent: #8b7fff;
+            --accent-2: #34e0c8;
+            --accent-3: #f472b6;
+            --accent-glow: rgba(139, 127, 255, 0.25);
+            
+            --font-display: 'Syne', sans-serif;
+            --font-body: 'DM Sans', sans-serif;
+            --font-mono: 'Space Mono', monospace;
             color-scheme: dark;
         }
 
-        *, *::before, *::after {
-            box-sizing: border-box;
-            margin: 0; padding: 0;
-        }
-
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html { scroll-behavior: smooth; }
 
         body {
-            font-family: var(--font-main);
-            background-color: var(--background-start);
-            background-image: radial-gradient(circle at 100% 0%, rgba(51, 165, 245, 0.1) 0%, transparent 30%),
-                              radial-gradient(circle at 0% 100%, rgba(159, 117, 255, 0.1) 0%, transparent 35%);
-            background-attachment: fixed;
-            color: var(--text-primary);
+            font-family: var(--font-body);
+            background-color: var(--bg);
+            color: var(--text);
             overflow-x: hidden;
             -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
         }
 
-        .container {
-            width: 90%;
-            max-width: 1240px;
-            margin: 0 auto;
-        }
+        ::selection { background: var(--accent); color: #fff; text-shadow: 0 0 8px rgba(255,255,255,0.5); }
 
-        section { 
-            padding: clamp(5rem, 15vh, 10rem) 0; 
-            position: relative; 
-        }
-        
-        ::selection {
-            background-color: var(--accent-primary);
-            color: var(--background-end);
-        }
-
-        .background-grid {
+        /* NOISE TEXTURE */
+        body::before {
+            content: '';
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 100vh;
-            background-image: 
-                linear-gradient(to right, rgba(138, 92, 245, 0.1) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(138, 92, 245, 0.1) 1px, transparent 1px);
-            background-size: 80px 80px;
-            opacity: 0.3;
-            z-index: -10;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
             pointer-events: none;
-            animation: bg-pan 120s linear infinite;
-        }
-        @keyframes bg-pan {
-            0% { background-position: 0% 0%; }
-            100% { background-position: 100% 100%; }
+            z-index: 9999;
         }
 
-        .fixed-donate-btn {
+        /* AURORA BG */
+        .aurora {
             position: fixed;
-            top: 25px;
-            right: 25px;
-            z-index: 1000;
+            inset: 0;
+            z-index: -1;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .aurora-blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            animation: drift 20s ease-in-out infinite alternate;
+        }
+        .aurora-blob:nth-child(1) { width: 70vw; height: 70vw; background: var(--accent); top: -20%; left: -10%; animation-duration: 22s; }
+        .aurora-blob:nth-child(2) { width: 50vw; height: 50vw; background: var(--accent-2); top: 30%; right: -10%; animation-duration: 28s; animation-delay: -5s; }
+        .aurora-blob:nth-child(3) { width: 60vw; height: 60vw; background: var(--accent-3); bottom: -20%; left: 20%; animation-duration: 25s; animation-delay: -10s; }
+        
+        @keyframes drift {
+            0% { transform: translate(0,0) scale(1) rotate(0deg); }
+            50% { transform: translate(3vw, -2vh) scale(1.05) rotate(5deg); }
+            100% { transform: translate(-2vw, 4vh) scale(0.95) rotate(-5deg); }
+        }
+
+        /* GRID OVERLAY */
+        .grid-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background-image:
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 60px 60px;
+            mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, rgba(0,0,0,0.6) 20%, transparent 80%);
+            -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, rgba(0,0,0,0.6) 20%, transparent 80%);
+            pointer-events: none;
+        }
+
+        /* CORE LAYOUT */
+        .container { width: 92%; max-width: 1200px; margin: 0 auto; }
+        section { padding: clamp(5rem, 12vh, 9rem) 0; position: relative; }
+
+        /* NAVIGATION */
+        .nav {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 100;
+            padding: 1.25rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .nav.scrolled {
+            background: rgba(7, 8, 15, 0.85);
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(24px) saturate(180%);
+            padding: 1rem 2rem;
+        }
+        .nav-logo {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 1.15rem;
+            letter-spacing: -0.02em;
             text-decoration: none;
-            color: var(--text-primary);
-            background-color: var(--card-bg);
-            padding: 0.6rem 1.2rem;
-            border-radius: 50px;
-            border: 1px solid var(--card-border);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            transition: transform 0.3s;
+        }
+        .nav-logo:hover { transform: scale(1.02); }
+        .nav-logo .logo-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 15px var(--accent);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 15px var(--accent); }
+            50% { opacity: 0.5; transform: scale(0.85); box-shadow: 0 0 5px var(--accent); }
+        }
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2.5rem;
+            list-style: none;
+        }
+        .nav-links a {
+            text-decoration: none;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: color 0.3s, text-shadow 0.3s;
+            position: relative;
+        }
+        .nav-links a::after {
+            content: ''; position: absolute; bottom: -4px; left: 0; width: 0%; height: 2px;
+            background: var(--accent); transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            border-radius: 2px;
+        }
+        .nav-links a:hover { color: var(--text); text-shadow: 0 0 10px rgba(255,255,255,0.2); }
+        .nav-links a:hover::after { width: 100%; }
+        
+        .nav-cta {
+            text-decoration: none;
+            color: var(--text);
+            background: linear-gradient(135deg, var(--accent), #6855e0);
+            padding: 0.6rem 1.4rem;
+            border-radius: 12px;
             font-size: 0.9rem;
-            font-weight: 600;
-            backdrop-filter: blur(10px);
+            font-weight: 700;
+            font-family: var(--font-display);
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            box-shadow: 0 4px 20px var(--accent-glow);
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            transform: translateY(-150%);
-            opacity: 0;
-            transition: all 0.6s cubic-bezier(0.165, 0.84, 0.44, 1);
+            border: 1px solid rgba(255,255,255,0.1);
         }
-        .fixed-donate-btn.visible {
-            transform: translateY(0);
-            opacity: 1;
-        }
-        .fixed-donate-btn:hover {
-            transform: scale(1.05);
-            background: var(--accent-secondary);
-            box-shadow: 0 5px 20px rgba(159, 117, 255, 0.4);
-        }
-        .fixed-donate-btn i {
-            font-size: 1.2rem;
-            transition: transform 0.3s;
-        }
-        .fixed-donate-btn:hover i {
-            transform: rotate(-15deg) scale(1.1);
-        }
+        .nav-cta:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(124,106,255,0.4); border-color: rgba(255,255,255,0.3); }
         
+        @media (max-width: 768px) { .nav-links { display: none; } }
+
+        /* HERO SECTION */
         .hero {
-            display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
-            text-align: center;
             min-height: 100svh;
-            padding: 2rem 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 8rem 0 4rem;
+            position: relative;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.45rem 1.2rem;
+            border: 1px solid var(--border-bright);
+            border-radius: 100px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 2.5rem;
+            background: rgba(255,255,255,0.02);
+            backdrop-filter: blur(12px);
+            opacity: 0;
+            transition: border-color 0.3s;
+        }
+        .hero-badge:hover { border-color: var(--accent); color: var(--text); }
+        .hero-badge .badge-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--accent-2);
+            box-shadow: 0 0 10px var(--accent-2);
+            animation: pulse-dot 1.5s ease-in-out infinite;
         }
 
         .hero h1 {
-            font-size: clamp(3rem, 10vw + 1rem, 9rem);
-            font-weight: 900; line-height: 1; letter-spacing: -0.05em;
-            margin-bottom: 2rem; position: relative;
+            font-family: var(--font-display);
+            font-size: clamp(3.5rem, 10vw, 8rem);
+            font-weight: 800;
+            line-height: 1;
+            letter-spacing: -0.04em;
+            margin-bottom: 0.2em;
+        }
+        /* Vertical align to keep text aligned on baseline perfectly */
+        .hero h1 .word { 
+            display: inline-block; 
+            overflow: hidden; 
+            padding-bottom: 0.1em; 
+            vertical-align: bottom; 
+        }
+        .hero h1 .word-inner { 
+            display: inline-block; 
+            transform: translateY(105%); 
+        }
+        .hero h1 .dim { color: var(--text-dim); }
+        
+        /* Gradient mapping inside the word container */
+        .hero h1 .grd {
+            background: linear-gradient(135deg, #a78bfa 0%, #8b7fff 40%, #34e0c8 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            position: relative;
         }
 
-        .char-parent {
-            display: inline-block;
+        .hero-sub {
+            max-width: 52ch;
+            font-size: clamp(1.05rem, 2vw, 1.25rem);
+            color: var(--text-muted);
+            line-height: 1.8;
+            margin: 1.5rem auto 3.5rem;
+            opacity: 0;
+            font-weight: 400;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.2rem;
+            justify-content: center;
+            opacity: 0;
+        }
+
+        /* BUTTONS */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.9rem 2rem;
+            border-radius: 12px;
+            font-family: var(--font-display);
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-decoration: none;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            cursor: pointer;
+            border: none;
+            position: relative;
             overflow: hidden;
         }
+        .btn::before {
+            content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.1);
+            opacity: 0; transition: opacity 0.3s;
+        }
+        .btn:hover::before { opacity: 1; }
         
-        .hero h1 .char {
-            display: inline-block;
-            transform: translateY(110%);
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #6855e0);
+            color: #fff;
+            box-shadow: 0 8px 30px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .btn-primary:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 16px 40px rgba(124,106,255,0.5);
+        }
+        .btn-ghost {
+            background: rgba(255,255,255,0.03);
+            color: var(--text);
+            border: 1px solid var(--border-bright);
+            backdrop-filter: blur(10px);
+        }
+        .btn-ghost:hover {
+            transform: translateY(-4px) scale(1.02);
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.3);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
         }
 
-        .hero h1 .highlight {
-            background: linear-gradient(135deg, var(--accent-secondary) 10%, var(--accent-primary) 90%);
+        /* SCROLL INDICATOR */
+        .scroll-indicator {
+            position: absolute;
+            bottom: 3rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            opacity: 0;
+            animation: scroll-fade 2s 2.5s ease forwards;
+            font-family: var(--font-mono);
+        }
+        @keyframes scroll-fade { to { opacity: 1; } }
+        .scroll-line {
+            width: 2px;
+            height: 50px;
+            background: linear-gradient(to bottom, var(--accent-2), transparent);
+            border-radius: 2px;
+            animation: scroll-line 2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+            transform-origin: top;
+        }
+        @keyframes scroll-line {
+            0% { transform: scaleY(0); opacity: 0; }
+            50% { transform: scaleY(1); opacity: 1; }
+            100% { transform: scaleY(1) translateY(100%); opacity: 0; }
+        }
+
+        /* TERMINAL MOCKUP */
+        .terminal-section { padding: clamp(3rem, 8vh, 6rem) 0; }
+        .terminal {
+            background: #06070d;
+            border: 1px solid var(--border-bright);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.03), inset 0 1px 0 rgba(255,255,255,0.08);
+            position: relative;
+        }
+        .terminal::before {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, transparent 100%);
+        }
+        
+        .terminal-bar {
+            background: #0c0d17;
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .terminal-dots { display: flex; gap: 0.5rem; }
+        .terminal-dots span {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            transition: filter 0.3s;
+        }
+        .terminal:hover .terminal-dots span { filter: brightness(1.2); }
+        .dot-red { background: #ff5f57; box-shadow: 0 0 5px rgba(255,95,87,0.4); }
+        .dot-yellow { background: #febc2e; box-shadow: 0 0 5px rgba(254,188,46,0.4); }
+        .dot-green { background: #28c840; box-shadow: 0 0 5px rgba(40,200,64,0.4); }
+        
+        .terminal-title {
+            flex: 1;
+            text-align: center;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+        
+        .terminal-body {
+            padding: 2rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.8;
+            overflow-x: auto;
+            color: #d1d5db;
+        }
+        .t-prompt { color: var(--accent-3); font-weight: bold; }
+        .t-cmd { color: #f3f4f6; font-weight: 700; text-shadow: 0 0 2px rgba(255,255,255,0.2); }
+        .t-comment { color: #6b7280; font-style: italic; }
+        .t-output { color: #9ca3af; }
+        .t-highlight { color: var(--accent-2); font-weight: 700; }
+        .t-success { color: #34d399; }
+        .t-title {
+            color: var(--accent);
+            font-weight: 800;
+            text-shadow: 0 0 8px rgba(139,127,255,0.4);
+        }
+        .t-cursor {
+            display: inline-block;
+            width: 8px; height: 1.2em;
+            background: var(--accent-3);
+            vertical-align: text-bottom;
+            animation: blink 1s step-end infinite;
+            box-shadow: 0 0 8px var(--accent-3);
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* VIDEO EMBED */
+        .video-wrap {
+            aspect-ratio: 16/9;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.6), 0 0 0 4px rgba(255,255,255,0.02);
+            position: relative;
+            background: #000;
+        }
+        .video-wrap iframe { width: 100%; height: 100%; border: 0; display: block; position: relative; z-index: 2; }
+        .video-caption {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-top: 1.5rem;
+            font-style: italic;
+            letter-spacing: 0.02em;
+        }
+        .video-caption a { color: var(--accent-2); text-decoration: none; font-weight: 600; border-bottom: 1px dashed var(--accent-2); transition: all 0.3s; }
+        .video-caption a:hover { color: #fff; border-bottom-style: solid; text-shadow: 0 0 8px var(--accent-2); }
+
+        /* SECTION HEADING */
+        .section-head { margin-bottom: 4.5rem; position: relative; z-index: 2; }
+        .section-head.centered { text-align: center; }
+        .section-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--accent-3);
+            margin-bottom: 1.2rem;
+        }
+        .section-eyebrow::before {
+            content: '♦';
+            display: inline-block;
+            color: var(--accent-3);
+            font-size: 1.1em;
+            animation: float-icon 3s ease-in-out infinite;
+        }
+        @keyframes float-icon { 0%, 100%{transform: translateY(0);} 50%{transform: translateY(-3px);} }
+        .section-head.centered .section-eyebrow::before { display: inline-block; }
+        
+        .section-head h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2.5rem, 5vw, 4.2rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            background: linear-gradient(to right, #fff, #b4b8d9);
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
         }
-        
-        .hero .subtitle {
-            max-width: 45ch;
-            font-size: clamp(1rem, 2.5vw, 1.35rem); color: var(--text-secondary);
-            margin-bottom: 3rem; text-wrap: balance; line-height: 1.8;
-            opacity: 0;
+        .section-head p {
+            margin-top: 1.2rem;
+            color: var(--text-muted);
+            font-size: 1.15rem;
+            line-height: 1.8;
+            max-width: 55ch;
         }
-        
-        .hero-buttons {  
-            display: flex; flex-wrap: wrap;  
-            justify-content: center;  
-            gap: 1rem;  
-            opacity: 0;  
-        }
-        
-        .fancy-btn {
-            position: relative; text-decoration: none;
-            color: var(--text-primary); background-color: rgba(22,23,45, 0.8);
-            padding: 0.9rem 2rem;
-            border-radius: 50px; border: 1px solid var(--card-border);
-            font-size: 1rem; font-weight: 700;
-            transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); 
-            backdrop-filter: blur(8px);
-        }
-        .fancy-btn i { margin-right: 0.5rem; vertical-align: middle; }
-        .fancy-btn.primary {
-            background: linear-gradient(135deg, var(--accent-secondary), var(--accent-primary));
-            border: none;
-            padding: calc(0.9rem + 1px) calc(2rem + 1px);
-            box-shadow: 0 10px 30px -10px rgba(159, 117, 255, 0.5);
-        }
+        .section-head.centered p { margin: 1.2rem auto 0; }
 
-        .fancy-btn:hover {  
-            transform: translateY(-5px) scale(1.05);
-            border-color: rgba(138, 92, 245, 0.6);
-            box-shadow: 0 15px 40px rgba(0,0,0,0.4);
-        }
-        .fancy-btn.primary:hover {
-            box-shadow: 0 15px 40px -10px rgba(159, 117, 255, 0.7);
-        }
-        
-        .video-demo {
-            padding: clamp(3rem, 10vh, 5rem) 0;
-        }
-        .video-container {
-            aspect-ratio: 16 / 9;
-            border-radius: 20px;
-            border: 1px solid var(--card-border);
-            overflow: hidden;
-            box-shadow: 0 40px 80px -30px #000000a8;
-            background-color: #000;
-        }
-        .video-container iframe { width: 100%; height: 100%; border: 0; }
-        .video-note {text-align: center; color: var(--text-secondary); font-style: italic; margin-top:1.5rem;}
-        
-        .section-heading { text-align: center; margin-bottom: 5rem; }
-        .section-heading .pre-title {
-            color: var(--accent-primary); font-weight: 700;
-            text-transform: uppercase; letter-spacing: 2px;
-            font-size: 0.9rem; margin-bottom: 0.75rem;
-        }
-        .section-heading h2 {
-            font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 900;
-        }
-
-        .features-stack { 
+        /* FEATURES */
+        .features-grid {
             display: grid;
-            gap: 2rem;
-            padding-top: 5rem;
-            padding-bottom: 5rem;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2px;
+            border: 1px solid var(--border-bright);
+            border-radius: 24px;
+            overflow: hidden;
+            background: var(--border);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
         }
-        .feature-card {
-            background: var(--card-bg); border: 1px solid var(--card-border);
-            border-radius: 24px; padding: clamp(1.5rem, 5vw, 3rem);
-            backdrop-filter: blur(20px) saturate(180%);
-            position: sticky; 
-            top: 120px;
-            transform-origin: center top;
+        @media (max-width: 768px) {
+            .features-grid { grid-template-columns: 1fr; }
         }
+        .feature-item {
+            background: var(--bg-2);
+            padding: clamp(2rem, 5vw, 3.5rem);
+            transition: background 0.4s;
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        /* Spotlight Hover Effect */
+        .feature-item::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(800px circle at var(--mx, 50%) var(--my, -50%), rgba(124,106,255,0.15), transparent 40%);
+            z-index: -1;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            pointer-events: none;
+        }
+        .feature-item:hover::before { opacity: 1; }
         
-        .feature-card .content {
-            display: flex; gap: 2rem; align-items: center; flex-wrap: nowrap;
+        .feature-icon {
+            width: 56px; height: 56px;
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            margin-bottom: 1.8rem;
+            background: rgba(255,255,255,0.02);
+            position: relative;
+            z-index: 1;
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.4s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .feature-item:hover .feature-icon { transform: translateY(-5px) scale(1.05); }
+        .feature-icon.c1 { color: var(--accent); box-shadow: inset 0 0 15px rgba(139,127,255,0.1); }
+        .feature-icon.c2 { color: var(--accent-2); box-shadow: inset 0 0 15px rgba(52,224,200,0.1); }
+        .feature-icon.c3 { color: var(--accent-3); box-shadow: inset 0 0 15px rgba(244,114,182,0.1); }
+        .feature-icon.c4 { color: #fbbf24; box-shadow: inset 0 0 15px rgba(251,191,36,0.1); }
+        
+        .feature-item h3 {
+            font-family: var(--font-display);
+            font-size: 1.4rem;
+            font-weight: 800;
+            margin-bottom: 0.8rem;
+            color: #fff;
+            position: relative;
+            z-index: 1;
+        }
+        .feature-item p {
+            color: var(--text-muted);
+            font-size: 1.05rem;
+            line-height: 1.8;
+            position: relative;
+            z-index: 1;
         }
 
-        .feature-card .icon {
-            font-size: 3rem; line-height: 1;
-            background: linear-gradient(135deg, var(--accent-secondary), var(--accent-primary));
+        /* STATS */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            border: 1px solid var(--border-bright);
+            border-radius: 20px;
+            overflow: hidden;
+            margin-top: 6rem;
+            background: var(--border);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+        @media (max-width: 640px) { .stats-row { grid-template-columns: 1fr; } }
+        .stat-item {
+            background: rgba(12, 13, 26, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 3rem 2rem;
+            text-align: center;
+            transition: background 0.3s;
+        }
+        .stat-item:hover { background: rgba(15, 16, 32, 0.95); }
+        .stat-number {
+            font-family: var(--font-display);
+            font-size: 3.5rem;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+            background: linear-gradient(135deg, #a78bfa, #34e0c8);
             -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            min-width: 50px;
-            text-align:center;
+            background-clip: text;
+            color: transparent;
+            line-height: 1;
+            margin-bottom: 0.6rem;
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));
         }
-        .feature-card h3 { font-size: 1.75rem; font-weight: 700; }
-        .feature-card p { font-size: 1.1rem; color: var(--text-secondary); max-width: 55ch; line-height: 1.8; margin-top: 0.75rem;}
-        
-        .install-container {
-            background-color: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 28px;
-            padding: clamp(2rem, 5vw, 4rem);
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
-        .tabs { display: flex; gap: 1rem; border-bottom: 1px solid var(--card-border); margin-bottom: 2rem; position: relative; }
-        .tab-button {
-            padding: 1rem 1.25rem; font-size: 1rem; font-weight: 700; cursor: pointer;
-            border: 0; background-color: transparent; color: var(--text-secondary);
-            transition: color 0.3s;
-        }
-        .tab-indicator {
-            position: absolute; bottom: -1px; left: 0;
-            height: 2px;
-            background-image: linear-gradient(to right, var(--accent-secondary), var(--accent-primary));
-            border-radius: 2px; 
-            transition: left 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), width 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        }
-        .tab-button.active { color: var(--text-primary); }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; animation: content-fade-in 0.6s ease; }
-        @keyframes content-fade-in { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* INSTALL */
+        .install-box {
+            background: #090a14;
+            border: 1px solid var(--border-bright);
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.4);
+        }
+        .install-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            background: rgba(255,255,255,0.015);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 1.25rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            transition: all 0.3s;
+            border-bottom: 2px solid transparent;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+        }
+        .tab-btn.active {
+            color: #fff;
+            border-bottom-color: var(--accent);
+            background: linear-gradient(to top, rgba(139,127,255,0.08), transparent);
+        }
+        .tab-btn:hover:not(.active) { color: var(--text-muted); background: rgba(255,255,255,0.02); }
+        .install-content { padding: 3rem; }
+        @media (max-width: 640px) { .install-content { padding: 1.5rem; } }
+        
+        .tab-panel { display: none; animation: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: translateY(10px); }
+        .tab-panel.active { display: block; }
+        @keyframes fade-up { to { opacity: 1; transform: translateY(0); } }
+
+        .install-step {
+            padding-bottom: 2.5rem;
+            margin-bottom: 2.5rem;
+            border-bottom: 1px dashed rgba(255,255,255,0.1);
+        }
+        .install-step:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .step-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent-2);
+            margin-bottom: 1rem;
+        }
+        .step-label::before {
+            content: attr(data-num);
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            background: rgba(52,224,200,0.15);
+            color: var(--accent-2);
+            border: 1px solid rgba(52,224,200,0.3);
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+        }
+        .install-step h3 { font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; margin-bottom: 0.6rem; color: #fff; }
+        .install-step p { color: var(--text-muted); font-size: 1rem; margin-bottom: 1.5rem; line-height: 1.8; }
+        .install-step p code {
+            font-family: var(--font-mono);
+            font-size: 0.85em;
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            padding: 0.2em 0.5em;
+            border-radius: 6px;
+        }
+        
         .code-block {
-            background: linear-gradient(135deg, rgba(6, 8, 20, 0.9) 0%, rgba(3, 3, 5, 0.9) 100%);
-            padding: 1.5rem; border-radius: 12px; overflow-x: auto;
-            border: 1px solid var(--card-border); margin: 1rem 0;
-            position: relative; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            background: #040408;
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 1.5rem 1.8rem;
+            position: relative;
+            overflow-x: auto;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
         }
-        code { font-family: var(--font-mono); font-size: 0.9em; line-height: 1.8; white-space: pre; }
-        
+        .code-block code, .code-block pre code {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            line-height: 1.9;
+            color: #d1d5db;
+            white-space: pre;
+        }
+        .code-block .c-comment { color: #6b7280; font-style: italic; }
+        .code-block .c-cmd { color: var(--accent-2); font-weight: bold; }
+        .code-block .c-flag { color: var(--accent-3); }
+        .code-block .c-path { color: #fcd34d; text-decoration: underline; text-underline-offset: 4px; }
+
         .copy-btn {
-            position: absolute; top: 1rem; right: 1rem;
-            background-color: rgba(43,45,78,0.7);
-            border: 1px solid rgba(138, 92, 245, 0.3);
-            color: var(--text-secondary); backdrop-filter: blur(5px);
-            padding: 0.4rem 0.8rem; border-radius: 8px; font-weight: 500;
-            cursor: pointer; transition: all 0.3s ease;
-            display: flex; align-items: center; gap: 0.5rem;
+            position: absolute;
+            top: 1rem; right: 1rem;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-muted);
+            padding: 0.45rem 0.9rem;
+            border-radius: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            backdrop-filter: blur(5px);
         }
-        .copy-btn:hover { background-color: var(--accent-primary); color: #000; }
-        
-        .instruction-step { padding: 2rem 0; }
-        .instruction-step:not(:last-child) { border-bottom: 1px solid var(--card-border); }
-        .instruction-step h3 { font-size: 1.5rem; font-weight:700; margin-bottom: 1.5rem; }
-        .instruction-step p { color: var(--text-secondary); margin-top: 1.5rem; max-width: 60ch; }
-        
-        .community-cta { padding: 8rem 0; text-align: center; }
-        .community-cta .hero-buttons {
-            gap: 1.5rem;
+        .copy-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(139,127,255,0.3); }
+        .copy-btn.copied { background: #065f46; color: #34d399; border-color: #059669; }
+
+        /* CTA SECTION */
+        .cta-section { text-align: center; padding: clamp(5rem, 10vh, 8rem) 0; }
+        .cta-card {
+            background: linear-gradient(145deg, rgba(12,13,26,0.9), rgba(7,8,15,0.95));
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 32px;
+            padding: clamp(3.5rem, 8vw, 7rem);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 40px 80px rgba(0,0,0,0.5);
+        }
+        .cta-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse 70% 70% at 50% -20%, rgba(139,127,255,0.15), transparent 70%);
+            pointer-events: none;
+        }
+        .cta-card h2 {
+            font-family: var(--font-display);
+            font-size: clamp(2.2rem, 5vw, 3.8rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 1.4rem;
+            position: relative;
+            color: #fff;
+        }
+        .cta-card p {
+            color: var(--text-muted);
+            font-size: 1.15rem;
+            line-height: 1.8;
+            max-width: 52ch;
+            margin: 0 auto 3rem;
+            position: relative;
+        }
+        .cta-btns {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.25rem;
+            justify-content: center;
+            position: relative;
         }
 
+        /* FOOTER */
         footer {
-            border-top: 1px solid var(--card-border);
-            padding: 5rem 1rem 3rem 1rem;
+            border-top: 1px solid var(--border-bright);
+            background: #040509;
+            padding: 5rem 0 3rem;
+            position: relative;
         }
-        .footer-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 3rem; text-align: left; padding-bottom: 5rem;
+        footer::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: 0.5;
         }
-        .footer-col h4 { font-weight: 700; font-size: 1rem; text-transform: uppercase; color: var(--accent-primary); margin-bottom: 1.5rem;letter-spacing:1px; }
-        .footer-col ul { list-style-type: none; }
+        .footer-top {
+            display: grid;
+            grid-template-columns: 2.5fr 1fr 1fr 1fr;
+            gap: 4rem;
+            padding-bottom: 4rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        @media (max-width: 992px) { .footer-top { grid-template-columns: 1fr 1fr; gap: 3rem; } }
+        @media (max-width: 576px) { .footer-top { grid-template-columns: 1fr; gap: 2.5rem; } }
+        
+        .footer-brand .brand-name {
+            font-family: var(--font-display);
+            font-size: 1.3rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            color: #fff;
+        }
+        .footer-brand p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.8;
+            max-width: 35ch;
+        }
+        .footer-col h5 {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: #fff;
+            margin-bottom: 1.5rem;
+        }
+        .footer-col ul { list-style: none; }
         .footer-col a {
-            display:block; text-decoration: none; color: var(--text-secondary);
-            padding: 0.5rem 0; transition: color 0.3s ease, transform 0.3s ease;
+            display: inline-block;
+            text-decoration: none;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            padding: 0.4rem 0;
+            transition: all 0.3s;
+            position: relative;
         }
-        .footer-col a:hover { color: var(--text-primary); transform: translateX(5px); }
+        .footer-col a:hover { color: var(--accent-2); transform: translateX(5px); }
         
         .footer-bottom {
-            display: flex; justify-content: space-between; align-items: center;
-            flex-wrap: wrap; gap: 2rem; border-top: 1px solid var(--card-border); padding-top: 3rem; text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            padding-top: 2.5rem;
         }
-        .footer-credits p { color: var(--text-secondary); font-size: 0.9rem;}
+        .footer-copy {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
         .footer-socials { display: flex; gap: 1.5rem; }
-        .footer-socials a { color: var(--text-secondary); font-size: 1.5rem; transition: all 0.3s ease; }
-        .footer-socials a:hover { color: var(--text-primary); transform: translateY(-3px); }
+        .footer-socials a {
+            color: var(--text-muted);
+            font-size: 1.4rem;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px; height: 40px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .footer-socials a:hover { 
+            color: #fff; 
+            background: var(--accent); 
+            border-color: var(--accent);
+            transform: translateY(-4px) rotate(8deg); 
+            box-shadow: 0 10px 20px rgba(139,127,255,0.3);
+        }
 
-        .anim-reveal {
+        /* REVEAL ANIMATIONS */
+        .reveal {
             opacity: 0;
             transform: translateY(40px);
-            transition: opacity 1s cubic-bezier(0.165, 0.84, 0.44, 1), transform 1s cubic-bezier(0.165, 0.84, 0.44, 1);
+            transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1), transform 1s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .anim-reveal.is-visible {
-            opacity: 1;
-            transform: translateY(0);
+        .reveal.visible { opacity: 1; transform: translateY(0); }
+
+        /* DONATE PILL */
+        .donate-pill {
+            position: fixed;
+            bottom: 2.5rem;
+            right: 2.5rem;
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.75rem 1.4rem;
+            background: rgba(7, 8, 15, 0.85);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 100px;
+            backdrop-filter: blur(24px);
+            text-decoration: none;
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 700;
+            font-family: var(--font-display);
+            transform: translateY(120px);
+            opacity: 0;
+            transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.6s ease, all 0.3s;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
-        
-        @media (max-width: 768px) {
-            .feature-card .content {
-                flex-direction: column;
-                align-items: flex-start;
-                text-align: left;
-            }
-            .feature-card .icon {
-                text-align: left;
-            }
-            .fixed-donate-btn {
-                display: none;
-            }
+        .donate-pill.show { transform: translateY(0); opacity: 1; }
+        .donate-pill:hover {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            color: #fff;
+            border-color: rgba(255,255,255,0.3);
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(245,158,11,0.4);
         }
+        .donate-pill i { font-size: 1.1rem; }
+        @media (max-width: 768px) { .donate-pill { bottom: 1.5rem; right: 1.5rem; padding: 0.6rem 1.2rem; } }
+        @media (max-width: 480px) { .donate-pill span { display: none; } .donate-pill { border-radius: 50%; width: 50px; height: 50px; justify-content: center; padding: 0;} }
     </style>
 </head>
 
 <body>
-    
-    <div class="background-grid"></div>
 
-    <a href="https://buymeacoffee.com/niyakiphamn" target="_blank" rel="noopener noreferrer" class="fixed-donate-btn">
-        <i class="ri-cup-line"></i>
-        <span>Ủng Hộ</span>
+<div class="aurora">
+    <div class="aurora-blob"></div>
+    <div class="aurora-blob"></div>
+    <div class="aurora-blob"></div>
+</div>
+<div class="grid-overlay"></div>
+
+<!-- NAVIGATION -->
+<nav class="nav" id="nav">
+    <a href="#" class="nav-logo">
+        <span class="logo-dot"></span>
+        ANISUB-CLI
     </a>
+    <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#demo">Experience</a></li>
+        <li><a href="#install">Install</a></li>
+    </ul>
+    <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener" class="nav-cta">
+        <i class="ri-github-fill"></i> Open Source
+    </a>
+</nav>
 
-    <div class="container">
-        <header class="hero">
-            <h1><span class="char-parent"><span class="char">A</span></span><span class="char-parent"><span class="char">N</span></span><span class="char-parent"><span class="char">I</span></span><span class="char-parent"><span class="char">S</span></span><span class="char-parent"><span class="char">U</span></span><span class="char-parent"><span class="char">B</span></span><span class="char-parent"><span class="highlight char">-</span></span><span class="char-parent"><span class="highlight char">C</span></span><span class="char-parent"><span class="highlight char">L</span></span><span class="char-parent"><span class="highlight char">I</span></span></h1>
-            <p class="subtitle">Một "vũ trụ" Anime & Manga Vietsub thế hệ mới, gói gọn ngay trong terminal của bạn. Lấy cảm hứng từ sự tinh gọn của ani-cli, mang đến một trải nghiệm nhanh, nhẹ, và vô cùng mạnh mẽ.</p>
-            <div class="hero-buttons">
-                <a href="#install" class="fancy-btn primary"> <i class="ri-rocket-fill"></i> Tiến Hành Cài Đặt</a>
-                <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener noreferrer" class="fancy-btn"><i class="ri-github-fill"></i> Khám Phá Mã Nguồn</a>
+<!-- DONATE PILL -->
+<a href="https://buymeacoffee.com/niyakiphamn" target="_blank" rel="noopener noreferrer" class="donate-pill" id="donate-pill" title="Support the author">
+    <i class="ri-cup-line"></i>
+    <span>Support the Author</span>
+</a>
+
+<!-- HERO SECTION -->
+<div class="container">
+    <header class="hero">
+        <div class="hero-badge">
+            <span class="badge-dot"></span>
+            Open Source · Subbed · Terminal Experience
+        </div>
+        <h1>
+            <span class="word"><span class="word-inner">ANI</span></span><span class="word"><span class="word-inner dim">SUB</span></span><span class="word"><span class="word-inner grd">-CLI</span></span>
+        </h1>
+        <p class="hero-sub">A next-generation Anime & Manga viewing tool, optimized for the terminal interface. Fast, smooth, and packed with essential features.</p>
+        <div class="hero-actions">
+            <a href="#install" class="btn btn-primary"><i class="ri-rocket-2-fill"></i> Install Now</a>
+            <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener" class="btn btn-ghost"><i class="ri-github-fill"></i> View Source Code</a>
+        </div>
+        <div class="scroll-indicator">
+            <span>Scroll to discover</span>
+            <div class="scroll-line"></div>
+        </div>
+    </header>
+</div>
+
+<main>
+
+    <!-- TERMINAL PREVIEW -->
+    <section class="terminal-section container reveal">
+        <div class="terminal">
+            <div class="terminal-bar">
+                <div class="terminal-dots">
+                    <span class="dot-red"></span>
+                    <span class="dot-yellow"></span>
+                    <span class="dot-green"></span>
+                </div>
+                <div class="terminal-title">bash — anisub.sh</div>
             </div>
-        </header>
-    </div>
+            <div class="terminal-body">
+<span class="t-prompt">~</span> <span class="t-cmd">./anisub.sh</span>
+
+<span class="t-title">  ░█████╗░███╗░░██╗██╗░██████╗██╗░░░██╗██████╗░</span>
+<span class="t-title">  ██╔══██╗████╗░██║██║██╔════╝██║░░░██║██╔══██╗</span>
+<span class="t-title">  ███████║██╔██╗██║██║╚█████╗░██║░░░██║██████╦╝</span>
+<span class="t-highlight">  ██╔══██║██║╚████║██║░╚═══██╗██║░░░██║██╔══██╗</span>
+<span class="t-highlight">  ██║░░██║██║░╚███║██║██████╔╝╚██████╔╝██████╦╝</span>
+
+<span class="t-output">  ┌─────────────────────────────────────────────┐</span>
+<span class="t-output">  │  <span class="t-success">✔</span>  Version: <span class="t-highlight">v2.1.0</span>    │  Subtitles Ready      │</span>
+<span class="t-output">  └─────────────────────────────────────────────┘</span>
+
+<span class="t-comment">  # Choose your mode:</span>
+<span class="t-output">  <span class="t-highlight">[1]</span> Watch Anime      <span class="t-highlight">[2]</span> Read Manga</span>
+<span class="t-output">  <span class="t-highlight">[3]</span> Watch Movies     <span class="t-highlight">[4]</span> Download</span>
+
+<span class="t-prompt">→</span> <span class="t-cmd">Enter choice: <span class="t-cursor"></span></span></div>
+        </div>
+    </section>
+
+    <!-- DEMO -->
+    <section id="demo" class="container reveal">
+        <div class="section-head centered">
+            <div class="section-eyebrow">Feature Preview</div>
+            <h2>Intuitive Interface</h2>
+            <p>Explore the features and workflow of ANISUB-CLI through our demo video.</p>
+        </div>
+        <div class="video-wrap">
+            <iframe src="https://www.youtube.com/embed/Ggxxtczqfuw?autoplay=1&mute=1&loop=1&playlist=Ggxxtczqfuw&controls=0&showinfo=0" title="ANISUB-CLI Demo" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        </div>
+        <p class="video-caption">Subscribe to our <a href="https://youtube.com" target="_blank">YouTube channel</a> for the latest features and updates.</p>
+    </section>
+
+    <!-- FEATURES -->
+    <section id="features" class="container">
+        <div class="section-head reveal">
+            <div class="section-eyebrow">Core Capabilities</div>
+            <h2>Why choose<br>ANISUB-CLI?</h2>
+        </div>
         
-    <main class="container">
-        
-       <section class="video-demo anim-reveal">
-           <div class="section-heading">
-                <p class="pre-title">XEM TRƯỚC HÀNH ĐỘNG</p>
-                <h2>Giao Diện Trực Quan</h2>
+        <div class="features-grid reveal">
+            <!-- Feature 1 -->
+            <div class="feature-item">
+                <div class="feature-icon c1"><i class="ri-search-eye-line"></i></div>
+                <h3>Smart Search</h3>
+                <p>Flexible search system integrated with fuzzy search, delivering fast and accurate results even with typos, minimizing your search time.</p>
             </div>
-            <div class="video-container">
-                <iframe src="https://www.youtube.com/embed/GgxxtczqfuwQ?autoplay=1&mute=1&loop=1&playlist=Ggxxtczqfuw&controls=0&showinfo=0" title="Cách xem anime trên terminal" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+            <!-- Feature 2 -->
+            <div class="feature-item">
+                <div class="feature-icon c2"><i class="ri-movie-2-line"></i></div>
+                <h3>High Visual Quality</h3>
+                <p>Supports various resolution options, ensuring crisp image quality and smooth video loading, upgrading your terminal viewing experience.</p>
             </div>
-            <p class="video-note">Hãy đang kí kênh youtube để không bỏ lỡ bản cập nhật mới nhất nhé</p>
-       </section>
-
-       <section id="features">
-            <div class="section-heading anim-reveal">
-                <p class="pre-title">Năng Lực Cốt Lõi</p>
-                <h2>Đặc Điểm Vượt Trội</h2>
+            <!-- Feature 3 -->
+            <div class="feature-item">
+                <div class="feature-icon c3"><i class="ri-download-cloud-2-line"></i></div>
+                <h3>Download Management</h3>
+                <p>Supports fast downloading and storing of episodes and chapters. The system automatically categorizes and organizes files logically in dedicated folders.</p>
             </div>
-            <div class="features-stack">
-                <div class="feature-card anim-reveal">
-                     <div class="content">
-                         <div class="icon"><i class="ri-search-eye-line"></i></div>
-                         <div>
-                             <h3>Tìm Kiếm Thông Minh</h3>
-                             <p>Hệ thống tìm kiếm anime nhanh chóng, chính xác. Sẽ không có chuyện bạn bỏ lỡ bất cứ bộ phim ưa thích nào của mình.</p>
-                         </div>
-                     </div>
-                </div>
-                <div class="feature-card anim-reveal">
-                    <div class="content">
-                        <div class="icon"><i class="ri-movie-2-line"></i></div>
-                         <div>
-                             <h3>Chất Lượng Vượt Trội</h3>
-                             <p>Trải nghiệm xem phim chất lượng cao ngay trên terminal. Hỗ trợ nhiều độ phân giải, cho hình ảnh sắc nét và mượt mà nhất.</p>
-                         </div>
-                    </div>
-                </div>
-                <div class="feature-card anim-reveal">
-                     <div class="content">
-                         <div class="icon"><i class="ri-download-cloud-2-line"></i></div>
-                         <div>
-                             <h3>Tải & Quản Lý</h3>
-                             <p>Tải về các video hoặc chương manga mà bạn thích. Anisub-cli tự động lưu trữ một cách gọn gàng vào thư mục riêng biệt.</p>
-                         </div>
-                     </div>
-                </div>
-                <div class="feature-card anim-reveal">
-                     <div class="content">
-                         <div class="icon"><i class="ri-planet-line"></i></div>
-                         <div>
-                             <h3>Vũ Trụ Giải Trí</h3>
-                             <p>Bên cạnh một "Thế Giới Anime" đồ sộ và phong phú, Anisub-cli nay còn hỗ trợ bạn xem & tải Phim Truyền Hình và Đọc Manga nữa đó!</p>
-                         </div>
-                     </div>
-                </div>
-            </div>
-        </section>
-
-
-        <section id="install">
-            <div class="section-heading anim-reveal">
-                <p class="pre-title">KHỞI ĐỘNG</p>
-                <h2>Cài Đặt Dễ Dàng</h2>
-            </div>
-            
-            <div class="install-container anim-reveal">
-                <div class="tabs">
-                    <button class="tab-button active" data-tab="ubuntu">Ubuntu / Debian</button>
-                    <button class="tab-button" data-tab="arch">Arch / Manjaro</button>
-                    <div class="tab-indicator"></div>
-                </div>
-
-                <div id="ubuntu-content" class="tab-content active">
-                    <div class="instruction-step">
-                        <h3>1. Cài Đặt Các Gói Phụ Thuộc</h3>
-                        <p>Anisub-cli cần một số "trợ thủ" để hoạt động mượt mà. Hãy đảm bảo bạn đã cài đặt chúng.</p>
-                        <div class="code-block">
-                            <code>sudo apt install ffmpeg curl grep yt-dlp fzf pup jq gawk coreutils chafa</code>
-                            <button class="copy-btn"><i class="ri-clipboard-line"></i><span>Copy</span></button>
-                        </div>
-                        <p><i>Lưu ý: Bạn nên cài đặt riêng từng gói nếu gặp lỗi để dễ dàng gỡ rối hơn!</i></p>
-                    </div>
-                    <div class="instruction-step">
-                        <h3>2. Tải & Khởi Chạy Script</h3>
-                        <p>Tải kịch bản chính của chương trình và cấp quyền thực thi cho nó.</p>
-                         <div class="code-block">
-<pre><code># Tải script
-wget https://raw.githubusercontent.com/niyakipham/anisub/main/anisub.sh
-
-# Cấp quyền thực thi
-chmod +x anisub.sh
-
-# Khởi chạy lần đầu
-./anisub.sh</code></pre>
-                             <button class="copy-btn"><i class="ri-clipboard-line"></i><span>Copy</span></button>
-                         </div>
-                    </div>
-                </div>
-
-                <div id="arch-content" class="tab-content">
-                    <div class="instruction-step">
-                        <h3>1. Cài Đặt Các Gói Phụ Thuộc</h3>
-                        <p>Với Arch và các distro dựa trên Arch, các gói phụ thuộc cũng rất sẵn có trong kho chính và AUR.</p>
-                         <div class="code-block">
-                            <code>yay -S ffmpeg curl grep yt-dlp fzf pup jq gawk coreutilsafa chafa</code>
-                            <button class="copy-btn"><i class="ri-clipboard-line"></i><span>Copy</span></button>
-                         </div>
-                         <p><i>Mách nhỏ: Bạn có thể sử dụng <code>yay</code> hoặc trình trợ giúp AUR bất kì để có được trải nghiệm tốt nhất.</i></p>
-                    </div>
-                    <div class="instruction-step">
-                        <h3>2. Tải & Khởi Chạy Script</h3>
-                        <p>Tải kịch bản chính của chương trình và cấp quyền thực thi cho nó.</p>
-                         <div class="code-block">
-<pre><code># Tải script
-wget https://raw.githubusercontent.com/niyakipham/anisub/main/anisub.sh
-
-# Cấp quyền thực thi
-chmod +x anisub.sh
-
-# Khởi chạy lần đầu
-./anisub.sh</code></pre>
-                            <button class="copy-btn"><i class="ri-clipboard-line"></i><span>Copy</span></button>
-                        </div>
-                   </div>
-                </div>
-            </div>
-        </section>
-
-       <section class="community-cta anim-reveal">
-           <div class="section-heading">
-                <p class="pre-title">CÙNG NHAU PHÁT TRIỂN</p>
-                <h2>Tham Gia Cộng Đồng</h2>
-           </div>
-            <p class="subtitle">Mỗi sự ủng hộ, dù là một ngôi sao trên GitHub, một ý kiến đóng góp, hay chỉ là một lời động viên, đều là "nguồn năng lượng" vô giá giúp dự án tiếp tục vươn xa và hoàn thiện hơn.</p>
-           <div class="hero-buttons">
-                <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener noreferrer" class="fancy-btn primary"><i class="ri-star-fill"></i> Tặng Sao Cho Dự Án</a>
-            </div>
-       </section>
-
-    </main>
-
-    <footer class="anim-reveal">
-        <div class="container">
-            <div class="footer-grid">
-                <div class="footer-col">
-                    <h4>ANISUB-CLI</h4>
-                    <p style="color:var(--text-secondary); line-height:1.7; font-size:0.95rem;">Dự án phi lợi nhuận dành cho cộng đồng yêu anime/manga và đam mê thế giới command-line.</p>
-                </div>
-                <div class="footer-col">
-                    <h4>Liên Kết Nhanh</h4>
-                    <ul>
-                        <li><a href="#features">Tính năng</a></li>
-                        <li><a href="#install">Cài đặt</a></li>
-                        <li><a href="https://github.com/niyakipham/anisub/issues" target="_blank">Báo lỗi</a></li>
-                    </ul>
-                </div>
-                 <div class="footer-col">
-                    <h4>Mã Nguồn</h4>
-                    <ul>
-                        <li><a href="https://github.com/niyakipham/anisub" target="_blank">Repository</a></li>
-                        <li><a href="https://github.com/niyakipham/anisub/pulls" target="_blank">Đóng góp</a></li>
-                        <li><a href="https://github.com/niyakipham/anisub/blob/main/LICENSE" target="_blank">Giấy phép</a></li>
-                    </ul>
-                </div>
-                <div class="footer-col">
-                    <h4>Ủng Hộ</h4>
-                    <ul>
-                        <li><a href="https://buymeacoffee.com/niyakiphamn" target="_blank" rel="noopener noreferrer">Buy Me a Coffee</a></li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="footer-bottom">
-                 <div class="footer-credits">
-                     <p>© 2025 ANISUB-CLI Project. Được tạo ra bằng tất cả tình yêu <i class="ri-heart-pulse-fill"></i></p>
-                 </div>
-                 <div class="footer-socials">
-                     <a href="https://github.com/niyakipham" target="_blank" title="GitHub"><i class="ri-github-fill"></i></a>
-                     <a href="mailto:niyakipham@gmail.com" target="_blank" title="Email"><i class="ri-mail-star-line"></i></a>
-                 </div>
+            <!-- Feature 4 -->
+            <div class="feature-item">
+                <div class="feature-icon c4"><i class="ri-planet-line"></i></div>
+                <h3>Diverse Content</h3>
+                <p>Supports a wide range of entertainment including Anime, Manga, and TV Shows, all comprehensively integrated into a single CLI tool.</p>
             </div>
         </div>
-    </footer>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
-    <script>
-    document.addEventListener('DOMContentLoaded', () => {
 
-        const initAnimations = () => {
-            const tl = anime.timeline({
-                easing: 'cubicBezier(0.165, 0.84, 0.44, 1)'
-            });
+        <div class="stats-row reveal">
+            <div class="stat-item">
+                <div class="stat-number">10K+</div>
+                <div class="stat-label">Available Anime Series</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">4K</div>
+                <div class="stat-label">Supported Resolutions</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">Subtitles Support</div>
+            </div>
+        </div>
+    </section>
 
-            tl.add({
-                targets: '.hero h1 .char',
-                translateY: ['110%', '0%'],
-                opacity: [0, 1],
-                duration: 1200,
-                delay: anime.stagger(30)
-            }).add({
-                targets: '.hero .subtitle, .hero .hero-buttons',
-                translateY: ['20px', '0px'],
-                opacity: [0, 1],
-                duration: 1000,
-            }, '-=800');
-            
-            const donateBtn = document.querySelector('.fixed-donate-btn');
-            if(donateBtn) {
-                tl.add({
-                    targets: donateBtn,
-                    translateY: ['-150%', '0%'],
-                    opacity: [0, 1],
-                    duration: 800
-                }, '-=400');
+    <!-- INSTALL -->
+    <section id="install" class="container">
+        <div class="section-head centered reveal">
+            <div class="section-eyebrow">Installation Guide</div>
+            <h2>Getting Started</h2>
+            <p>Execute the basic commands below to download and set up the application on your system.</p>
+        </div>
+
+        <div class="install-box reveal">
+            <div class="install-tabs">
+                <button class="tab-btn active" data-tab="ubuntu">
+                    <i class="ri-ubuntu-fill"></i> Ubuntu / Debian Platform
+                </button>
+                <button class="tab-btn" data-tab="arch">
+                    <i class="ri-terminal-box-line"></i> Arch / Manjaro Platform
+                </button>
+            </div>
+
+            <div class="install-content">
+                <!-- Tab: Ubuntu -->
+                <div class="tab-panel active" id="ubuntu-panel">
+                    <div class="install-step">
+                        <div class="step-label" data-num="1">Install Dependencies</div>
+                        <h3>Required software packages</h3>
+                        <p>Install the necessary system libraries and tools for the script to operate stably.</p>
+                        <div class="code-block">
+                            <code><span class="c-cmd">sudo apt install</span> ffmpeg curl grep yt-dlp fzf pup jq gawk coreutils chafa</code>
+                            <button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+                        </div>
+                    </div>
+                    <div class="install-step">
+                        <div class="step-label" data-num="2">Download & Execute</div>
+                        <h3>Initialize ANISUB-CLI</h3>
+                        <p>Download the source code from the repository, configure execution permissions, and launch the tool.</p>
+                        <div class="code-block">
+<pre><code><span class="c-comment"># Download script from repository</span>
+<span class="c-cmd">wget</span> <span class="c-path">https://raw.githubusercontent.com/niyakipham/anisub/main/anisub.sh</span>
+
+<span class="c-comment"># Grant execution permissions</span>
+<span class="c-cmd">chmod</span> <span class="c-flag">+x</span> anisub.sh
+
+<span class="c-comment"># Launch the application</span>
+<span class="c-cmd">./anisub.sh</span></code></pre>
+                            <button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Arch -->
+                <div class="tab-panel" id="arch-panel">
+                    <div class="install-step">
+                        <div class="step-label" data-num="1">Install Dependencies</div>
+                        <h3>Required software packages</h3>
+                        <p>Use the <code>yay</code> package manager or other AUR helpers to install the environment.</p>
+                        <div class="code-block">
+                            <code><span class="c-cmd">yay -S</span> ffmpeg curl grep yt-dlp fzf pup jq gawk coreutils chafa</code>
+                            <button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+                        </div>
+                    </div>
+                    <div class="install-step">
+                        <div class="step-label" data-num="2">Download & Execute</div>
+                        <h3>Initialize ANISUB-CLI</h3>
+                        <p>Download the source code to your working directory, grant permissions, and run the application.</p>
+                        <div class="code-block">
+<pre><code><span class="c-comment"># Download script from repository</span>
+<span class="c-cmd">wget</span> <span class="c-path">https://raw.githubusercontent.com/niyakipham/anisub/main/anisub.sh</span>
+
+<span class="c-comment"># Grant execution permissions</span>
+<span class="c-cmd">chmod</span> <span class="c-flag">+x</span> anisub.sh
+
+<span class="c-comment"># Launch the application</span>
+<span class="c-cmd">./anisub.sh</span></code></pre>
+                            <button class="copy-btn"><i class="ri-clipboard-line"></i> Copy</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta-section container reveal">
+        <div class="cta-card">
+            <h2>Let's Build Together</h2>
+            <p>Every community contribution, whether starring the repo on GitHub, reporting system bugs, or providing financial support, plays a crucial role in maintaining and perfecting the project.</p>
+            <div class="cta-btns">
+                <a href="https://github.com/niyakipham/anisub" target="_blank" rel="noopener" class="btn btn-primary">
+                    <i class="ri-star-fill"></i> Star on GitHub
+                </a>
+                <a href="https://buymeacoffee.com/niyakiphamn" target="_blank" rel="noopener" class="btn btn-ghost">
+                    <i class="ri-cup-fill"></i> Support the Author
+                </a>
+            </div>
+        </div>
+    </section>
+
+</main>
+
+<!-- FOOTER -->
+<footer>
+    <div class="container">
+        <div class="footer-top">
+            <div class="footer-brand">
+                <div class="brand-name">
+                    <span class="logo-dot" style="width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 15px var(--accent);animation:pulse-dot 2s ease-in-out infinite"></span>
+                    ANISUB-CLI
+                </div>
+                <p>A non-profit open-source project dedicated to the anime/manga community and command-line enthusiasts.</p>
+            </div>
+            <div class="footer-col">
+                <h5>Navigation</h5>
+                <ul>
+                    <li><a href="#features">Core Features</a></li>
+                    <li><a href="#demo">Watch Demo Video</a></li>
+                    <li><a href="#install">Installation Guide</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h5>Source Code</h5>
+                <ul>
+                    <li><a href="https://github.com/niyakipham/anisub" target="_blank">Repository</a></li>
+                    <li><a href="https://github.com/niyakipham/anisub/pulls" target="_blank">Contribute Code</a></li>
+                    <li><a href="https://github.com/niyakipham/anisub/issues" target="_blank">Report an Issue</a></li>
+                    <li><a href="https://github.com/niyakipham/anisub/blob/main/LICENSE" target="_blank">License</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h5>Contact</h5>
+                <ul>
+                    <li><a href="https://buymeacoffee.com/niyakiphamn" target="_blank">Support the Project</a></li>
+                    <li><a href="mailto:niyakipham@gmail.com">Contact via Email</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p class="footer-copy">© 2026 ANISUB-CLI — Developed by NiyakiPham</p>
+            <div class="footer-socials">
+                <a href="https://github.com/niyakipham" target="_blank" title="GitHub"><i class="ri-github-fill"></i></a>
+                <a href="mailto:niyakipham@gmail.com" title="Email"><i class="ri-mail-star-line"></i></a>
+                <a href="https://buymeacoffee.com/niyakiphamn" target="_blank" title="Donate"><i class="ri-cup-line"></i></a>
+            </div>
+        </div>
+    </div>
+</footer>
+
+<!-- SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    // ── HERO ENTRANCE ──
+    const tl = anime.timeline({ easing: 'cubicBezier(0.16, 1, 0.3, 1)' });
+    tl.add({
+        targets: '.hero-badge',
+        translateY: ['30px', '0px'],
+        opacity: [0, 1],
+        duration: 900,
+        delay: 300
+    }).add({
+        targets: '.hero h1 .word-inner',
+        translateY: ['105%', '0%'],
+        duration: 1000,
+        delay: anime.stagger(100)
+    }, '-=500').add({
+        targets: '.hero-sub',
+        translateY: ['20px', '0px'],
+        opacity: [0, 1],
+        duration: 800
+    }, '-=600').add({
+        targets: '.hero-actions',
+        translateY: ['20px', '0px'],
+        opacity: [0, 1],
+        duration: 800
+    }, '-=600');
+
+    // ── SCROLL REVEAL ──
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('visible');
+                observer.unobserve(entry.target);
             }
-        };
-        
-        const scrollAnimations = () => {
-            const observer = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('is-visible');
-                        observer.unobserve(entry.target);
-                    }
-                });
-            }, { 
-                threshold: 0.1,
-                rootMargin: "0px 0px -50px 0px"
-            });
+        });
+    }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
-            document.querySelectorAll('.anim-reveal').forEach(el => observer.observe(el));
-        };
-        
-        const featureStackingEffect = () => {
-            const featureCards = document.querySelectorAll('.feature-card');
-            if(featureCards.length === 0) return;
+    // ── NAV SCROLL ──
+    const nav = document.getElementById('nav');
+    const donatePill = document.getElementById('donate-pill');
+    window.addEventListener('scroll', () => {
+        const y = window.scrollY;
+        nav.classList.toggle('scrolled', y > 60);
+        if (y > 500) donatePill.classList.add('show');
+        else donatePill.classList.remove('show');
+    }, { passive: true });
 
-            anime({
-                targets: featureCards,
-                translateY: (el, i) => i * -15,
-                scale: (el, i) => 1 - (featureCards.length - 1 - i) * 0.05,
-            });
-        };
-        
-        const tabsFunctionality = () => {
-            const tabs = document.querySelectorAll('.tab-button');
-            const contents = document.querySelectorAll('.tab-content');
-            const tabIndicator = document.querySelector('.tab-indicator');
-            if (!tabs.length || !tabIndicator) return;
-            
-            const updateIndicator = (tab) => {
-                if (tab) {
-                    tabIndicator.style.width = tab.offsetWidth + 'px';
-                    tabIndicator.style.left = tab.offsetLeft + 'px';
-                }
-            };
-            
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    const targetContentId = tab.dataset.tab + '-content';
-                    const targetContent = document.getElementById(targetContentId);
-                    
-                    tabs.forEach(t => t.classList.remove('active'));
-                    tab.classList.add('active');
-                    
-                    contents.forEach(c => c.classList.remove('active'));
-                    if (targetContent) {
-                        targetContent.classList.add('active');
-                    }
-                    updateIndicator(tab);
-                });
-            });
-            
-            const firstTab = document.querySelector('.tab-button.active');
-            if (firstTab) {
-                updateIndicator(firstTab);
+    // ── TABS CONFIGURATION ──
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabPanels = document.querySelectorAll('.tab-panel');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            tabPanels.forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            const panel = document.getElementById(btn.dataset.tab + '-panel');
+            if (panel) {
+                panel.style.animation = 'none';
+                panel.offsetHeight; 
+                panel.style.animation = null;
+                panel.classList.add('active');
             }
-        };
-
-        const copyButtonLogic = () => {
-            document.querySelectorAll('.copy-btn').forEach(button => {
-                const buttonText = button.querySelector('span');
-                button.addEventListener('click', () => {
-                    const codeBlock = button.parentElement.querySelector('code, pre code');
-                    if(codeBlock) {
-                        navigator.clipboard.writeText(codeBlock.innerText.trim()).then(() => {
-                            if(buttonText) buttonText.textContent = 'Đã Sao Chép!';
-                            button.querySelector('i').className = 'ri-check-line';
-                            
-                            setTimeout(() => {
-                                if(buttonText) buttonText.textContent = 'Copy';
-                                button.querySelector('i').className = 'ri-clipboard-line';
-                            }, 2000);
-                        });
-                    }
-                });
-            });
-        };
-        
-        initAnimations();
-        scrollAnimations();
-        featureStackingEffect();
-        tabsFunctionality();
-        copyButtonLogic();
+        });
     });
-    </script>
+
+    // ── COPY BUTTONS FUNCTIONALITY ──
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const block = btn.parentElement;
+            const code = block.querySelector('code, pre code');
+            if (!code) return;
+            const text = code.innerText.trim();
+            navigator.clipboard.writeText(text).then(() => {
+                btn.classList.add('copied');
+                btn.innerHTML = '<i class="ri-check-double-line"></i> Copied!';
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = '<i class="ri-clipboard-line"></i> Copy';
+                }, 2500);
+            });
+        });
+    });
+
+    // ── SPOTLIGHT HOVER EFFECT ──
+    document.querySelectorAll('.feature-item').forEach(card => {
+        card.addEventListener('mousemove', e => {
+            const rect = card.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            card.style.setProperty('--mx', `${x}px`);
+            card.style.setProperty('--my', `${y}px`);
+        });
+        
+        card.addEventListener('mouseleave', () => {
+            card.style.setProperty('--mx', `50%`);
+            card.style.setProperty('--my', `50%`);
+        });
+    });
+
+});
+</script>
 </body>
 </html>
