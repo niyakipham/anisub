@@ -28,6 +28,7 @@
 《📺》- Thêm gợi ý từ khóa<br>
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
 《📖》- Tích hợp truyenvn ( manga thì đọc oke còn webtoon thì như hạch ) <br>
+《📖》- Đổi nguồn truyện sang `truyenvn.my`, sửa lỗi không tải được danh sách chapter / ảnh trang đọc<br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
 《﬚》- Bổ sung tính năng ghép nhiều video với nhau <br>
 #### Và còn nhiều tính năng khác!!! <br>
@@ -43,7 +44,7 @@
 ## NGUỒN PHIM
 
 《🎬》- **KKPhim** — `https://kkphim.com` : tìm kiếm, danh mục, thông tin phim, server phụ đề và link `.m3u8` đều lấy từ API chính thức mà KKPhim công bố tại https://kkphim.com/api-document (base `https://phimapi.com`) <br>
-《📚》- **TruyenVN** — `https://truyenvn.shop` : đọc truyện tranh (cào HTML trực tiếp) <br>
+《📚》- **TruyenVN** — `https://truyenvn.my` : đọc truyện tranh (cào HTML trực tiếp, không cần API key) <br>
 《📂》- **Local Anidata** — `assets/aniw_export_2026-01-14.csv` : xem offline không cần mạng <br>
 
 <br>
@@ -78,6 +79,47 @@ và in mã HTTP + số kết quả nhận được (bản này chính là thứ 
 | `HTTP 403`, `429`, `5xx` | KKPhim chặn theo khu vực hoặc đang bảo trì | thử lại sau; nếu họ đổi host thì sửa `KKPHIM_API_URL` / `KKPHIM_SITE_URL` |
 | `HTTP 200 · 0 kết quả` | từ khóa không khớp | thử gõ không dấu, hoặc tên tiếng Việt đầy đủ có dấu |
 | fzf quá cũ (không có action `reload:`, cần `>= 0.19`) | `--bind` bị báo lỗi, cửa sổ tìm không mở | anisub **tự chuyển** sang chế độ nhập từ khóa 1 lần (Enter để tải danh sách, vẫn gõ để lọc trong kết quả) |
+
+<br>
+
+### 📚 Đọc truyện tranh (TruyenVN)
+
+Nguồn truyện mới là `https://truyenvn.my` (trang cũ `truyenvn.shop` đã đổi nên không đọc được nữa).
+Toàn bộ danh sách truyện, danh sách chương và ảnh trang đọc đều cào thẳng HTML của trang, không dùng API.
+
+```shell
+MANGA_BASE_URL="https://truyenvn.my"           # nguồn truyện (đổi được khi site đổi domain)
+MANGA_SEARCH_FEEDS="latest,trending,views"     # các bảng sẽ quét khi tìm
+MANGA_SEARCH_PAGES="1"                         # số trang của mỗi bảng (1-5)
+MANGA_IMAGE_SCALE="130"                        # % độ rộng ảnh so với terminal (100 = full)
+```
+
+Sửa nhanh: `⚙️ Cài đặt → 📚 Nguồn truyện` (đổi domain / số bảng / số trang) hoặc
+`🩺 Kiểm tra nhanh nguồn truyện` trong cùng menu — chẩn đoán sẽ in mã HTTP và số truyện
+parse được từ trang thật.
+
+Bộ thử nghiệm chạy offline (mock `curl`/`fzf` + HTML mẫu của TruyenVN, không cần mạng):
+
+```shell
+bash tests/run_tests.sh     # parse danh sách, danh sách chapter, ảnh trang đọc, tìm kiếm, lịch sử / yêu thích
+```
+
+> **Vì sao tìm kiếm phải quét theo bảng?** `truyenvn.my` có trang `/tim-kiem` nhưng server
+> **bỏ qua từ khóa** (`?q=`, `?keyword=`, `?title=` đều trả toàn bộ 49k truyện, không lọc),
+> và cũng không mở API/`wp-json`/`admin-ajax` nào để tìm. Nên anisub vẫn gửi từ khóa lên
+> `/tim-kiem` (biết đâu họ bật lại), đồng thời lọc **tại máy** trên các bảng
+> `m_orderby=latest|trending|views`; gõ dấu cách vẫn khớp (`bo chi` → `Bocchi`), không cần gõ dấu.
+> Không thấy gì? vào `🔗 Mở bằng link / slug` và dán thẳng link truyện
+> (`https://truyenvn.my/truyen-tranh/bocchi-the-rock`) là đọc được ngay; hoặc duyệt theo
+> `🗂️ Thể loại`. Muốn tìm phủ nhiều truyện hơn thì tăng `MANGA_SEARCH_PAGES` lên `3`–`5`.
+
+| Kết quả | Nguyên nhân | Cách xử lý |
+| --- | --- | --- |
+| `HTTP 000` | không với được `truyenvn.my` | kiểm tra mạng / DNS / VPN, hoặc `curl -I https://truyenvn.my` |
+| `HTTP 403` / Cloudflare challenge | trang chặn client không phải trình duyệt | anisub đã gửi User-Agent trình duyệt; thử lại sau, hoặc đổi `MANGA_BASE_URL` sang domain mirror của TruyenVN |
+| `❌ Không lấy được danh sách chapter` | slug sai hoặc trang đổi layout | dùng `🔗 Mở bằng link / slug` dán link thật từ trình duyệt |
+| Danh sách rỗng khi tìm | từ khóa quá ngắn / nằm ngoài các bảng đang quét | gõ ≥ 2 ký tự, tăng `MANGA_SEARCH_PAGES`, hoặc lọc theo `🗂️ Thể loại` |
+| Ảnh đen / không hiện | thiếu `chafa` | `sudo apt install chafa` (hoặc `yay -S chafa`); không có `chafa` thì anisub tự mở bằng `feh`/`xdg-open` |
 
 <br>
 

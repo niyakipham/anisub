@@ -1,0 +1,4 @@
+#!/bin/bash
+# mpv giả lập: ghi tham số vào log (dùng cho các test ngoài luồng truyện)
+printf 'mpv %s\n' "$*" >> "${MOCK_MPV_LOG:-/dev/null}"
+exit 0
