@@ -226,19 +226,59 @@ kkphim_cache_prune() {
     return 0
 }
 
-# Gọi 1 endpoint của KKPhim API, in JSON ra stdout (lỗi -> trả về 1)
-kkphim_api_get() {
-    local path="$1"
-    [ -z "$path" ] && return 1
-    curl -fsSL --compressed --max-time 25 \
-        -A "$KKPHIM_USER_AGENT" \
-        -H "accept: application/json" \
-        "${KKPHIM_API_URL%/}${path}" 2>/dev/null
+# Trạng thái HTTP của lời gọi API gần nhất (để báo lỗi chính xác thay vì im lặng).
+# Ghi ra file tạm nữa vì hàm API thường được gọi trong $(...) - biến toàn cục
+# thay đổi trong subshell sẽ mất ở shell cha, còn file thì vẫn đọc được.
+KKPHIM_HTTP_STATUS="000"
+KKPHIM_STATUS_FILE="${TMPDIR:-/tmp}/anisub-kkhttp.$$"
+
+# Mã HTTP của lời gọi API gần nhất (đọc xuyên subshell)
+kkphim_last_http() {
+    local s="${KKPHIM_HTTP_STATUS:-}"
+    if { [ -z "$s" ] || [ "$s" = "000" ]; } && [ -r "$KKPHIM_STATUS_FILE" ]; then
+        s=$(head -c 3 "$KKPHIM_STATUS_FILE" 2>/dev/null)
+    fi
+    printf '%s' "${s:-000}"
 }
 
-# Mã hoá URL (tên phim tiếng Việt có dấu & khoảng trắng) bằng jq
-kkphim_uri() {
-    jq -rn --arg s "${1:-}" '$s | @uri' 2>/dev/null
+# Gọi 1 endpoint của KKPhim API, in JSON ra stdout (lỗi -> trả về 1).
+# Tham số 2+ dạng key=value sẽ được curl -G --data-urlencode tự mã hoá, nhờ vậy
+# từ khóa tiếng Việt / có khoảng trắng / có & không làm hỏng query string.
+kkphim_api_get() {
+    local path="$1"
+    shift
+    [ -z "$path" ] && return 1
+    # Tự bù nếu chưa load_config (tránh gọi vào đường dẫn tương đối rồi fail âm thầm)
+    local base="${KKPHIM_API_URL:-$DEFAULT_KKPHIM_API_URL}"
+    [[ "$path" != /* ]] && path="/$path"
+    local -a opts=()
+    local kv
+    for kv in "$@"; do
+        [ -n "$kv" ] && opts+=(--data-urlencode "$kv")
+    done
+    local tmp status
+    tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-kkapi.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-kkapi.$$.tmp"
+    status=$(curl -sS -G -L --compressed --max-time 25 --retry 2 --retry-delay 1 \
+        -A "$KKPHIM_USER_AGENT" \
+        -H "accept: application/json" \
+        -H "accept-language: vi,en;q=0.8" \
+        -H "referer: ${KKPHIM_REFERER:-$DEFAULT_KKPHIM_REFERER}" \
+        -H "origin: ${KKPHIM_SITE_URL:-$DEFAULT_KKPHIM_SITE_URL}" \
+        -o "$tmp" -w '%{http_code}' \
+        "${opts[@]}" \
+        "${base%/}${path}" 2>/dev/null)
+    KKPHIM_HTTP_STATUS="${status:-000}"
+    printf '%s' "$KKPHIM_HTTP_STATUS" > "$KKPHIM_STATUS_FILE" 2>/dev/null || true
+    case "$KKPHIM_HTTP_STATUS" in
+        2??)
+            if [ -s "$tmp" ]; then
+                cat "$tmp"; rm -f "$tmp"
+                return 0
+            fi
+            ;;
+    esac
+    rm -f "$tmp"
+    return 1
 }
 
 # KKPhim trả ảnh ở 2 dạng: URL tuyệt đối (https://phimimg.com/...) hoặc đường dẫn
@@ -247,7 +287,7 @@ kkphim_uri() {
 
 # Trang phim trên website KKPhim - dùng khi muốn xem trên trình duyệt
 kkphim_movie_url() {
-    printf '%s/phim/%s' "${KKPHIM_SITE_URL%/}" "$1"
+    printf '%s/phim/%s' "${KKPHIM_SITE_URL:-$DEFAULT_KKPHIM_SITE_URL}" "$1"
 }
 
 # Slug hợp lệ của KKPhim hay không? (dùng để phân biệt phim online với dữ liệu Local)
@@ -260,17 +300,18 @@ kkphim_is_online_slug() {
 
 # --- TÌM KIẾM & DANH MỤC ---
 kkphim_search_json() {          # $1 = từ khóa, $2 = trang (tuỳ chọn)
-    local encoded
-    encoded=$(kkphim_uri "${1:-}")
-    [ -z "$encoded" ] && return 1
-    kkphim_api_get "/v1/api/tim-kiem?keyword=${encoded}&page=${2:-1}&limit=${KKPHIM_SEARCH_LIMIT}"
+    local keyword="${1:-}"
+    [ "${#keyword}" -lt 2 ] && return 1
+    kkphim_api_get "/v1/api/tim-kiem" \
+        "keyword=$keyword" "page=${2:-1}" "limit=${KKPHIM_SEARCH_LIMIT:-24}"
 }
 
 kkphim_category_json() {        # $1 = slug danh mục, $2 = trang
-    local encoded
-    encoded=$(kkphim_uri "${1:-}")
-    [ -z "$encoded" ] && return 1
-    kkphim_api_get "/v1/api/danh-sach/${encoded}?page=${2:-1}&limit=${KKPHIM_SEARCH_LIMIT}"
+    local cat="${1:-}"
+    cat="${cat//[^A-Za-z0-9._-]/}"
+    [ -z "$cat" ] && return 1
+    kkphim_api_get "/v1/api/danh-sach/${cat}" \
+        "page=${2:-1}" "limit=${KKPHIM_SEARCH_LIMIT:-24}"
 }
 
 # Chuẩn hoá JSON danh sách phim thành dòng cho fzf:
@@ -299,21 +340,25 @@ kkphim_notice_line() {
 
 # Chế độ "reload" cho fzf: đọc từ khóa từ KKPHIM_QUERY, in danh sách phim
 kkphim_helper_search() {
-    local q="${KKPHIM_QUERY:-}"
+    kkphim_search_items "${KKPHIM_QUERY:-}"
+}
+
+
+# Danh sách kết quả cho 1 từ khóa (dùng chung cho fzf reload và tìm 1 lần)
+kkphim_search_items() {
+    local q="${1:-}"
     if [ "${#q}" -lt 2 ]; then
         kkphim_notice_line "💡 Gõ tối thiểu 2 ký tự để tìm kiếm trên $SOURCE_NAME..."
         return 0
     fi
-    local json
-    json=$(kkphim_search_json "$q" 1)
-    if [ -z "$json" ]; then
-        kkphim_notice_line "⚠️ Không kết nối được $SOURCE_NAME ($KKPHIM_API_URL) - kiểm tra mạng/proxy"
+    local json lines
+    if ! json=$(kkphim_search_json "$q" 1); then
+        kkphim_notice_line "⚠️ $SOURCE_NAME không trả về dữ liệu (HTTP $(kkphim_last_http)) - thử lại, kiểm tra mạng/proxy, hoặc đổi KKPHIM_API_URL trong Cài đặt"
         return 0
     fi
-    local lines
     lines=$(printf '%s' "$json" | kkphim_format_items)
     if [ -z "$lines" ]; then
-        kkphim_notice_line "😶 Không tìm thấy phim nào với từ khóa \"$q\" trên $SOURCE_NAME"
+        kkphim_notice_line "😶 Không tìm thấy phim nào với \"$q\" trên $SOURCE_NAME"
         return 0
     fi
     printf '%s\n' "$lines"
@@ -359,11 +404,15 @@ kkphim_category_items() {         # $1 slug danh mục, $2 trang
     local cat="$1" page="${2:-1}" json lines total cur
     json=$(kkphim_category_json "$cat" "$page")
     if [ -z "$json" ]; then
-        kkphim_notice_line "⚠️ Không kết nối được $SOURCE_NAME ($KKPHIM_API_URL) - kiểm tra mạng/proxy"
+        kkphim_notice_line "⚠️ Không tải được danh mục '$cat' (HTTP $(kkphim_last_http)) - thử lại hoặc kiểm tra mạng/proxy"
         return 0
     fi
     lines=$(printf '%s' "$json" | kkphim_format_items)
-    [ -n "$lines" ] && printf '%s\n' "$lines"
+    if [ -z "$lines" ]; then
+        kkphim_notice_line "⚠️ Danh mục '$cat' trả về 0 phim (HTTP $(kkphim_last_http)) - thử lại hoặc chọn trang khác"
+        return 0
+    fi
+    printf '%s\n' "$lines"
     total=$(printf '%s' "$json" | jq -r '((.data // .) | (.params.pagination.totalPages // .pagination.totalPages // 1))' 2>/dev/null)
     cur=$(printf '%s' "$json" | jq -r '((.data // .) | (.params.pagination.currentPage // .pagination.currentPage // 1))' 2>/dev/null)
     [[ "$total" =~ ^[0-9]+$ ]] || total=1
@@ -608,6 +657,97 @@ kkphim_switch_server() {
     printf '%s|%s|%s' "$idx" "$name" "$link"
 }
 
+# Chẩn đoán nhanh nguồn phim: phụ thuộc + phiên bản fzf + thử 1 lần tìm kiếm.
+# Hữu ích khi "không tìm thấy phim" mà không rõ nguyên nhân.
+kkphim_diagnose_source() {
+    local fail=0 dep
+    local site="${KKPHIM_SITE_URL:-$DEFAULT_KKPHIM_SITE_URL}"
+    local api="${KKPHIM_API_URL:-$DEFAULT_KKPHIM_API_URL}"
+    local ref="${KKPHIM_REFERER:-$DEFAULT_KKPHIM_REFERER}"
+    echo "🩺 Chẩn đoán nguồn phim $SOURCE_NAME"
+    echo "──────────────────────────────────────────────────────────"
+    # Danh sách giống check_dependencies - thiếu bất kỳ món nào là script không chạy được
+    for dep in curl grep jq fzf awk sed chafa perl; do
+        if command -v "$dep" > /dev/null 2>&1; then
+            printf '  %s %-7s %s\n' "✅" "$dep" "$("$dep" --version 2>&1 | head -1)"
+        else
+            printf '  ❌ %-7s chưa được cài (apt install %s)\n' "$dep" "$dep"
+            fail=$((fail + 1))
+        fi
+    done
+    printf '  %s %-7s %s\n' "$(command -v "$PLAYER" > /dev/null 2>&1 && echo ✅ || echo ❌)" "$PLAYER" "$(command -v "$PLAYER" > /dev/null 2>&1 && "$PLAYER" --version 2>&1 | head -1 || echo 'không tìm thấy lệnh')"
+
+    echo
+    echo "  fzf: $(command -v fzf > /dev/null 2>&1 && fzf --version 2>&1 | head -1 || echo '(chưa cài)')"
+    if command -v fzf > /dev/null 2>&1; then
+        if kkphim_fzf_can_reload; then
+            echo "     ✅ hỗ trợ reload (gõ tới đâu gợi ý tới đó)"
+        else
+            echo "     ⚠️  quá cũ (không có action reload:, cần fzf >= 0.19)"
+            echo "         anisub sẽ tự dùng chế độ tìm 1 lần: gõ từ khóa -> Enter -> chọn phim"
+        fi
+    fi
+    echo "  Script: ${SELF_SCRIPT:-<không rõ>} $([ -r "${SELF_SCRIPT:-}" ] && echo '✅ đọc được' || echo '⚠️ không đọc được -> không dùng được reload/preview')"
+    echo "  Nguồn : site=${site%/} api=${api%/} cdn=${KKPHIM_CDN_URL:-$DEFAULT_KKPHIM_CDN_URL}"
+    echo "  Cấu hình: limit=$KKPHIM_SEARCH_LIMIT ttl=${KKPHIM_DETAIL_TTL}s pref=${KKPHIM_SERVER_PREF:-auto} ($CONFIG_FILE)"
+
+    echo
+    local probe_url="${api%/}/v1/api/tim-kiem?keyword=naruto&limit=1"
+    local probe_body="" probe_code="000" probe_n="0"
+    echo "  → Gọi thử API:"
+    echo "     ${probe_url}"
+    probe_body=$(mktemp 2>/dev/null || echo "/tmp/anisub-probe.$$")
+    probe_code=$(curl -sS -L --compressed --max-time 25 \
+        -A "$KKPHIM_USER_AGENT" -H "accept: application/json" -H "accept-language: vi,en" \
+        -e "${ref%/}/" -o "$probe_body" -w '%{http_code}' "${probe_url}" 2>/dev/null)
+    probe_code=${probe_code:-000}
+    case "$probe_code" in
+        2??)
+            probe_n=$(jq -r '[(.data.items // .items // [])[] | .slug] | length' "$probe_body" 2>/dev/null)
+            [ -z "$probe_n" ] && probe_n="0"
+            if [ "$probe_n" -gt 0 ] 2>/dev/null; then
+                echo "     ✅ HTTP ${probe_code} · ${probe_n} kết quả → tìm kiếm hoạt động bình thường"
+            else
+                echo "     ⚠️  HTTP ${probe_code} nhưng không đọc được danh sách phim"
+                echo "         (JSON khác cấu trúc mong đợi - KKPhim có thể đã đổi phiên bản API):"
+                head -c 300 "$probe_body" 2>/dev/null; echo ""
+                fail=$((fail + 1))
+            fi
+            ;;
+        000)
+            echo "     ❌ không kết nối được - kiểm tra mạng / DNS / proxy / VPN"
+            fail=$((fail + 1))
+            ;;
+        *)
+            echo "     ❌ HTTP ${probe_code} - API trả về lỗi (site có thể đang bảo trì"
+            echo "         hoặc chặn theo khu vực). Nội dung trả về (300 ký tự đầu):"
+            head -c 300 "$probe_body" 2>/dev/null; echo ""
+            fail=$((fail + 1))
+            ;;
+    esac
+    rm -f "$probe_body"
+
+    echo "  → Thử tải trang ${site%/} ..."
+    local site_status
+    site_status=$(curl -sS -o /dev/null -L --max-time 20 -A "$KKPHIM_USER_AGENT" \
+        -w '%{http_code}' "${site%/}/" 2>/dev/null)
+    case "${site_status:-000}" in
+        2??|3??) echo "     ✅ HTTP $site_status" ;;
+        *)       echo "     ⚠️  HTTP ${site_status:-000} - trang web không với được (API vẫn có thể chạy)" ;;
+    esac
+
+    echo "──────────────────────────────────────────────────────────"
+    if [ "$fail" -eq 0 ]; then
+        echo "✅ Mọi bước đều OK"
+    else
+        echo "❌ Có $fail bước lỗi - vui lòng gửi kèm phần trên khi báo bug"
+    fi
+    echo
+    printf 'Nhấn Enter để quay lại... '
+    read -r _
+    return 0
+}
+
 # Mở URL bằng trình duyệt mặc định (dùng cho trang phim / trang embed của KKPhim)
 open_url() {
     local url="$1"
@@ -751,18 +891,80 @@ kkphim_play_movie_line() {
     kkphim_play_movie "$name" "$slug" "$meta"
 }
 
+# --- TÌM KIẾM ---
+# fzf có hành động "reload:" từ 0.19 và sự kiện "start:" chỉ từ 0.25. Bản cũ hơn
+# (Ubuntu 20.04: 0.19.5, Debian 10: 0.17.5) báo lỗi parse "--bind" rồi thoát ngay ->
+# cửa sổ tìm không mở, trông như "không tìm kiếm được phim". Vì vậy: không dùng
+# "start:", và nếu fzf không có "reload:" thì chuyển sang chế độ tìm 1 lần.
+kkphim_fzf_can_reload() {
+    if [ -n "${KKPHIM_FZF_RELOAD:-}" ]; then
+        return "$KKPHIM_FZF_RELOAD"
+    fi
+    if fzf --help 2>&1 | grep -q 'reload:'; then
+        KKPHIM_FZF_RELOAD=0
+    else
+        KKPHIM_FZF_RELOAD=1
+    fi
+    return "$KKPHIM_FZF_RELOAD"
+}
+
+# fzf chạy lệnh reload/preview bằng shell riêng nên cần file script thật trên đĩa
+# (không dùng được nếu người dùng chạy "curl ... | bash")
+kkphim_search_can_helper() {
+    [ -n "$SELF_SCRIPT" ] && [ -f "$SELF_SCRIPT" ] && [ -r "$SELF_SCRIPT" ]
+}
+
+# Dự phòng: nhập từ khóa 1 lần rồi tìm (không cần reload, không cần helper)
+kkphim_search_once() {
+    local poster_cmd="$1" kw="" sel lines
+    printf '🔍 Nhập tên phim cần tìm (%s): ' "$SOURCE_NAME"
+    read -r kw
+    [ "${#kw}" -lt 2 ] && return 1
+    lines=$(kkphim_search_items "$kw")
+    sel=$(printf '%s\n' "$lines" | fzf --prompt="Kết quả \"$kw\" > " \
+        --header="🎬 $SOURCE_NAME · $KKPHIM_SITE_URL (gõ để lọc trong kết quả vừa tải)" \
+        --delimiter='|' --with-nth=1 \
+        --preview "$poster_cmd" --preview-window=right:40%:wrap)
+    [ -z "$sel" ] && return 1
+    kkphim_play_movie_line "$sel"
+}
+
 # Tìm kiếm trực tiếp trên KKPhim (gõ tới đâu hiện gợi ý tới đó + poster)
 kkphim_search_menu() {
-    local sel
-    sel=$(fzf --disabled \
-        --prompt="🔍 Gõ tên phim ($SOURCE_NAME): " \
-        --header="🎬 Nguồn: $SOURCE_NAME · $KKPHIM_SITE_URL — gõ >= 2 ký tự để xem gợi ý, Enter để chọn" \
-        --bind "start:reload:ANISUB_HELPER=search KKPHIM_QUERY='' bash '$SELF_SCRIPT'" \
-        --bind "change:reload:ANISUB_HELPER=search KKPHIM_QUERY='{q}' bash '$SELF_SCRIPT'" \
-        --delimiter='|' \
-        --with-nth=1 \
-        --preview "ANISUB_HELPER=poster KKPHIM_POSTER='{3}' bash '$SELF_SCRIPT'" \
-        --preview-window=right:40%:wrap)
+    local reload_cmd poster_cmd
+    poster_cmd="ANISUB_HELPER=poster KKPHIM_POSTER='{3}' bash '$SELF_SCRIPT'"
+
+    if ! kkphim_fzf_can_reload || ! kkphim_search_can_helper; then
+        kkphim_search_once "$poster_cmd"
+        return $?
+    fi
+
+    # không dùng "start:reload:" (sự kiện start chỉ có từ fzf 0.25) - danh sách
+    # khởi tạo đưa thẳng qua stdin, fzf cũ vẫn mở được cửa sổ
+    reload_cmd="ANISUB_HELPER=search KKPHIM_QUERY='{q}' bash '$SELF_SCRIPT'"
+    local sel fzf_err
+    fzf_err=$(mktemp "${TMPDIR:-/tmp}/anisub-fzf.XXXXXX" 2>/dev/null) || fzf_err="${TMPDIR:-/tmp}/anisub-fzf.$$.err"
+    sel=$(kkphim_notice_line "💡 Gõ tên phim để tìm trên $SOURCE_NAME (tối thiểu 2 ký tự)..." \
+        | fzf --disabled \
+              --prompt="🔍 Gõ tên phim ($SOURCE_NAME): " \
+              --header="🎬 Nguồn: $SOURCE_NAME · $KKPHIM_SITE_URL — gõ >= 2 ký tự để xem gợi ý, Enter để chọn" \
+              --bind "change:reload:$reload_cmd" \
+              --delimiter='|' \
+              --with-nth=1 \
+              --preview "$poster_cmd" \
+              --preview-window=right:40%:wrap 2>"$fzf_err")
+
+    # fzf lỗi tham số (bản quá cũ, không nhận bind/preview) -> tự chuyển sang
+    # chế độ tìm 1 lần thay vì đóng cửa sổ ngay
+    if [ -z "$sel" ] && [ -s "$fzf_err" ] \
+        && grep -qiE 'invalid|unknown|usage|error|flag' "$fzf_err" 2>/dev/null; then
+        echo "⚠️ fzf không nhận tham số: $(head -1 "$fzf_err")"
+        sleep 1.5
+        rm -f "$fzf_err"
+        kkphim_search_once "$poster_cmd"
+        return $?
+    fi
+    rm -f "$fzf_err"
 
     if [ -n "$sel" ]; then
         clear
@@ -1203,8 +1405,12 @@ play_anidata_local() {
 show_source_settings() {
     local opt inp pref
     while true; do
-        opt=$(echo -e "🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document")
+        opt=$(echo -e "🩺 Kiểm tra kết nối & phụ thuộc\n🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document · lỗi tìm kiếm? chạy 🩺 trước")
         case "$opt" in
+            *"Kiểm tra kết nối"*)
+                clear
+                kkphim_diagnose_source
+                ;;
             *"Trang web nguồn"*)
                 read -r -p "Nhập URL trang web (Enter = $DEFAULT_KKPHIM_SITE_URL): " inp
                 KKPHIM_SITE_URL="${inp:-$DEFAULT_KKPHIM_SITE_URL}"
@@ -1962,7 +2168,7 @@ manga_main_menu() {
 
 # --- MAIN LOGIC ---
 main() {
-    trap 'kill $(jobs -p) 2>/dev/null' EXIT
+    trap 'rm -f "$KKPHIM_STATUS_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
     check_dependencies
     load_config
 
