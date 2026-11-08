@@ -39,6 +39,9 @@ KKPHIM_FFMPEG_HEADERS=""
 
 # Local Data File
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Đường dẫn tuyệt đối của chính script — fzf chạy reload/preview bằng shell riêng,
+# CWD có thể đã bị đổi (vd sau tính năng Ghép Video) nên phải dùng đường dẫn đầy đủ.
+SELF_SCRIPT="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 
 # --- DEFAULTS ---
@@ -754,11 +757,11 @@ kkphim_search_menu() {
     sel=$(fzf --disabled \
         --prompt="🔍 Gõ tên phim ($SOURCE_NAME): " \
         --header="🎬 Nguồn: $SOURCE_NAME · $KKPHIM_SITE_URL — gõ >= 2 ký tự để xem gợi ý, Enter để chọn" \
-        --bind "start:reload:ANISUB_HELPER=search KKPHIM_QUERY='' bash '$0'" \
-        --bind "change:reload:ANISUB_HELPER=search KKPHIM_QUERY='{q}' bash '$0'" \
+        --bind "start:reload:ANISUB_HELPER=search KKPHIM_QUERY='' bash '$SELF_SCRIPT'" \
+        --bind "change:reload:ANISUB_HELPER=search KKPHIM_QUERY='{q}' bash '$SELF_SCRIPT'" \
         --delimiter='|' \
         --with-nth=1 \
-        --preview "ANISUB_HELPER=poster KKPHIM_POSTER='{3}' bash '$0'" \
+        --preview "ANISUB_HELPER=poster KKPHIM_POSTER='{3}' bash '$SELF_SCRIPT'" \
         --preview-window=right:40%:wrap)
 
     if [ -n "$sel" ]; then
