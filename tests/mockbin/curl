@@ -1,0 +1,55 @@
+#!/bin/bash
+# curl giả lập cho test offline (xem tests/run_tests.sh)
+# - HTML của TruyenVN: trả fixture theo đường dẫn trong URL
+# - Ảnh (imggo.net / /uploads/): ghi vài byte giả, không có -w
+# - Host chứa "manga-offline": mô phỏng mất mạng (HTTP 000, không body)
+url=""; out=""; data=""; wmode=""
+args=("$@")
+for i in "${!args[@]}"; do
+    a="${args[$i]}"
+    nxt="${args[$((i + 1))]}"
+    case "$a" in
+        -o) out="$nxt" ;;
+        -w) wmode="1" ;;
+        --write-out) wmode="1" ;;
+        --data-urlencode) enc=${nxt// /%20}; data="$data&$enc" ;;
+        http://*|https://*)
+            case "$a" in
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*"/uploads/"*|*"manga-offline"*)
+                    [ -z "$url" ] && url="$a" ;;
+            esac ;;
+    esac
+done
+eff="$url$data"
+[ -n "${MOCK_CURL_LOG:-}" ] && printf '%s\n' "$eff" >> "$MOCK_CURL_LOG"
+
+code="200"
+body=""
+case "$eff" in
+    *manga-offline*)        code="000"; body="" ;;
+    *"/chapter-"*js*)       body="${MOCK_FIXTURES}/manga-chapter-js.html" ;;
+    *"/chapter-"*)           body="${MOCK_FIXTURES}/manga-chapter.html" ;;
+    *"/truyen-tranh/"*)      body="${MOCK_FIXTURES}/manga-detail.html" ;;
+    *"/tim-kiem"*|*"/the-loai/"*|*"/danh-sach"*) body="${MOCK_FIXTURES}/manga-home.html" ;;
+    *imggo.net*|*"/uploads/"*) body="" ;;          # ảnh: chỉ ghi file giả
+    "")                     code="404" ;;
+    *)                      body="${MOCK_FIXTURES}/manga-home.html" ;;
+esac
+
+# Tải ảnh (không có -w): ghi file giả rồi thoát
+if [ -z "$wmode" ]; then
+    [ -n "$out" ] && printf '\xff\xd8\xff\xe0fake-jpg-bytes' > "$out"
+    exit 0
+fi
+
+if [ -n "$out" ]; then
+    if [ "$code" = "200" ] && [ -n "$body" ]; then
+        cp "$body" "$out" 2>/dev/null || : > "$out"
+    else
+        printf '<html>%s Bad Gateway</html>' "$code" > "$out"
+    fi
+else
+    [ "$code" = "200" ] && [ -n "$body" ] && cat "$body"
+fi
+printf '%s' "$code"
+exit 0

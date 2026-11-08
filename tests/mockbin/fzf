@@ -1,0 +1,40 @@
+#!/bin/bash
+# fzf giả lập: in lại dòng thứ N (theo biến môi trường) của danh sách nhận được.
+# KK_MOCK_FZF_MODE: new (mặc định, có reload:) | old (không có reload:) | err (lỗi tham số)
+mode="${KK_MOCK_FZF_MODE:-new}"
+prompt=""
+for a in "$@"; do
+    case "$a" in
+        --help)
+            if [ "$mode" = "old" ]; then
+                printf 'usage: fzf [options] (fzf 0.17 - no reload action)\n'
+            else
+                printf 'usage: fzf [options]\n  --bind CHAIN  reload:COMMAND transform:CMD\n'
+            fi
+            exit 0 ;;
+        --version)
+            if [ "$mode" = "old" ]; then printf '0.17.5 (1)\n'; else printf '0.48.1 (1)\n'; fi
+            exit 0 ;;
+        --prompt=*) prompt="${a#--prompt=}" ;;
+    esac
+done
+if [ "$mode" = "old" ]; then
+    printf 'usage: fzf [options] (fzf 0.17)\n'
+    exit 0
+fi
+input=$(cat)
+if [ "$mode" = "err" ] && [[ "$prompt" == *"Gõ tên phim"* ]]; then
+    echo "invalid event: start" >&2
+    exit 2
+fi
+[ -n "${MOCK_FZF_LOG:-}" ] && printf '%s\n' "$prompt" >> "$MOCK_FZF_LOG"
+pick="${KK_MOCK_PICK:-1}"
+case "$prompt" in
+    *"Chọn chapter"*)     pick="${KK_MOCK_PICK_CHAP:-1}" ;;
+    *"kết quả cho"*)      pick="${KK_MOCK_PICK_RES:-1}" ;;
+    *"Truyện yêu thích"*) pick="${KK_MOCK_PICK_FAV:-1}" ;;
+    *"Lịch sử đọc"*)      pick="${KK_MOCK_PICK_HIST:-1}" ;;
+    *"thể loại"*)         pick="${KK_MOCK_PICK_CAT:-1}" ;;
+    *"Menu >"*)            pick="${KK_MOCK_PICK_MENU:-1}" ;;
+esac
+printf '%s\n' "$input" | sed -n "${pick}p"
