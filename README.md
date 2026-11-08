@@ -40,6 +40,30 @@
 《👈》- Phát tập trước <br>
 《👉》- Phát tập sau<br>
 
+## NGUỒN PHIM
+
+《🎬》- **KKPhim** — `https://kkphim.com` : tìm kiếm, danh mục, thông tin phim, server phụ đề và link `.m3u8` đều lấy từ API chính thức mà KKPhim công bố tại https://kkphim.com/api-document (base `https://phimapi.com`) <br>
+《📚》- **TruyenVN** — `https://truyenvn.shop` : đọc truyện tranh (cào HTML trực tiếp) <br>
+《📂》- **Local Anidata** — `assets/aniw_export_2026-01-14.csv` : xem offline không cần mạng <br>
+
+<br>
+
+KKPhim đôi khi đổi domain frontend (`kkphim.com` ↔ `kkphim2.com`), khi đó chỉ cần sửa trong `~/.config/anisub_cli/config.cfg` (hoặc vào `⚙️ Cài đặt → 🎞 Nguồn phim`):
+
+```shell
+KKPHIM_SITE_URL="https://kkphim.com"   # trang web: poster, mở trình duyệt, Referer
+KKPHIM_API_URL="https://phimapi.com"   # API RESTful của KKPhim
+KKPHIM_CDN_URL="https://phimimg.com"   # CDN ảnh (dùng cho đường dẫn ảnh tương đối)
+KKPHIM_REFERER="https://kkphim.com/"   # Referer gửi kèm khi phát / tải
+KKPHIM_SEARCH_LIMIT="24"               # số kết quả mỗi trang
+KKPHIM_DETAIL_TTL="600"                # giây cache thông tin phim
+KKPHIM_SERVER_PREF="auto"              # auto | vietsub | long-tieng | thuyet-minh
+```
+
+> **Lưu ý:** link `.m3u8` của KKPhim được cấp theo từng lần gọi API và hết hạn sau vài phút,
+> nên anisub luôn xin lại link khi bạn xem lại từ lịch sử, đổi server, hoặc khi trình phát
+> chết ngay sau khi mở (sẽ có menu gợi ý "🔄 Lấy link mới").
+
 <br>
 
 ## INSTALL
