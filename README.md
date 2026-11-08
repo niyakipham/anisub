@@ -66,6 +66,21 @@ KKPHIM_SERVER_PREF="auto"              # auto | vietsub | long-tieng | thuyet-mi
 
 <br>
 
+### 🔍 Tìm kiếm không ra phim?
+
+Vào `⚙️ Cài đặt → 🎞 Nguồn phim (KKPhim) → 🩺 Kiểm tra kết nối & phụ thuộc`: anisub sẽ kiểm tra
+`curl / grep / jq / fzf / awk / sed / chafa / perl`, thử gọi thật `phimapi.com/v1/api/tim-kiem`
+và in mã HTTP + số kết quả nhận được (bản này chính là thứ bạn cần gửi kèm khi báo bug).
+
+| Kết quả chẩn đoán | Nguyên nhân | Cách xử lý |
+| --- | --- | --- |
+| `HTTP 000` | máy không với được `phimapi.com` | kiểm tra mạng / DNS / proxy / VPN, thử mạng khác |
+| `HTTP 403`, `429`, `5xx` | KKPhim chặn theo khu vực hoặc đang bảo trì | thử lại sau; nếu họ đổi host thì sửa `KKPHIM_API_URL` / `KKPHIM_SITE_URL` |
+| `HTTP 200 · 0 kết quả` | từ khóa không khớp | thử gõ không dấu, hoặc tên tiếng Việt đầy đủ có dấu |
+| fzf quá cũ (không có action `reload:`, cần `>= 0.19`) | `--bind` bị báo lỗi, cửa sổ tìm không mở | anisub **tự chuyển** sang chế độ nhập từ khóa 1 lần (Enter để tải danh sách, vẫn gõ để lọc trong kết quả) |
+
+<br>
+
 ## INSTALL
 
 UBUNTU
