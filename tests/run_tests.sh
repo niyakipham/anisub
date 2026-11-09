@@ -267,6 +267,13 @@ check "giá trị lạ -> tự nhận" "symbols" "$(TERM=dumb TERM_PROGRAM='' MA
 check "symbols không dùng sixel/kitty" "-f symbols --symbols=block --colors=256" "$(MANGA_IMAGE_PROTOCOL=symbols manga_chafa_args)"
 check "lưu vào config.cfg" "1" "$(MANGA_IMAGE_PROTOCOL=iterm bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_IMAGE_PROTOCOL=iterm; save_config >/dev/null 2>&1; grep -c 'MANGA_IMAGE_PROTOCOL=\"iterm\"' \"\$CONFIG_FILE\"")"
 
+: > "$MOCK_CURL_LOG"
+manga_search_items "bocchi" >/dev/null 2>&1
+check "tìm kiếm gửi đúng tham số ?search= của web" "1" \
+    "$(grep -c 'tim-kiem&search=' "$MOCK_CURL_LOG")"
+check "không còn gửi tham số ?q= (web bỏ qua)" "0" \
+    "$(grep -c 'tim-kiem&q=' "$MOCK_CURL_LOG")"
+
 echo "== 18. script preview ảnh bìa =="
 : > "$MOCK_CURL_HEADER_LOG"; : > "$MOCK_CHAFA_LOG"
 rm -rf "$MANGA_COVER_CACHE"

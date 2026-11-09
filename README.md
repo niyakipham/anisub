@@ -128,11 +128,11 @@ bash tests/run_tests.sh     # parse danh sách + ảnh bìa, API chapter (419/50
                            # giao thức vẽ ảnh, script preview bìa, tìm kiếm, lịch sử / yêu thích
 ```
 
-> **Vì sao tìm kiếm phải quét theo bảng?** `truyenvn.my` có trang `/tim-kiem` nhưng server
-> **bỏ qua từ khóa** (`?search=`, `?q=`, `?keyword=` đều trả toàn bộ 49k truyện, không lọc),
-> và cũng không mở API tìm kiếm nào. Nên anisub vẫn gửi từ khóa (`?search=`) lên
-> `/tim-kiem` (biết đâu họ bật lại), đồng thời lọc **tại máy** trên các bảng
-> `m_orderby=latest|trending|views`; gõ dấu cách vẫn khớp (`bo chi` → `Bocchi`), không cần gõ dấu.
+> **Tìm kiếm dùng tham số nào?** `/tim-kiem` của `truyenvn.my` lọc thật ở server bằng
+> **`?search=<từ khóa>`** (`?q=` / `?keyword=` bị bỏ qua, trả về cả 49k truyện).
+> anisub gửi `?search=` trước; chỉ khi server không trả mục nào khớp mới quét thêm các bảng
+> `m_orderby=latest|trending|views` rồi lọc **tại máy**; gõ dấu cách vẫn khớp
+> (`bo chi` → `Bocchi`), không cần gõ dấu.
 > Không thấy gì? vào `🔗 Mở bằng link / slug` và dán thẳng link truyện
 > (`https://truyenvn.my/truyen-tranh/bocchi-the-rock`) là đọc được ngay; hoặc duyệt theo
 > `🗂️ Thể loại`. Muốn tìm phủ nhiều truyện hơn thì tăng `MANGA_SEARCH_PAGES` lên `3`–`5`.
