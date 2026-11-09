@@ -126,18 +126,57 @@ eh_fetch() {
     # gallery giới hạn / 18+.
     local cookie="nw=1"
     [ -n "${EHENTAI_COOKIE:-}" ] && cookie="nw=1; ${EHENTAI_COOKIE}"
-    local tmp status
+    local tmp
     tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-eh.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-eh.$$.tmp"
-    status=$(curl -sS -G -L --compressed --connect-timeout 10 --max-time 30 --retry 1 --retry-delay 1 \
-        -A "${MANGA_USER_AGENT:-Mozilla/5.0}" \
-        -b "$cookie" \
-        -c "${MANGA_COOKIE_JAR:-/dev/null}" \
-        -e "$base/" \
-        -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
-        -H "accept-language: vi,en;q=0.8" \
-        -o "$tmp" -w '%{http_code}' \
-        "${q[@]}" "$url" 2>/dev/null)
-    local curl_rc=$?
+
+    local host
+    host=$(printf '%s' "$url" | sed -n 's#^[a-z]*://\([^/?#]*\).*#\1#p')
+    [ -n "$host" ] || host=$(printf '%s' "$base" | sed -n 's#^[a-z]*://\([^/?#]*\).*#\1#p')
+
+    local -a proxy_opt=()
+    [ -n "${MANGA_PROXY:-}" ] && proxy_opt=(--proxy "$MANGA_PROXY")
+    local -a base_opt=(
+        -sS -G -L --compressed --connect-timeout 10 --max-time 30 --retry 1 --retry-delay 1
+        -A "${MANGA_USER_AGENT:-Mozilla/5.0}"
+        -b "$cookie"
+        -c "${MANGA_COOKIE_JAR:-/dev/null}"
+        -e "$base/"
+        -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        -H "accept-language: vi,en;q=0.8"
+        -o "$tmp" -w '%{http_code}'
+    )
+
+    # Host từng phải đi DoH -> lần sau dùng luôn IP đã nhớ (đỡ chờ DNS hỏng)
+    local doh_cache="${CACHE_DIR:-${TMPDIR:-/tmp}}/doh-${host}"
+    local -a doh_opt=()
+    local remembered_ip=""
+    if [ -s "$doh_cache" ]; then
+        remembered_ip=$(head -1 "$doh_cache" 2>/dev/null)
+        [ -n "$remembered_ip" ] && doh_opt=(--resolve "$host:443:$remembered_ip")
+    fi
+
+    local status="" curl_rc=0 attempt=0 ip
+    while :; do
+        status=$(curl "${base_opt[@]}" "${proxy_opt[@]}" "${doh_opt[@]}" "${q[@]}" "$url" 2>/dev/null)
+        curl_rc=$?
+        case "$status" in
+            2??) [ -s "$tmp" ] && break ;;
+        esac
+        # DNS của nhà mạng hỏng (curl mã 6) -> hỏi IP qua DoH rồi thử lại đúng 1 lần
+        if [ "$attempt" -eq 0 ] && [ "$curl_rc" = "6" ] && [ "${MANGA_DOH:-auto}" != "off" ] \
+           && [ -z "${doh_opt[*]}" ]; then
+            attempt=1
+            ip=$(anisub_doh_resolve "$host")
+            if [ -n "$ip" ]; then
+                doh_opt=(--resolve "$host:443:$ip")
+                mkdir -p "$(dirname "$doh_cache")" 2>/dev/null
+                printf '%s\n' "$ip" > "$doh_cache" 2>/dev/null
+                continue
+            fi
+        fi
+        break
+    done
+
     MANGA_HTTP_STATUS="${status:-000}"
     printf '%s' "$MANGA_HTTP_STATUS" > "${ANISUB_STATUS_FILE:-/dev/null}" 2>/dev/null || true
     printf '%s' "$curl_rc" > "${ANISUB_CURL_ERR_FILE:-/dev/null}" 2>/dev/null || true

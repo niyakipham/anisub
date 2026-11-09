@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.10e"
+ANISUB_VERSION="2026.11.10f"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -77,6 +77,12 @@ DEFAULT_MANGA_IMAGE_PROTOCOL="auto"
 DEFAULT_MANGA_READER_PROXY="https://r.jina.ai"
 # e-hentai: tag mặc định (danh sách mở ra đầu tiên), số trang ảnh mỗi "chapter",
 # và cookie đăng nhập (chỉ cần cho gallery giới hạn/18+; để trống nếu không dùng).
+# Khi DNS nhà mạng chặn (e-hentai hay bị), anisub tự hỏi IP qua DNS-over-HTTPS
+# rồi nối thẳng bằng --resolve. auto = tự dùng khi DNS hỏng, off = tắt.
+DEFAULT_MANGA_DOH="auto"
+# Proxy riêng cho phần truyện (để trống = dùng biến môi trường https_proxy như curl).
+# Ví dụ: socks5h://127.0.0.1:1080 (v2rayN / clash / ssh -D 1080).
+DEFAULT_MANGA_PROXY=""
 DEFAULT_EHENTAI_TAG="language:vietnamese"
 DEFAULT_EHENTAI_CHUNK=20
 DEFAULT_EHENTAI_COOKIE=""
@@ -86,6 +92,8 @@ MANGA_SEARCH_FEEDS=""
 MANGA_SEARCH_PAGES=""
 MANGA_IMAGE_PROTOCOL=""
 MANGA_READER_PROXY="$DEFAULT_MANGA_READER_PROXY"
+MANGA_DOH="$DEFAULT_MANGA_DOH"
+MANGA_PROXY=""
 EHENTAI_TAG=""
 EHENTAI_CHUNK=""
 EHENTAI_COOKIE=""
@@ -131,6 +139,8 @@ load_config() {
         echo "MANGA_SEARCH_PAGES=\"$DEFAULT_MANGA_SEARCH_PAGES\"" >> "$CONFIG_FILE"
         echo "MANGA_IMAGE_PROTOCOL=\"$DEFAULT_MANGA_IMAGE_PROTOCOL\"" >> "$CONFIG_FILE"
         echo "MANGA_READER_PROXY=\"$DEFAULT_MANGA_READER_PROXY\"" >> "$CONFIG_FILE"
+        echo "MANGA_DOH=\"$DEFAULT_MANGA_DOH\"" >> "$CONFIG_FILE"
+        echo "MANGA_PROXY=\"$DEFAULT_MANGA_PROXY\"" >> "$CONFIG_FILE"
         echo "EHENTAI_TAG=\"$DEFAULT_EHENTAI_TAG\"" >> "$CONFIG_FILE"
         echo "EHENTAI_CHUNK=\"$DEFAULT_EHENTAI_CHUNK\"" >> "$CONFIG_FILE"
         echo "EHENTAI_COOKIE=\"$DEFAULT_EHENTAI_COOKIE\"" >> "$CONFIG_FILE"
@@ -162,6 +172,8 @@ load_config() {
     MANGA_IMAGE_PROTOCOL=${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL}
     MANGA_READER_PROXY=${MANGA_READER_PROXY-$DEFAULT_MANGA_READER_PROXY}
     case "${MANGA_READER_PROXY:-}" in off|OFF|none|null|0) MANGA_READER_PROXY="" ;; esac
+    MANGA_DOH=${MANGA_DOH:-$DEFAULT_MANGA_DOH}
+    MANGA_PROXY=${MANGA_PROXY:-$DEFAULT_MANGA_PROXY}
     # e-hentai: tag mặc định + số trang mỗi chapter + cookie đăng nhập (nếu có)
     EHENTAI_TAG=${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}
     EHENTAI_CHUNK=${EHENTAI_CHUNK:-$DEFAULT_EHENTAI_CHUNK}
@@ -199,6 +211,8 @@ save_config() {
         echo "MANGA_SEARCH_PAGES=\"$MANGA_SEARCH_PAGES\""
         echo "MANGA_IMAGE_PROTOCOL=\"$MANGA_IMAGE_PROTOCOL\""
         echo "MANGA_READER_PROXY=\"$MANGA_READER_PROXY\""
+        echo "MANGA_DOH=\"$MANGA_DOH\""
+        echo "MANGA_PROXY=\"$MANGA_PROXY\""
         echo "EHENTAI_TAG=\"$EHENTAI_TAG\""
         echo "EHENTAI_CHUNK=\"$EHENTAI_CHUNK\""
         echo "EHENTAI_COOKIE=\"$EHENTAI_COOKIE\""
@@ -673,6 +687,13 @@ anisub_doctor() {
         echo "   → cài thêm rồi chạy lại (vd: sudo apt install $missing)"
     fi
     echo
+    if declare -F manga_is_ehentai > /dev/null 2>&1 && manga_is_ehentai; then
+        anisub_netcheck
+        echo
+    else
+        echo "🌐 Kiểm tra mạng tới nguồn truyện: ./anisub.sh --netcheck"
+        echo
+    fi
     manga_diagnose --no-pause
     echo
     local dlog="$CACHE_DIR/anisub-debug.log"
@@ -823,6 +844,13 @@ anisub_main_entry() {
     if [ "${1:-}" = "--doctor" ] || [ "${1:-}" = "--check" ]; then
         load_config
         anisub_doctor
+        exit $?
+    fi
+
+    # Kiểm tra mạng theo từng lớp (DNS -> DoH -> HTTPS): ./anisub.sh --netcheck [host]
+    if [ "${1:-}" = "--netcheck" ] || [ "${1:-}" = "--net" ]; then
+        load_config
+        anisub_netcheck "${2:-}"
         exit $?
     fi
 
