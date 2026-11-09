@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.09c"
+ANISUB_VERSION="2026.11.09d"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -3877,14 +3877,14 @@ manga_main_menu() {
         case "$main_opt" in
             "🔍 Tìm kiếm truyện tranh")
                 local kw=""
-                printf '🔍 Nhập tên truyện cần tìm (TruyenVN): '
+                printf '🔍 Nhập tên truyện cần tìm (%s): ' "$(manga_source_label)"
                 read -r kw
                 if [ "${#kw}" -lt 2 ]; then
                     echo "⚠️ Từ khóa quá ngắn (cần tối thiểu 2 ký tự)."
                     sleep 1.5
                     continue
                 fi
-                echo "⏳ Đang tìm \\"$kw\\" trên TruyenVN..."
+                echo "⏳ Đang tìm \\"$kw\\" trên $(manga_source_label)..."
                 local items n sel
                 items=$(manga_search_items "$kw")
                 if [ -z "$items" ]; then
@@ -3990,7 +3990,7 @@ main() {
                 clear
                 kkphim_browse_menu
                 ;;
-            "📚 Đọc Truyện Tranh (TruyenVN)") manga_main_menu ;;
+            *"Đọc Truyện Tranh"*)      manga_main_menu ;;
             "📂 Xem từ Local Anidata") play_anidata_local ;;
             "📜 Lịch sử xem Anime") show_history ;;
             "⭐ Anime yêu thích")

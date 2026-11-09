@@ -571,6 +571,25 @@ check "chẩn đoán ghi đúng nguồn" "1" \
     "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'Chẩn đoán nguồn truyện tranh (nettruyen)')"
 check "chẩn đoán đọc được trang chủ nettruyen" "1" \
     "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'parse được 3 truyện')"
+echo "== 32. bấm \"📚 Đọc Truyện Tranh\" phải mở được menu truyện =="
+has "case menu chính dùng khớp mềm (nhãn nguồn đổi được)" '*"Đọc Truyện Tranh"*)' \
+    "$(grep -o '\*"Đọc Truyện Tranh"\*)' "$ROOT/anisub.sh" | head -1)"
+has "lời nhắc tìm kiếm theo nguồn, không hard-code TruyenVN" "cần tìm (%s)" \
+    "$(grep -o 'cần tìm (%s)' "$ROOT/anisub.sh" | head -1)"
+if command -v timeout >/dev/null 2>&1; then
+    mkdir -p "$WORK/fakebin" "$WORK/home-menu"
+    for b in ffmpeg yt-dlp; do
+        printf '#!/bin/bash\nexit 0\n' > "$WORK/fakebin/$b"; chmod +x "$WORK/fakebin/$b"
+    done
+    : > "$WORK/fzf-menu.log"
+    ( PATH="$WORK/fakebin:$PATH" MOCK_FZF_LOG="$WORK/fzf-menu.log" KK_MOCK_PICK_MENU=3 \
+      HOME="$WORK/home-menu" timeout 6 bash "$ROOT/anisub.sh" < /dev/null > /dev/null 2>&1 )
+    check "mở được menu truyện thật (không quay lại menu chính ngay)" "1" \
+        "$([ "$(grep -c '📚 Menu >' "$WORK/fzf-menu.log")" -ge 1 ] && echo 1 || echo 0)"
+else
+    ok "bỏ qua test mở menu thật (máy không có lệnh timeout)"
+fi
+
 has "CLI --manga-selftest tự chọn truyện mẫu theo nguồn" "nettruyen" \
     "$(MANGA_SOURCE=nettruyen MANGA_BASE_URL=https://nettruyen.info bash "$ROOT/anisub.sh" --manga-selftest 2>&1 | head -2)"
 
