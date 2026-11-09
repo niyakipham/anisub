@@ -573,8 +573,8 @@ has "selftest ghi rõ nguồn" "nguồn: nettruyen (https://nettruyen.info)" "$(
 has "selftest đọc được ảnh nettruyen" "imgchapter.store" "$(cat "$WORK/nt-selftest.txt")"
 has "selftest chỉ ra chap trước/sau kiểu chuong-" "chuong-146|https://nettruyen.info/truyen-toi-manh-hon-anh-hung/chuong-148" \
     "$(grep 'chap trước|sau' "$WORK/nt-selftest.txt")"
-has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen / truyenvn / e-hentai)" \
-    "$(src_has 'Đổi nguồn truyện (nettruyen / truyenvn / e-hentai)')"
+has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane)" \
+    "$(src_has 'Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane)')"
 check "chẩn đoán ghi đúng nguồn" "1" \
     "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'Chẩn đoán nguồn truyện tranh (nettruyen)')"
 check "chẩn đoán đọc được trang chủ nettruyen" "1" \
@@ -719,7 +719,7 @@ cp "$ROOT/anisub.sh" "$WORK/solo/"
 ( cd "$WORK/solo" && ANISUB_SRC_DIR="" MOCK_UPDATE_TARBALL="$WORK/anisub-main.tar.gz" HOME="$WORK/home-solo" \
   PATH="$HERE/mockbin:$PATH" timeout 30 bash ./anisub.sh --doctor > "$WORK/solo-doctor.txt" 2>&1 )
 check "tự tải src/comic/core.sh về cạnh script" "1" "$([ -f "$WORK/solo/src/comic/core.sh" ] && echo 1 || echo 0)"
-check "tự tải đủ 6 module" "6" "$(ls "$WORK/solo/src/movie"/*.sh "$WORK/solo/src/comic"/*.sh 2>/dev/null | wc -l | tr -d ' ')"
+check "tự tải đủ 7 module" "7" "$(ls "$WORK/solo/src/movie"/*.sh "$WORK/solo/src/comic"/*.sh 2>/dev/null | wc -l | tr -d ' ')"
 has "báo đã tải bộ file nguồn" "Đã tải bộ file nguồn" "$(cat "$WORK/solo-doctor.txt")"
 has "doctor chạy được sau khi tự tải" "ANISUB DOCTOR" "$(cat "$WORK/solo-doctor.txt")"
 has "doctor liệt kê module comic" "core.sh" "$(cat "$WORK/solo-doctor.txt")"
@@ -970,6 +970,141 @@ has "MANGA_PROXY -> curl --proxy" "--proxy socks5h://127.0.0.1:1080" "$(cat "$WO
   PATH="$HERE/mockbin:$PATH" timeout 30 bash "$ROOT/anisub.sh" --netcheck nettruyen.info > "$WORK/n39h.txt" 2>&1; echo "rc=$?" ) > "$WORK/n39h-rc.txt" 2>&1
 has "--netcheck in kết quả" "Kiểm tra mạng" "$(cat "$WORK/n39h.txt")"
 check "--netcheck thoát 0 khi vào được" "rc=0" "$(tail -1 "$WORK/n39h-rc.txt")"
+
+
+echo "== 40. nguồn kagane (https://kagane.moe) =="
+mkdir -p "$WORK/home-k40"
+# Chạy 1 đoạn lệnh trong subshell với nguồn kagane + curl/fzf giả lập
+kgsh() {
+    ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k40" MOCK_FIXTURES="$HERE/fixtures" \
+      MOCK_CURL_LOG="${K40_LOG:-$MOCK_CURL_LOG}" MOCK_CURL_HEADER_LOG="${K40_HDR:-$MOCK_CURL_HEADER_LOG}" \
+      bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+        MANGA_SOURCE=kagane; MANGA_BASE_URL='https://kagane.moe'
+        $1" ) 2>&1
+}
+
+KG_SEG="codename-anastasia-steamy-019c1ef1-9a88-7e37-ae95-a52a996f8638"
+KG_SID="019c1ef1-9a88-7e37-ae95-a52a996f8638"
+KG_BOOK="019c1efa-f402-7ea3-9c97-b0fc9bc29c43"
+KG_SERIES_URL="https://kagane.moe/series/$KG_SEG"
+KG_READ="https://kagane.moe/series/$KG_SEG/reader/$KG_BOOK"
+
+# (a) nhận diện nguồn: nhãn, không bị coi là truyenvn, base URL
+check "nhãn nguồn = kagane" "kagane" "$(kgsh 'manga_source_label')"
+check "kagane không bị nhận là truyenvn" "1" "$(kgsh 'manga_is_truyenvn && echo 0 || echo 1')"
+check "kg_base lấy MANGA_BASE_URL" "https://kagane.moe" "$(kgsh 'kg_base')"
+check "kg_base bỏ dấu / cuối" "https://kagane.moe" "$(kgsh 'MANGA_BASE_URL="https://kagane.moe/"; kg_base')"
+
+# (b) đọc ID từ URL
+check "series_id từ URL truyện" "$KG_SID" "$(kgsh "kg_series_id '$KG_SERIES_URL'")"
+check "series_id từ slug-uuid" "$KG_SID" "$(kgsh "kg_series_id '$KG_SEG'")"
+check "series_id bỏ phần /reader" "$KG_SID" "$(kgsh "kg_series_id '$KG_READ'")"
+check "book_id từ URL đọc" "$KG_BOOK" "$(kgsh "kg_book_id '$KG_READ'")"
+check "book_id từ URL có tiền tố chapter-N" "$KG_BOOK" \
+    "$(kgsh "kg_book_id 'https://kagane.moe/series/x-$KG_SID/reader/chapter-0-$KG_BOOK'")"
+
+# (c) dựng URL
+check "slug -> URL trang truyện" "$KG_SERIES_URL" "$(kgsh "manga_manga_url '$KG_SEG'")"
+check "link đọc -> URL trang truyện" "$KG_SERIES_URL" "$(kgsh "manga_manga_url '$KG_READ'")"
+check "slug lưu lịch sử = slug-uuid" "$KG_SEG" "$(kgsh "manga_slug_from_url '$KG_READ'")"
+
+# (d) parse HTML /search -> tên|url|slug|bìa
+K40_ITEMS=$(kgsh "kg_parse_items < '$HERE/fixtures/kagane-search.html'")
+check "parse 3 truyện từ trang /search" "3" "$(printf '%s\n' "$K40_ITEMS" | grep -c '.')"
+check "tên truyện đầu tiên" "The Ogre's Bride" "$(printf '%s\n' "$K40_ITEMS" | head -1 | cut -d'|' -f1)"
+check "URL truyện đầu tiên" "https://kagane.moe/series/the-ogre-s-bride-019c5678-f35c-7589-9375-912718d50bd0" \
+    "$(printf '%s\n' "$K40_ITEMS" | head -1 | cut -d'|' -f2)"
+has "ảnh bìa lấy từ API image" "https://kagane.moe/api/v2/image/019c5678-f349-7f23-8588-603fd94a73c5/compressed" \
+    "$(printf '%s\n' "$K40_ITEMS" | head -1 | cut -d'|' -f4)"
+
+# (e) danh sách + tìm kiếm qua dispatch chuẩn
+check "manga_list_items -> 3 truyện" "3" "$(kgsh 'manga_list_items /search "sort=now"' | grep -c '.')"
+check "manga_search_items -> 3 truyện" "3" "$(kgsh 'manga_search_items overgeared' | grep -c '.')"
+K40_LOG="$WORK/k40-lang.log"; : > "$K40_LOG"
+K40_LOG="$K40_LOG" kgsh 'KAGANE_LANG=vi; manga_search_items romance' > /dev/null
+has "KAGANE_LANG -> tham số languages=" "languages=vi" "$(cat "$WORK/k40-lang.log" 2>/dev/null)"
+check "trang 2 -> nhắc Kagane chỉ có trang đầu" "1" \
+    "$(kgsh 'manga_list_items /search page=2' | grep -c 'chỉ duyệt được trang đầu')"
+
+# (f) danh sách chương qua API books/index
+K40_CHAPS=$(kgsh "fetch_chapter_list '$KG_SEG'")
+check "API trả 3 chương" "3" "$(printf '%s\n' "$K40_CHAPS" | grep -c '.')"
+check "chương đầu = Prologue" "Prologue" "$(printf '%s\n' "$K40_CHAPS" | head -1 | cut -d'|' -f1)"
+check "chương cuối = Episode 2" "Episode 2" "$(printf '%s\n' "$K40_CHAPS" | tail -1 | cut -d'|' -f1)"
+check "dòng chương có số chương ở cột 3" "2" "$(printf '%s\n' "$K40_CHAPS" | tail -1 | cut -d'|' -f3)"
+has "URL đọc dựng từ slug + series_id" "$KG_READ" "$(printf '%s\n' "$K40_CHAPS" | head -1 | cut -d'|' -f2)"
+check "Ctrl-G: số 1 -> URL đọc của chương 1" \
+    "https://kagane.moe/series/$KG_SEG/reader/019c1f01-a7d7-74a4-a7d7-0e7777d87b1a" \
+    "$(kgsh "fetch_chapter_list '$KG_SEG' >/dev/null; manga_chapter_url '$KG_SERIES_URL' 1")"
+check "target rỗng -> báo lỗi rõ ràng, rc=1" "1" \
+    "$(kgsh 'fetch_chapter_list "" >/dev/null 2>&1; echo $?')"
+
+# (g) ảnh trang: xin integrity token -> challenge -> URL có ?token=
+K40_IMGS=$(kgsh "fetch_chapter_images '$KG_READ'")
+check "challenge trả 3 trang" "3" "$(printf '%s\n' "$K40_IMGS" | grep -c '.')"
+has "URL ảnh đúng dạng books/page/original" \
+    "https://kagane.moe/api/v2/books/page/original/$KG_BOOK/019c2a00-0000-7000-8000-000000000001.jpg" \
+    "$(printf '%s\n' "$K40_IMGS" | head -1)"
+has "URL ảnh có token" "?token=mock-access-token" "$(printf '%s\n' "$K40_IMGS" | head -1)"
+has "ext rỗng -> mặc định jxl" ".jxl?token=" "$(printf '%s\n' "$K40_IMGS" | tail -1)"
+check "ảnh xếp đúng thứ tự trang" "019c2a00-0000-7000-8000-000000000001.jpg" \
+    "$(printf '%s\n' "$K40_IMGS" | head -1 | sed 's#.*/original/[0-9a-f-]*/##; s#?.*##')"
+
+# (h) token được cache (không gọi /api/integrity 2 lần)
+K40_INTLOG="$WORK/k40-int.log"; : > "$K40_INTLOG"
+K40_LOG="$K40_INTLOG" kgsh 'rm -f "$CACHE_DIR/kg-integrity"; kg_integrity_token >/dev/null; kg_integrity_token >/dev/null' > /dev/null
+check "token integrity chỉ xin 1 lần" "1" "$(grep -c '/api/integrity' "$K40_INTLOG" 2>/dev/null)"
+
+# (i) token hết hạn (401) -> tự xin token mới rồi thử lại
+rm -f "$WORK/k40-401.flag"
+K40_IMGS2=$(MOCK_KG_CHALLENGE_401="$WORK/k40-401.flag" kgsh "rm -f \${CACHE_DIR}/kg-integrity; fetch_chapter_images '$KG_READ'")
+check "401 -> vẫn lấy được 3 trang sau khi làm mới token" "3" "$(printf '%s\n' "$K40_IMGS2" | grep -c '^https://')"
+
+# (j) lỗi API -> thông báo rõ ràng, không treo
+K40_FAIL=$(MOCK_KG_CHALLENGE_FAIL=1 kgsh "fetch_chapter_images '$KG_READ'")
+has "challenge 403 -> báo không cấp quyền đọc" "không cấp quyền đọc" "$K40_FAIL"
+has "gợi ý KAGANE_COOKIE khi bị chặn" "KAGANE_COOKIE" "$K40_FAIL"
+K40_FAIL2=$(MOCK_KG_INTEGRITY_FAIL=1 kgsh "rm -f \${CACHE_DIR}/kg-integrity; fetch_chapter_images '$KG_READ'")
+has "integrity 403 -> gợi ý chẩn đoán mạng" "netcheck" "$K40_FAIL2"
+check "integrity lỗi -> không trả ảnh" "0" "$(printf '%s\n' "$K40_FAIL2" | grep -c '^https://')"
+
+# (k) tải ảnh: phải gửi header Origin của site (thiếu là 404)
+K40_HDRLOG="$WORK/k40-hdr.log"; : > "$K40_HDRLOG"
+K40_HDR="$K40_HDRLOG" kgsh "manga_download_image '$KG_READ-page.jpg' '$WORK/k40-img.bin'" > /dev/null
+has "tải ảnh gửi header origin của Kagane" "origin: https://kagane.moe" "$(cat "$K40_HDRLOG" 2>/dev/null)"
+check "tải ảnh ghi được file ảnh" "1" "$([ -s "$WORK/k40-img.bin" ] && echo 1 || echo 0)"
+check "file tải về đúng là ảnh" "1" "$(kgsh "manga_file_is_image '$WORK/k40-img.bin'")"
+
+# (l) cookie tuỳ chọn được gửi kèm
+K40_HDRLOG2="$WORK/k40-hdr2.log"; : > "$K40_HDRLOG2"
+K40_HDR="$K40_HDRLOG2" kgsh 'KAGANE_COOKIE="abc=1"; kg_api_call GET "/api/v2/series/x" >/dev/null' > /dev/null
+has "KAGANE_COOKIE -> header cookie" "cookie: abc=1" "$(cat "$K40_HDRLOG2" 2>/dev/null)"
+
+# (m) chẩn đoán riêng của nguồn
+K40_DIAG=$(kgsh 'manga_diagnose --no-pause')
+has "chẩn đoán kagane: có mục nguồn" "Chẩn đoán nguồn truyện tranh (kagane)" "$K40_DIAG"
+has "chẩn đoán kagane: duyệt/tìm dùng được" "Duyệt/tìm truyện dùng được" "$K40_DIAG"
+has "chẩn đoán kagane: kiểm tra token đọc" "Token đọc" "$K40_DIAG"
+has "chẩn đoán kagane: đếm chương qua API" "3 chương" "$K40_DIAG"
+
+# (n) cấu hình: menu nguồn + config.cfg
+has "menu có lựa chọn kagane" '4) kagane     (https://kagane.moe)' "$(src_has '4) kagane     (https://kagane.moe)')"
+has "nhãn menu nguồn truyện có kagane" "nettruyen / truyenvn / e-hentai / kagane" \
+    "$(src_has 'nettruyen / truyenvn / e-hentai / kagane')"
+check "có file module src/comic/kagane.sh" "1" "$([ -f "$ROOT/src/comic/kagane.sh" ] && echo 1 || echo 0)"
+K40_CFG=$(kgsh 'KAGANE_LANG="vi"; KAGANE_COOKIE="abc=1"; save_config >/dev/null 2>&1; cat "$CONFIG_FILE"')
+has "config.cfg lưu KAGANE_LANG" 'KAGANE_LANG="vi"' "$K40_CFG"
+has "config.cfg lưu KAGANE_COOKIE" 'KAGANE_COOKIE="abc=1"' "$K40_CFG"
+
+# (o) --netcheck tự chọn host theo nguồn đang dùng
+K40_NET=$(kgsh 'anisub_netcheck')
+has "netcheck dùng host kagane.moe" "kagane.moe" "$K40_NET"
+
+# (p) các nguồn cũ không bị ảnh hưởng
+check "nettruyen vẫn là nettruyen" "nettruyen" \
+    "$( ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k40" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=nettruyen; manga_source_label" ) 2>&1)"
+check "e-hentai vẫn là e-hentai" "e-hentai" \
+    "$( ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k40" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=ehentai; manga_source_label" ) 2>&1)"
 
 
 echo

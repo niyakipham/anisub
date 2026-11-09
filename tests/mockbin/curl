@@ -27,7 +27,7 @@ for i in "${!args[@]}"; do
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*cloudflare-dns.com*|*dns.google*|*codeload.github.com*|*"/uploads/"*|*"manga-offline"*|*dnsblock*)
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*kagane.moe*|*cloudflare-dns.com*|*dns.google*|*codeload.github.com*|*"/uploads/"*|*"manga-offline"*|*dnsblock*)
                     url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
@@ -50,6 +50,37 @@ case "$eff" in
             code="000"; body=""
         fi ;;
     *manga-offline*)        code="000"; body="" ;;
+    *kagane.moe/api/integrity*)
+        # token đọc ngắn hạn; MOCK_KG_INTEGRITY_FAIL=1 -> bị chặn
+        if [ "${MOCK_KG_INTEGRITY_FAIL:-0}" = "1" ]; then
+            code="403"; body="${MOCK_FIXTURES}/kagane-error.json"
+        else
+            body="${TMPDIR:-/tmp}/mock-kg-integrity-$$.json"
+            printf '{"token":"mock-integrity-token","exp":%s}' "$(( $(date +%s) + 3600 ))" > "$body"
+            code="200"
+        fi ;;
+    *kagane.moe/api/v2/books/page/*)
+        body="" ;;                      # ảnh: nhánh "tải ảnh" bên dưới ghi file giả
+    *kagane.moe/api/v2/books/*intent=Read*)
+        if [ "${MOCK_KG_CHALLENGE_FAIL:-0}" = "1" ]; then
+            code="403"; body="${MOCK_FIXTURES}/kagane-error.json"
+        elif [ -n "${MOCK_KG_CHALLENGE_401:-}" ]; then
+            # lần đầu 401 (token cũ hết hạn), lần sau OK -> test tự xin token mới
+            if [ -f "${MOCK_KG_CHALLENGE_401}" ]; then
+                body="${MOCK_FIXTURES}/kagane-challenge.json"
+            else
+                : > "${MOCK_KG_CHALLENGE_401}"
+                code="401"; body="${MOCK_FIXTURES}/kagane-error.json"
+            fi
+        else
+            body="${MOCK_FIXTURES}/kagane-challenge.json"
+        fi ;;
+    *kagane.moe/api/v2/series/*/books/index*)
+        body="${MOCK_FIXTURES}/kagane-books.json" ;;
+    *kagane.moe/api/v2/series/*)
+        body="${MOCK_FIXTURES}/kagane-series.json" ;;
+    *kagane.moe/search*|*kagane.moe/*)
+        body="${MOCK_FIXTURES}/kagane-search.html" ;;
     *cloudflare-dns.com*|*dns.google*)
         # DNS-over-HTTPS giả lập: trả JSON có 1 bản ghi A
         body="${MOCK_DOH_JSON:-$(mktemp 2>/dev/null)}"

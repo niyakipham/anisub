@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.10f"
+ANISUB_VERSION="2026.11.11a"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -62,6 +62,10 @@ LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 # e-hentai  : https://e-hentai.org  - gallery ảnh, 1 gallery = 1 "truyện", các
 #             trang ảnh được gom thành từng nhóm (EHENTAI_CHUNK) = 1 "chapter".
 #             Danh sách mặc định = tag EHENTAI_TAG (language:vietnamese).
+# kagane    : https://kagane.moe    - site tổng hợp manga/manhwa/manhua đa ngôn
+#             ngữ, có API JSON riêng. Truyện /series/<slug>-<uuid>, đọc
+#             /series/<slug>-<uuid>/reader/<book_id>; ảnh trang cần token ngắn
+#             hạn (anisub tự xin + tự làm mới).
 DEFAULT_MANGA_SOURCE="nettruyen"
 DEFAULT_MANGA_BASE_URL="https://nettruyen.info"
 DEFAULT_MANGA_SEARCH_FEEDS="latest,trending,views"   # danh sách dùng để lọc khi search
@@ -86,6 +90,13 @@ DEFAULT_MANGA_PROXY=""
 DEFAULT_EHENTAI_TAG="language:vietnamese"
 DEFAULT_EHENTAI_CHUNK=20
 DEFAULT_EHENTAI_COOKIE=""
+KAGANE_LANG=""
+KAGANE_COOKIE=""
+# Kagane: ngôn ngữ muốn lọc khi tìm/duyệt ("" = mọi ngôn ngữ, vd "vi" hoặc "en")
+# và cookie trình duyệt (chỉ cần cho truyện 18+ đã qua bước xác nhận tuổi).
+DEFAULT_KAGANE_BASE_URL="https://kagane.moe"
+DEFAULT_KAGANE_LANG=""
+DEFAULT_KAGANE_COOKIE=""
 MANGA_SOURCE=""
 MANGA_BASE_URL=""
 MANGA_SEARCH_FEEDS=""
@@ -144,6 +155,8 @@ load_config() {
         echo "EHENTAI_TAG=\"$DEFAULT_EHENTAI_TAG\"" >> "$CONFIG_FILE"
         echo "EHENTAI_CHUNK=\"$DEFAULT_EHENTAI_CHUNK\"" >> "$CONFIG_FILE"
         echo "EHENTAI_COOKIE=\"$DEFAULT_EHENTAI_COOKIE\"" >> "$CONFIG_FILE"
+        echo "KAGANE_LANG=\"$DEFAULT_KAGANE_LANG\"" >> "$CONFIG_FILE"
+        echo "KAGANE_COOKIE=\"$DEFAULT_KAGANE_COOKIE\"" >> "$CONFIG_FILE"
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---" >> "$CONFIG_FILE"
         echo "KKPHIM_SITE_URL=\"$DEFAULT_KKPHIM_SITE_URL\"" >> "$CONFIG_FILE"
         echo "KKPHIM_API_URL=\"$DEFAULT_KKPHIM_API_URL\"" >> "$CONFIG_FILE"
@@ -178,6 +191,9 @@ load_config() {
     EHENTAI_TAG=${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}
     EHENTAI_CHUNK=${EHENTAI_CHUNK:-$DEFAULT_EHENTAI_CHUNK}
     EHENTAI_COOKIE=${EHENTAI_COOKIE:-$DEFAULT_EHENTAI_COOKIE}
+    # Kagane: ngôn ngữ lọc + cookie (để trống = mọi ngôn ngữ / chỉ truyện công khai)
+    KAGANE_LANG=${KAGANE_LANG:-$DEFAULT_KAGANE_LANG}
+    KAGANE_COOKIE=${KAGANE_COOKIE:-$DEFAULT_KAGANE_COOKIE}
     # Cấu hình nguồn phim KKPhim: config.cfg > giá trị mặc định
     KKPHIM_SITE_URL=${KKPHIM_SITE_URL:-$DEFAULT_KKPHIM_SITE_URL}
     KKPHIM_API_URL=${KKPHIM_API_URL:-$DEFAULT_KKPHIM_API_URL}
@@ -216,6 +232,8 @@ save_config() {
         echo "EHENTAI_TAG=\"$EHENTAI_TAG\""
         echo "EHENTAI_CHUNK=\"$EHENTAI_CHUNK\""
         echo "EHENTAI_COOKIE=\"$EHENTAI_COOKIE\""
+        echo "KAGANE_LANG=\"$KAGANE_LANG\""
+        echo "KAGANE_COOKIE=\"$KAGANE_COOKIE\""
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---"
         echo "KKPHIM_SITE_URL=\"$KKPHIM_SITE_URL\""
         echo "KKPHIM_API_URL=\"$KKPHIM_API_URL\""
@@ -356,6 +374,7 @@ KKPHIM_HTTP_STATUS="000"
 #   src/comic/nettruyen.sh  nguồn nettruyen.info
 #   src/comic/truyenvn.sh   nguồn truyenvn.my
 #   src/comic/ehentai.sh    nguồn e-hentai.org (truyện tiếng Việt)
+#   src/comic/kagane.sh     nguồn kagane.moe (manga/manhwa/manhua đa ngôn ngữ)
 #
 # Thêm nguồn mới = thêm 1 file .sh vào đúng thư mục, không cần sửa file này.
 # Muốn chạy bộ file ở nơi khác: đặt biến môi trường ANISUB_SRC_DIR=/duong/dan/src
