@@ -35,15 +35,22 @@ has() { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "chứa [$2]" "[$3]" ;; esac
 
 echo "== 1. cấu hình nguồn truyện =="
 load_config
-check "MANGA_BASE_URL mặc định" "https://truyenvn.my" "$MANGA_BASE_URL"
+check "nguồn mặc định = nettruyen" "nettruyen" "$MANGA_SOURCE"
+check "MANGA_BASE_URL mặc định" "https://nettruyen.info" "$MANGA_BASE_URL"
 check "feeds mặc định" "latest,trending,views" "$MANGA_SEARCH_FEEDS"
 check "pages mặc định" "1" "$MANGA_SEARCH_PAGES"
 save_config > /dev/null
-has "config.cfg lưu MANGA_BASE_URL" 'MANGA_BASE_URL="https://truyenvn.my"' "$(cat "$CONFIG_FILE")"
+has "config.cfg lưu MANGA_SOURCE" 'MANGA_SOURCE="nettruyen"' "$(cat "$CONFIG_FILE")"
+has "config.cfg lưu MANGA_BASE_URL" 'MANGA_BASE_URL="https://nettruyen.info"' "$(cat "$CONFIG_FILE")"
 mkdir -p "$WORK/home2/.config/anisub_cli"
-printf 'PLAYER="mpv"\n' > "$WORK/home2/.config/anisub_cli/config.cfg"   # config cũ, chưa có key manga
-( HOME="$WORK/home2" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; load_config >/dev/null 2>&1; [ \"\$MANGA_BASE_URL\" = https://truyenvn.my ]" ) \
-    && ok "config cũ thiếu key -> vẫn dùng default" || bad "config cũ thiếu key" "https://truyenvn.my" "khác"
+printf 'PLAYER="mpv"\n' > "$WORK/home2/.config/anisub_cli/config.cfg"   # config cũ, chỉ có PLAYER
+( HOME="$WORK/home2" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; load_config >/dev/null 2>&1; [ \"\$MANGA_SOURCE\" = nettruyen ] && [ \"\$MANGA_BASE_URL\" = https://nettruyen.info ]" ) \
+    && ok "config cũ thiếu key -> tự chuyển sang nguồn mặc định mới" || bad "config cũ thiếu key" "nettruyen + nettruyen.info" "khác"
+
+# ---- Từ đây các mục 2..27 kiểm tra nguồn TRUYENVN (vẫn giữ để đổi lại nguồn) ----
+MANGA_SOURCE="truyenvn"
+MANGA_BASE_URL="https://truyenvn.my"
+ok "chuyển sang kiểm tra nguồn truyenvn (mục 2..27)"
 
 echo "== 2. manga_http_fetch: HTTP status =="
 if manga_http_fetch "https://truyenvn.my/tim-kiem?m_orderby=latest" > "$WORK/body.html"; then
@@ -483,6 +490,89 @@ check "có nhãn phiên bản" "1" "$(printf '%s' "$ANISUB_VERSION" | grep -cE '
 has "selftest in phiên bản để biết đang chạy bản nào" "anisub: $ANISUB_VERSION" "$(manga_selftest bocchi-the-rock 2>&1)"
 check "CLI --version chạy được" "anisub $ANISUB_VERSION" "$(bash "$ROOT/anisub.sh" --version 2>/dev/null)"
 has "menu truyện có mục chẩn đoán" "Kiểm tra đọc truyện (chẩn đoán)" "$(grep -o 'Kiểm tra đọc truyện (chẩn đoán)' "$ROOT/anisub.sh" | head -1)"
+
+
+echo "== 28. nguồn nettruyen: URL, tìm kiếm, danh sách truyện =="
+nt() { MANGA_SOURCE=nettruyen MANGA_BASE_URL=https://nettruyen.info "$@"; }
+check "slug -> /truyen-<slug>" "https://nettruyen.info/truyen-toi-manh-hon-anh-hung" \
+    "$(nt manga_manga_url toi-manh-hon-anh-hung)"
+check "route truyen- giữ nguyên (không nhân đôi tiền tố)" "https://nettruyen.info/truyen-toi-manh-hon-anh-hung" \
+    "$(nt manga_manga_url truyen-toi-manh-hon-anh-hung)"
+check "link đầy đủ giữ nguyên" "https://nettruyen.info/truyen-abc" \
+    "$(nt manga_manga_url https://nettruyen.info/truyen-abc/)"
+check "nt_route_of từ URL" "truyen-abc" "$(nt nt_route_of https://nettruyen.info/truyen-abc/chuong-5)"
+check "nt_chapter_parts" "truyen-abc|1.5" "$(nt nt_chapter_parts https://nettruyen.info/truyen-abc/chuong-1.5)"
+nt manga_list_items "/tim-kiem" "keyword=one" > "$WORK/nt-list.txt" 2>/dev/null
+check "liệt kê: 3 truyện (bỏ link chapter)" "3" "$(grep -c '|' "$WORK/nt-list.txt")"
+check "tên lấy từ <h3>, bỏ tiền tố 'Truyện tranh'" "One Piece - Đảo Hải Tặc" \
+    "$(sed -n '2p' "$WORK/nt-list.txt" | cut -d'|' -f1)"
+check "URL tuyệt đối + slug" "https://nettruyen.info/truyen-van-co-chi-ton|truyen-van-co-chi-ton" \
+    "$(sed -n '3p' "$WORK/nt-list.txt" | cut -d'|' -f2,3)"
+check "ảnh bìa data-original" "https://nettruyen.info/storage/thumbnails/van-co-chi-ton.jpg" \
+    "$(sed -n '3p' "$WORK/nt-list.txt" | cut -d'|' -f4)"
+check "nhớ ảnh bìa để preview" "https://nettruyen.info/images/one-piece-dao-hai-tac.jpg" \
+    "$(manga_cover_cache_get truyen-one-piece-dao-hai-tac)"
+nt manga_search_items "one" > "$WORK/nt-search.txt" 2>/dev/null
+check "tìm kiếm: lọc đúng 1 truyện khớp 'one'" "1" "$(grep -c '|' "$WORK/nt-search.txt")"
+check "tên trong kết quả tìm kiếm" "One Piece - Đảo Hải Tặc" "$(cut -d'|' -f1 "$WORK/nt-search.txt")"
+check "giải HTML entity (&amp; -> &)" "0" "$(grep -c '&amp;' "$WORK/nt-list.txt")"
+check "lọc client-side theo từ khoá" "1" \
+    "$(nt manga_list_items "/tim-kiem" "keyword=one" | nt manga_match_items "van co" | grep -c '|')"
+
+echo "== 29. nguồn nettruyen: danh sách chapter =="
+nt fetch_chapter_list "toi-manh-hon-anh-hung" > "$WORK/nt-chaps.txt" 2>/dev/null
+check "8 chapter của đúng truyện (bỏ truyện khác)" "8" "$(grep -c '|' "$WORK/nt-chaps.txt")"
+check "sắp xếp tăng dần, chương mới nhất cuối" "Chapter 147" "$(tail -1 "$WORK/nt-chaps.txt" | cut -d'|' -f1)"
+check "chương đầu là Chapter 0" "Chapter 0" "$(head -1 "$WORK/nt-chaps.txt" | cut -d'|' -f1)"
+check "chapter lẻ 1.5 nằm giữa 1 và 2" "Chapter 1.5" "$(sed -n '3p' "$WORK/nt-chaps.txt" | cut -d'|' -f1)"
+check "URL chapter tuyệt đối" "https://nettruyen.info/truyen-toi-manh-hon-anh-hung/chuong-147" \
+    "$(tail -1 "$WORK/nt-chaps.txt" | cut -d'|' -f2)"
+check "trường 3 = chuong-N" "chuong-147" "$(tail -1 "$WORK/nt-chaps.txt" | cut -d'|' -f3)"
+check "manga_chapter_url dựng đúng URL nettruyen" "https://nettruyen.info/truyen-x/chuong-12.5" \
+    "$(nt manga_chapter_url https://nettruyen.info/truyen-x 12.5)"
+check "truyenvn vẫn dùng /chapter-N" "https://truyenvn.my/truyen-tranh/x/chapter-12-5" \
+    "$(MANGA_SOURCE=truyenvn MANGA_BASE_URL=https://truyenvn.my manga_chapter_url https://truyenvn.my/truyen-tranh/x 12.5)"
+
+echo "== 30. nguồn nettruyen: ảnh trang đọc =="
+nt fetch_chapter_images "https://nettruyen.info/truyen-toi-manh-hon-anh-hung/chuong-147" > "$WORK/nt-imgs.txt" 2>/dev/null
+check "5 trang ảnh" "5" "$(grep -c 'page_' "$WORK/nt-imgs.txt")"
+check "trang đầu page_0" "https://net.imgchapter.store/toi-manh-hon-anh-hung/147/page_0.jpg" \
+    "$(head -1 "$WORK/nt-imgs.txt")"
+check "sắp theo số trang (10 sau 3)" "page_10" "$(tail -1 "$WORK/nt-imgs.txt" | grep -o 'page_10')"
+check "bỏ qua logo/banner" "0" "$(grep -c 'logo\|banner' "$WORK/nt-imgs.txt")"
+nt nt_parse_image_urls < "$ROOT/tests/fixtures/nt-chapter-relative.html" > "$WORK/nt-rel.txt"
+check "ảnh đường dẫn tương đối -> ghép host ảnh" "https://net.imgchapter.store/toi-manh-hon-anh-hung/147/page_0.jpg" \
+    "$(head -1 "$WORK/nt-rel.txt")"
+check "sắp lại theo số trang dù HTML để lộn xộn" "page_2.jpg" "$(tail -1 "$WORK/nt-rel.txt" | grep -o 'page_2.jpg')"
+check "đủ 3 trang" "3" "$(grep -c 'page_' "$WORK/nt-rel.txt")"
+check "bỏ ảnh loading.gif" "0" "$(grep -c 'loading' "$WORK/nt-rel.txt")"
+MOCK_IMG_MAX_PAGE=3 nt nt_probe_page_urls "https://nettruyen.info/truyen-abc/chuong-7" > "$WORK/nt-probe.txt" 2>/dev/null
+check "tự dò ảnh theo mẫu URL (dừng khi 404)" "3" "$(grep -c 'page_' "$WORK/nt-probe.txt")"
+check "dò đúng host ảnh" "https://net.imgchapter.store/abc/7/page_2.jpg" "$(tail -1 "$WORK/nt-probe.txt")"
+
+echo "== 31. nguồn nettruyen: menu, thể loại, chẩn đoán =="
+check "trang mới cập nhật = trang chủ" "/" \
+    "$( manga_browse_menu() { printf '%s' "$1"; }; MANGA_SOURCE=nettruyen MANGA_BASE_URL=https://nettruyen.info manga_browse_latest )"
+check "trang hot = /truyen-tranh-hot" "/truyen-tranh-hot" \
+    "$( manga_browse_menu() { printf '%s' "$1"; }; MANGA_SOURCE=nettruyen MANGA_BASE_URL=https://nettruyen.info manga_browse_hot )"
+check "truyenvn vẫn dùng /tim-kiem + m_orderby" "/tim-kiem|m_orderby=views" \
+    "$( manga_browse_menu() { printf '%s|%s' "$1" "$3"; }; MANGA_SOURCE=truyenvn MANGA_BASE_URL=https://truyenvn.my manga_browse_views )"
+check "thể loại nettruyen có manhwa" "1" "$(nt manga_genres | grep -c '|manhwa$')"
+check "thể loại nettruyen có >= 25 mục" "1" "$([ "$(nt manga_genres | grep -c '|')" -ge 25 ] && echo 1 || echo 0)"
+nt manga_selftest toi-manh-hon-anh-hung > "$WORK/nt-selftest.txt" 2>&1
+check "selftest nettruyen chạy hết luồng" "0" "$?"
+has "selftest ghi rõ nguồn" "nguồn: nettruyen (https://nettruyen.info)" "$(cat "$WORK/nt-selftest.txt")"
+has "selftest đọc được ảnh nettruyen" "imgchapter.store" "$(cat "$WORK/nt-selftest.txt")"
+has "selftest chỉ ra chap trước/sau kiểu chuong-" "chuong-146|https://nettruyen.info/truyen-toi-manh-hon-anh-hung/chuong-148" \
+    "$(grep 'chap trước|sau' "$WORK/nt-selftest.txt")"
+has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen ⇄ truyenvn)" \
+    "$(grep -o 'Đổi nguồn truyện (nettruyen ⇄ truyenvn)' "$ROOT/anisub.sh" | head -1)"
+check "chẩn đoán ghi đúng nguồn" "1" \
+    "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'Chẩn đoán nguồn truyện tranh (nettruyen)')"
+check "chẩn đoán đọc được trang chủ nettruyen" "1" \
+    "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'parse được 3 truyện')"
+has "CLI --manga-selftest tự chọn truyện mẫu theo nguồn" "nettruyen" \
+    "$(MANGA_SOURCE=nettruyen MANGA_BASE_URL=https://nettruyen.info bash "$ROOT/anisub.sh" --manga-selftest 2>&1 | head -2)"
 
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"
