@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.09e"
+ANISUB_VERSION="2026.11.09f"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -971,7 +971,30 @@ kkphim_playlist_filter() {
         }
         push @out, @pending;
         exit 2 if $kept == 0;                   # không còn segment nào -> đừng dùng
-        print join("\n", @out), "\n";
+        # Chuẩn hoá thành VOD: playlist kiểu live (thiếu ENDLIST) sẽ bị trình phát
+        # tải lại mỗi TARGETDURATION giây; bản lọc là ảnh chụp tĩnh nên phát 3 giây
+        # lại khựng 3 giây. Thêm ENDLIST + PLAYLIST-TYPE:VOD, đưa MEDIA-SEQUENCE về 0.
+        my ($has_end, $has_type, $inserted) = (0, 0, 0);
+        for my $l (@out) {
+            $has_end  = 1 if $l =~ m{^#EXT-X-ENDLIST}i;
+            $has_type = 1 if $l =~ m{^#EXT-X-PLAYLIST-TYPE:}i;
+        }
+        my @final;
+        for my $l (@out) {
+            next if $l =~ m{^#EXT-X-MEDIA-SEQUENCE:}i;
+            next if $l =~ m{^#EXT-X-DISCONTINUITY-SEQUENCE:}i;
+            push @final, $l;
+            if (!$has_type && !$inserted && $l =~ m{^#EXT-X-TARGETDURATION:}i) {
+                push @final, "#EXT-X-PLAYLIST-TYPE:VOD";
+                $inserted = 1;
+            }
+        }
+        if (!$inserted && !$has_type) {         # playlist không có TARGETDURATION
+            splice @final, 1, 0, "#EXT-X-PLAYLIST-TYPE:VOD";
+        }
+        splice @final, 1, 0, "#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-DISCONTINUITY-SEQUENCE:0";
+        push @final, "#EXT-X-ENDLIST" unless $has_end;
+        print join("\n", @final), "\n";
     '
 }
 
@@ -1000,6 +1023,11 @@ kkphim_adfree_playlist() {
     [ -z "$filtered" ] && return 1
     out="${TMPDIR:-/tmp}/anisub-adfree-$$.m3u8"
     printf '%s\n' "$filtered" > "$out" 2>/dev/null || return 1
+    # lưu lại 2 bản (bản gốc + bản đã lọc) để đối chiếu khi cần báo lỗi
+    if [ -n "${CACHE_DIR:-}" ] && mkdir -p "$CACHE_DIR" 2>/dev/null; then
+        printf '%s\n' "$text" > "$CACHE_DIR/kkphim-playlist-original.m3u8" 2>/dev/null
+        cp "$out" "$CACHE_DIR/kkphim-playlist-filtered.m3u8" 2>/dev/null
+    fi
     printf '%s' "$out"
 }
 
@@ -1021,6 +1049,52 @@ kkphim_play_url() {
         KKPHIM_ADFREE_FILE=""
         printf '%s' "$url"
     fi
+}
+
+# Chẩn đoán chặn quảng cáo: tải playlist, lọc, in ra số segment/host bị bỏ và
+# lưu 2 bản playlist (gốc + đã lọc) để gửi kèm khi báo lỗi.
+kkphim_ad_report() {
+    local url="${1:-}"
+    if [ -z "$url" ]; then
+        echo "Cách dùng: ./anisub.sh --kkphim-ad-debug <link m3u8>"
+        return 1
+    fi
+    echo "🚫 CHẨN ĐOÁN CHẶN QUẢNG CÁO (anisub $ANISUB_VERSION)"
+    echo "   URL: $url"
+    case "$(printf '%s' "${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}" | tr 'A-Z' 'a-z')" in
+        0|off|no|false|tat|tắt) echo "   ⚠️ Đang TẮT chặn quảng cáo (KKPHIM_AD_BLOCK=0)." ;;
+    esac
+    local out code
+    out=$(kkphim_adfree_playlist "$url" 2>/dev/null) || {
+        code=$(anisub_last_http 2>/dev/null)
+        echo "   ❌ Không tải/lọc được playlist này."
+        echo "      → thử: curl -sSL -o /tmp/pl.m3u8 '$url' rồi mở file xem có #EXTM3U không"
+        return 1
+    }
+    local orig="${CACHE_DIR:-${TMPDIR:-/tmp}}/kkphim-playlist-original.m3u8"
+    local filt="${CACHE_DIR:-${TMPDIR:-/tmp}}/kkphim-playlist-filtered.m3u8"
+    local n_orig n_filt n_drop
+    n_orig=$(grep -cE '^https?://|^[^#[:space:]].*\.(ts|m4s|mp4|aac)' "$orig" 2>/dev/null)
+    n_filt=$(grep -cE '^https?://|^[^#[:space:]].*\.(ts|m4s|mp4|aac)' "$filt" 2>/dev/null)
+    n_drop=$(( ${n_orig:-0} - ${n_filt:-0} ))
+    echo "   ✔ Playlist tải được · segment: giữ ${n_filt:-0} / bỏ ${n_drop:-0}"
+    if [ "${n_drop:-0}" -gt 0 ]; then
+        echo "   ── segment bị bỏ:"
+        comm -23 <(grep -E '^https?://' "$orig" 2>/dev/null | sort -u) \
+                 <(grep -E '^https?://' "$filt" 2>/dev/null | sort -u) | head -8 | sed 's/^/      · /'
+    fi
+    if grep -q '#EXT-X-ENDLIST' "$orig" 2>/dev/null; then
+        echo "   ── kiểu playlist gốc: VOD (có #EXT-X-ENDLIST)"
+    else
+        echo "   ── kiểu playlist gốc: LIVE/thiếu ENDLIST → đã thêm ENDLIST + PLAYLIST-TYPE:VOD"
+        echo "      (nếu không thêm, trình phát tải lại playlist mỗi 3 giây -> phát 3s lại khựng 3s)"
+    fi
+    echo "   ── danh sách host trong playlist:"
+    grep -E '^https?://' "$filt" 2>/dev/null | sed -E 's#^https?://([^/]+)/.*#\1#' | sort | uniq -c | sort -rn | head -6 | sed 's/^/      /'
+    echo "   📄 Đã lưu: $orig"
+    echo "              $filt"
+    echo "   Gửi 2 file này khi báo lỗi để bổ sung mẫu nhận diện quảng cáo."
+    return 0
 }
 
 play_stream() {
@@ -1051,6 +1125,7 @@ play_stream() {
     case "$PLAYER" in
         mpv)
             mpv "$play_url" --no-terminal --profile=sw-fast --audio-display=no \
+                --cache=yes --cache-secs=30 --demuxer-readahead-secs=30 \
                 --no-keepaspect-window --title="Anisub: $title" \
                 --referrer="$KKPHIM_REFERER" --user-agent="$KKPHIM_USER_AGENT" \
                 --http-header-fields="Referer: $KKPHIM_REFERER" &
@@ -4231,6 +4306,13 @@ fi
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
     echo "anisub $ANISUB_VERSION"
     exit 0
+fi
+
+if [ "${1:-}" = "--kkphim-ad-debug" ]; then
+    load_config
+    shift
+    kkphim_ad_report "${1:-}"
+    exit $?
 fi
 
 if [ "${1:-}" = "--manga-selftest" ]; then

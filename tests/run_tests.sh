@@ -641,6 +641,29 @@ has "cài đặt có mục chặn quảng cáo" "Chặn quảng cáo trong m3u8"
     "$(grep -o 'Chặn quảng cáo trong m3u8' "$ROOT/anisub.sh" | head -1)"
 has "config lưu KKPHIM_AD_BLOCK" 'KKPHIM_AD_BLOCK="' "$(save_config >/dev/null; cat "$CONFIG_FILE")"
 
+
+echo "== 34. playlist kiểu live -> chuẩn hoá VOD (sửa lỗi phát 3s lại khựng 3s) =="
+KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/live.m3u8" > "$WORK/live.path" 2>/dev/null
+live_file=$(cat "$WORK/live.path")
+check "playlist thiếu ENDLIST -> thêm ENDLIST" "1" "$(grep -c '#EXT-X-ENDLIST' "$live_file")"
+check "thêm PLAYLIST-TYPE:VOD" "1" "$(grep -c '#EXT-X-PLAYLIST-TYPE:VOD' "$live_file")"
+check "MEDIA-SEQUENCE đưa về 0" "1" "$(grep -c '^#EXT-X-MEDIA-SEQUENCE:0$' "$live_file")"
+check "DISCONTINUITY-SEQUENCE đưa về 0" "1" "$(grep -c '^#EXT-X-DISCONTINUITY-SEQUENCE:0$' "$live_file")"
+check "bỏ segment quảng cáo trong playlist live" "0" "$(grep -ci 'adtag' "$live_file")"
+check "giữ 3 segment phim" "3" "$(grep -cE '^https?://.*\.ts' "$live_file")"
+check "giữ #EXT-X-DISCONTINUITY giữa phim" "1" "$(grep -c '^#EXT-X-DISCONTINUITY$' "$live_file")"
+check "VOD sẵn rồi thì không nhân đôi ENDLIST" "1" \
+    "$(KKPHIM_AD_BLOCK=1 kkphim_play_url https://cdn.phim.test/hls/phim/master.m3u8 2>/dev/null | xargs grep -c '#EXT-X-ENDLIST')"
+kkphim_ad_report "https://cdn.phim.test/hls/phim/live.m3u8" > "$WORK/adreport.txt" 2>&1
+check "chẩn đoán chạy được" "0" "$?"
+has "chẩn đoán đếm segment giữ/bỏ" "giữ 3 / bỏ 1" "$(cat "$WORK/adreport.txt")"
+has "chẩn đoán chỉ ra playlist gốc kiểu live" "LIVE/thiếu ENDLIST" "$(cat "$WORK/adreport.txt")"
+has "chẩn đoán liệt kê segment bị bỏ" "ads.adtag.vn/preroll/ad120.ts" "$(cat "$WORK/adreport.txt")"
+check "lưu playlist gốc để đối chiếu" "1" "$([ -s "${CACHE_DIR}/kkphim-playlist-original.m3u8" ] && echo 1 || echo 0)"
+check "lưu playlist đã lọc để đối chiếu" "1" "$([ -s "${CACHE_DIR}/kkphim-playlist-filtered.m3u8" ] && echo 1 || echo 0)"
+has "CLI --kkphim-ad-debug chạy được" "giữ 3 / bỏ 1" \
+    "$(bash "$ROOT/anisub.sh" --kkphim-ad-debug "https://cdn.phim.test/hls/phim/live.m3u8" 2>&1)"
+
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"
 [ "$fail" -gt 0 ] && printf ', \033[31m%s fail\033[0m' "$fail"
