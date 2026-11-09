@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.10b"
+ANISUB_VERSION="2026.11.10c"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -40,10 +40,16 @@ KKPHIM_SERVER_PREF=""
 KKPHIM_FFMPEG_HEADERS=""
 
 # Local Data File
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Đi theo symlink (ai cài bằng "ln -s ~/anisub.sh ~/bin/anisub" vẫn tìm đúng src/)
+ANISUB_SELF_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$ANISUB_SELF_PATH")" && pwd)"
 # Đường dẫn tuyệt đối của chính script — fzf chạy reload/preview bằng shell riêng,
 # CWD có thể đã bị đổi (vd sau tính năng Ghép Video) nên phải dùng đường dẫn đầy đủ.
 SELF_SCRIPT="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+# 1 = file này đang được CHẠY trực tiếp (./anisub.sh), 0 = đang bị source
+# (test hoặc script khác nhúng vào) -> khi source thì chỉ nạp hàm, không mở menu.
+ANISUB_EXECUTED=0
+[ "${BASH_SOURCE[0]}" = "$0" ] && ANISUB_EXECUTED=1
 LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 
 # --- NGUỒN TRUYỆN TRANH ------------------------------------------------------
@@ -328,33 +334,125 @@ KKPHIM_HTTP_STATUS="000"
 #
 # Thêm nguồn mới = thêm 1 file .sh vào đúng thư mục, không cần sửa file này.
 # Muốn chạy bộ file ở nơi khác: đặt biến môi trường ANISUB_SRC_DIR=/duong/dan/src
-ANISUB_SRC_DIR="${ANISUB_SRC_DIR:-$SCRIPT_DIR/src}"
+# Nơi có thể có src/: biến môi trường -> cạnh script -> trong thư mục config.
+# (Người dùng cũ chỉ có mỗi anisub.sh sẽ được tự tải src/ về — xem anisub_ensure_sources.)
+ANISUB_SRC_DIR="${ANISUB_SRC_DIR:-}"
+UPDATE_REPO_URL="https://codeload.github.com/NiyakiPham/anisub/tar.gz/refs/heads/main"
 
-# Nạp mọi module nguồn (theo thứ tự tên file, lỗi cú pháp sẽ báo ngay tại đây).
+# Thư mục này có phải bộ nguồn dùng được (có movie/ + comic/ + file .sh)?
+anisub_src_looks_ok() {
+    local d="${1:-}"
+    [ -n "$d" ] && [ -d "$d/movie" ] && [ -d "$d/comic" ] || return 1
+    compgen -G "$d/comic/*.sh" > /dev/null 2>&1
+}
+
+# Tìm thư mục nguồn đang có trên máy (in ra đường dẫn, lỗi -> return 1)
+anisub_find_src() {
+    local d
+    for d in "${ANISUB_SRC_DIR:-}" "${SCRIPT_DIR:-}/src" "${CONFIG_DIR:-}/src"; do
+        [ -n "$d" ] || continue
+        if anisub_src_looks_ok "$d"; then
+            printf '%s' "$d"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Nạp mọi module nguồn trong 1 thư mục src/ (movie/ trước, comic/ sau).
 anisub_load_sources() {
+    local root="${1:-${ANISUB_SRC_DIR:-$SCRIPT_DIR/src}}"
     local dir f found=0
     for dir in movie comic; do
-        [ -d "$ANISUB_SRC_DIR/$dir" ] || continue
-        for f in "$ANISUB_SRC_DIR/$dir"/*.sh; do
+        [ -d "$root/$dir" ] || continue
+        for f in "$root/$dir"/*.sh; do
             [ -f "$f" ] || continue
             # shellcheck source=/dev/null
             . "$f" || { echo "❌ Không nạp được module nguồn: $f" >&2; return 1; }
-            found=1
+            found=$((found + 1))
         done
     done
-    if [ "$found" -eq 0 ]; then
-        echo "❌ Không tìm thấy thư mục nguồn: $ANISUB_SRC_DIR" >&2
-        echo "   Cần chạy anisub.sh cùng thư mục src/ (movie/ + comic/)." >&2
-        echo "   Tải lại repo: https://github.com/NiyakiPham/anisub" >&2
-        return 1
-    fi
-    return 0
+    [ "$found" -gt 0 ]
 }
 
-# Nạp module ngay khi file được source/chạy. Nếu thiếu src/ thì chỉ cảnh báo (vẫn
-# chạy được --version), các lệnh cần nguồn sẽ báo lỗi rõ ràng.
+# Tải bộ file nguồn (src/) từ GitHub về $1 (mặc định: cạnh script).
+# Dùng cho máy chỉ có mỗi anisub.sh (bản cũ chỉ tải 1 file khi 🔄 Cập nhật).
+anisub_fetch_sources() {
+    local dest="${1:-$SCRIPT_DIR}" tmpdir archive root
+    [ -z "$dest" ] && return 1
+    tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/anisub-src.XXXXXX" 2>/dev/null) || return 1
+    archive="$tmpdir/anisub.tar.gz"
+    echo "⏳ Chưa có thư mục src/ — đang tải bộ file nguồn từ GitHub..."
+    if ! curl -fsSL --max-time 60 -o "$archive" "$UPDATE_REPO_URL" 2>/dev/null; then
+        rm -rf "$tmpdir"
+        return 1
+    fi
+    if ! tar -xzf "$archive" -C "$tmpdir" 2>/dev/null; then
+        rm -rf "$tmpdir"
+        return 1
+    fi
+    root=$(find "$tmpdir" -mindepth 1 -maxdepth 1 -type d -name 'anisub-*' | head -1)
+    if [ -z "$root" ] || [ ! -d "$root/src" ]; then
+        rm -rf "$tmpdir"
+        return 1
+    fi
+    mkdir -p "$dest" 2>/dev/null
+    if [ -d "$dest/src" ]; then
+        cp -R "$root/src/." "$dest/src/" 2>/dev/null      # đã có src/ -> ghi đè lên
+    else
+        cp -R "$root/src" "$dest/src" 2>/dev/null         # chưa có -> tạo mới
+    fi
+    local rc=$?
+    rm -rf "$tmpdir"
+    return $rc
+}
+
+# Bảo đảm LUÔN có nguồn trước khi mở menu: tìm quanh máy -> tự tải -> báo lỗi rõ ràng.
+# Nhờ vậy lỗi "bấm Đọc Truyện Tranh mà không có gì xảy ra" không còn xảy ra nữa.
+anisub_ensure_sources() {
+    [ "${ANISUB_SOURCES_OK:-0}" = "1" ] && return 0
+    local found dest
+    if found=$(anisub_find_src); then
+        ANISUB_SRC_DIR="$found"
+        anisub_load_sources "$ANISUB_SRC_DIR" && { ANISUB_SOURCES_OK=1; return 0; }
+    fi
+    # Chưa có -> thử tải về cạnh script, không ghi được thì để trong thư mục config
+    mkdir -p "$CONFIG_DIR" 2>/dev/null
+    for dest in "$SCRIPT_DIR" "$CONFIG_DIR"; do
+        [ -w "$dest" ] || continue
+        if anisub_fetch_sources "$dest"; then
+            if found=$(anisub_find_src); then
+                ANISUB_SRC_DIR="$found"
+                if anisub_load_sources "$ANISUB_SRC_DIR"; then
+                    ANISUB_SOURCES_OK=1
+                    echo "✅ Đã tải bộ file nguồn: $ANISUB_SRC_DIR"
+                    sleep 1
+                    return 0
+                fi
+            fi
+        fi
+    done
+    echo "❌ anisub cần thư mục src/ (movie/ + comic/) nhưng không tìm thấy và cũng không tải được."
+    echo ""
+    echo "   Đã tìm ở : ${SCRIPT_DIR}/src"
+    echo "              ${CONFIG_DIR}/src"
+    echo "   Nguyên nhân thường gặp: chỉ tải mỗi anisub.sh, hoặc bản cũ tự cập nhật 1 file."
+    echo ""
+    echo "   Cách sửa (chọn 1):"
+    echo "     1) git clone https://github.com/NiyakiPham/anisub.git && cd anisub && ./anisub.sh"
+    echo "     2) tải bản đầy đủ: https://github.com/NiyakiPham/anisub/archive/refs/heads/main.zip"
+    echo "     3) có mạng lại rồi chạy: ./anisub.sh --doctor   (sẽ tự tải src/ về)"
+    return 1
+}
+
+# Nạp module ngay khi file được source/chạy (im lặng). Nếu thiếu src/ thì
+# --version vẫn chạy được, còn trước khi mở menu sẽ gọi anisub_ensure_sources.
 ANISUB_SOURCES_OK=0
-anisub_load_sources && ANISUB_SOURCES_OK=1
+if _anisub_src=$(anisub_find_src); then
+    ANISUB_SRC_DIR="$_anisub_src"
+    anisub_load_sources "$ANISUB_SRC_DIR" && ANISUB_SOURCES_OK=1
+fi
+unset _anisub_src
 
 # --- SETTINGS & UPDATE ---
 show_settings() {
@@ -397,8 +495,6 @@ show_settings() {
 
 # Cập nhật anisub: tải bản mới (anisub.sh + src/) từ GitHub về đúng thư mục đang chạy.
 # Dùng archive tar.gz của nhánh main vì code đã tách thành nhiều file.
-UPDATE_REPO_URL="https://codeload.github.com/NiyakiPham/anisub/tar.gz/refs/heads/main"
-
 update_script() {
     local tmpdir archive root remote_ver
     tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/anisub-update.XXXXXX" 2>/dev/null) || tmpdir=""
@@ -421,7 +517,7 @@ update_script() {
         sleep 2
         return 1
     fi
-    root=$(find "$tmpdir" -maxdepth 1 -type d -name 'anisub-*' | head -1)
+    root=$(find "$tmpdir" -mindepth 1 -maxdepth 1 -type d -name 'anisub-*' | head -1)
     if [ -z "$root" ] || [ ! -f "$root/anisub.sh" ] || [ ! -d "$root/src" ]; then
         echo "❌ Bản tải về thiếu anisub.sh hoặc src/."
         rm -rf "$tmpdir"
@@ -451,6 +547,62 @@ update_script() {
     return 0
 }
 
+# --- DOCTOR: in ra tình trạng thật của anisub (dùng khi "không đọc được truyện") ---
+anisub_doctor() {
+    echo "🩺 ANISUB DOCTOR · anisub $ANISUB_VERSION"
+    echo "══════════════════════════════════════════════════════════"
+    echo "📄 Script : $SELF_SCRIPT"
+    echo "🧩 Nguồn  : ${ANISUB_SRC_DIR:-(không có)}"
+    local f n=0
+    for f in "${ANISUB_SRC_DIR:-/nonexistent}"/movie/*.sh "${ANISUB_SRC_DIR:-/nonexistent}"/comic/*.sh; do
+        [ -f "$f" ] || continue
+        n=$((n + 1))
+        printf '   %s %s\n' "✅" "$(basename "$f")"
+    done
+    if [ "$n" -eq 0 ]; then
+        echo "   ❌ Chưa nạp được module nguồn nào"
+    else
+        echo "   (đã nạp $n module)"
+    fi
+    echo "📚 Truyện : $(manga_source_label) · ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+    echo "🎬 Phim   : $SOURCE_NAME · $KKPHIM_API_URL"
+    echo
+    local dep missing=""
+    for dep in ffmpeg curl grep yt-dlp fzf jq awk sed chafa perl "$PLAYER"; do
+        command -v "$dep" > /dev/null 2>&1 || missing="$missing $dep"
+    done
+    if [ -z "$missing" ]; then
+        echo "🧰 Phụ thuộc: ✅ đủ (ffmpeg, curl, fzf, jq, chafa, perl, $PLAYER...)"
+    else
+        missing="${missing# }"
+        echo "🧰 Phụ thuộc: ⚠️ thiếu: $missing"
+        echo "   → cài thêm rồi chạy lại (vd: sudo apt install $missing)"
+    fi
+    echo
+    manga_diagnose --no-pause
+    echo
+    echo "Nếu vẫn lỗi: gửi nguyên nội dung lệnh này khi báo bug:"
+    echo "   ./anisub.sh --doctor 2>&1 | tee anisub-doctor.txt"
+    return 0
+}
+
+# Chặn trường hợp bấm menu mà module chưa nạp (trước đây bấm không có gì xảy ra).
+# $1 = tên hàm cần có, $2 = nhãn module để báo lỗi.
+anisub_need_module() {
+    local fn="$1" label="$2"
+    declare -F "$fn" > /dev/null 2>&1 && return 0
+    echo ""
+    echo "❌ Chưa nạp được module $label."
+    echo "   Thư mục nguồn: ${ANISUB_SRC_DIR:-(không xác định)}"
+    echo "   Thường do thiếu/hỏng file trong src/ (bản cũ chỉ có anisub.sh, hoặc cập nhật dở)."
+    echo ""
+    echo "   Cách sửa:  ./anisub.sh --doctor     (tự tải src/ nếu thiếu)"
+    echo "              hoặc git clone https://github.com/NiyakiPham/anisub.git"
+    printf 'Nhấn Enter để quay lại... '
+    read -r _ || true
+    return 1
+}
+
 # --- MAIN LOGIC ---
 main() {
     trap 'rm -f "$ANISUB_STATUS_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
@@ -475,13 +627,16 @@ main() {
             "🎬 Xem Anime/Phim (KKPhim)")
                 # Tìm kiếm trực tiếp trên KKPhim: gõ tới đâu hiện gợi ý tới đó
                 clear
-                kkphim_search_menu
+                anisub_need_module kkphim_search_menu "phim (src/movie/)" && kkphim_search_menu
                 ;;
             "🍿 Phim mới cập nhật (KKPhim)")
                 clear
-                kkphim_browse_menu
+                anisub_need_module kkphim_browse_menu "phim (src/movie/)" && kkphim_browse_menu
                 ;;
-            *"Đọc Truyện Tranh"*)      manga_main_menu ;;
+            *"Đọc Truyện Tranh"*)
+                clear
+                anisub_need_module manga_main_menu "truyện tranh (src/comic/)" && manga_main_menu
+                ;;
             "📂 Xem từ Local Anidata") play_anidata_local ;;
             "📜 Lịch sử xem Anime") show_history ;;
             "⭐ Anime yêu thích")
@@ -503,28 +658,51 @@ main() {
 }
 
 # --- ENTRY POINT ---
-# ANISUB_HELPER: chế độ chạy ngầm để fzf gọi lại mỗi lần gõ (reload/preview).
-# Làm vậy để mọi lời gọi API đều đi qua đúng một nguồn cấu hình KKPhim.
-if [ -n "${ANISUB_HELPER:-}" ]; then
-    load_config
-    case "$ANISUB_HELPER" in
-        search) kkphim_helper_search ;;
-        poster) kkphim_helper_poster "$1" ;;
-        *) exit 1 ;;
-    esac
-    exit 0
-fi
+# Toàn bộ phần khởi động nằm trong hàm này để:
+#   • dòng CUỐI file luôn là 1 lời gọi duy nhất -> tests/bọc ngoài có thể bỏ nó đi
+#     (sed '$d') rồi `source` để lấy hàm mà không mở menu;
+#   • khi bị `source` (không phải chạy trực tiếp) thì không làm gì cả.
+anisub_main_entry() {
+    [ "${ANISUB_EXECUTED:-0}" = "1" ] || return 0
 
-# Chẩn đoán luồng đọc từ dòng lệnh: ./anisub.sh --manga-selftest [slug|URL]
-if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-    echo "anisub $ANISUB_VERSION"
-    exit 0
-fi
+    if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+        echo "anisub $ANISUB_VERSION"
+        exit 0
+    fi
 
-if [ "${1:-}" = "--manga-selftest" ]; then
-    load_config
-    manga_selftest "${2:-}"
-    exit $?
-fi
+    # Bảo đảm có src/ trước khi dùng bất cứ thứ gì cần nguồn (tự tải nếu thiếu).
+    # Đặt SAU --version để "anisub --version" không bao giờ phải chờ mạng.
+    if ! anisub_ensure_sources; then
+        exit 1
+    fi
 
-main
+    # ANISUB_HELPER: chế độ chạy ngầm để fzf gọi lại mỗi lần gõ (reload/preview).
+    # Làm vậy để mọi lời gọi API đều đi qua đúng một nguồn cấu hình KKPhim.
+    if [ -n "${ANISUB_HELPER:-}" ]; then
+        load_config
+        case "$ANISUB_HELPER" in
+            search) kkphim_helper_search ;;
+            poster) kkphim_helper_poster "$1" ;;
+            *) exit 1 ;;
+        esac
+        exit 0
+    fi
+
+    # Kiểm tra sức khoẻ toàn bộ: module, phụ thuộc, nguồn phim/truyện (không cần bấm gì)
+    if [ "${1:-}" = "--doctor" ] || [ "${1:-}" = "--check" ]; then
+        load_config
+        anisub_doctor
+        exit $?
+    fi
+
+    # Chẩn đoán luồng đọc từ dòng lệnh: ./anisub.sh --manga-selftest [slug|URL]
+    if [ "${1:-}" = "--manga-selftest" ]; then
+        load_config
+        manga_selftest "${2:-}"
+        exit $?
+    fi
+
+    main "$@"
+}
+
+anisub_main_entry "$@"

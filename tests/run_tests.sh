@@ -703,6 +703,67 @@ check "chẩn đoán parse được gallery" "1" "$(grep -c 'parse được 3 ga
 check "module nguồn nằm trong src/comic/ehentai.sh" "1" "$([ -f "$ROOT/src/comic/ehentai.sh" ] && echo 1 || echo 0)"
 check "bộ nạp module tự tìm src/movie + src/comic" "1" "$([ "$(src_count 'anisub_load_sources')" -ge 1 ] && echo 1 || echo 0)"
 check "src/movie có nguồn phim KKPhim" "1" "$([ -f "$ROOT/src/movie/kkphim.sh" ] && echo 1 || echo 0)"
+echo "== 35. thiếu src/ (bản chỉ có anisub.sh) -> tự tải về, không còn 'không đọc được truyện' =="
+# Bản phát hành giả lập: anisub.sh + src/ trong 1 thư mục tarball như GitHub
+mkdir -p "$WORK/rel/anisub-main"
+cp "$ROOT/anisub.sh" "$WORK/rel/anisub-main/"
+cp -R "$ROOT/src" "$WORK/rel/anisub-main/src"
+# đặt version mới hơn để test luôn phần 🔄 Cập nhật
+sed '3s/.*/ANISUB_VERSION="2999.01.01z"/' "$ROOT/anisub.sh" > "$WORK/rel/anisub-main/anisub.sh"
+tar -czf "$WORK/anisub-main.tar.gz" -C "$WORK/rel" anisub-main
+check "tạo được tarball phát hành để test" "1" "$([ -s "$WORK/anisub-main.tar.gz" ] && echo 1 || echo 0)"
+
+# (a) máy chỉ có anisub.sh, có mạng -> tự tải src/ về cạnh script
+mkdir -p "$WORK/solo" "$WORK/home-solo"
+cp "$ROOT/anisub.sh" "$WORK/solo/"
+( cd "$WORK/solo" && ANISUB_SRC_DIR="" MOCK_UPDATE_TARBALL="$WORK/anisub-main.tar.gz" HOME="$WORK/home-solo" \
+  PATH="$HERE/mockbin:$PATH" timeout 30 bash ./anisub.sh --doctor > "$WORK/solo-doctor.txt" 2>&1 )
+check "tự tải src/comic/core.sh về cạnh script" "1" "$([ -f "$WORK/solo/src/comic/core.sh" ] && echo 1 || echo 0)"
+check "tự tải đủ 6 module" "6" "$(ls "$WORK/solo/src/movie"/*.sh "$WORK/solo/src/comic"/*.sh 2>/dev/null | wc -l | tr -d ' ')"
+has "báo đã tải bộ file nguồn" "Đã tải bộ file nguồn" "$(cat "$WORK/solo-doctor.txt")"
+has "doctor chạy được sau khi tự tải" "ANISUB DOCTOR" "$(cat "$WORK/solo-doctor.txt")"
+has "doctor liệt kê module comic" "core.sh" "$(cat "$WORK/solo-doctor.txt")"
+has "doctor ghi rõ nguồn truyện" "Truyện : nettruyen" "$(cat "$WORK/solo-doctor.txt")"
+
+# (b) máy chỉ có anisub.sh, KHÔNG có mạng -> báo lỗi rõ ràng, không mở menu hỏng
+mkdir -p "$WORK/solo2" "$WORK/home-solo2"
+cp "$ROOT/anisub.sh" "$WORK/solo2/"
+( cd "$WORK/solo2" && ANISUB_SRC_DIR="" HOME="$WORK/home-solo2" PATH="$HERE/mockbin:$PATH" \
+  timeout 30 bash ./anisub.sh --doctor > "$WORK/solo2.txt" 2>&1 )
+check "thiếu src + không tải được -> mã thoát 1" "1" "$?"
+has "nói rõ cần thư mục src/" "cần thư mục src/" "$(cat "$WORK/solo2.txt")"
+has "có hướng dẫn git clone" "git clone https://github.com/NiyakiPham/anisub.git" "$(cat "$WORK/solo2.txt")"
+check "không tạo src/ rỗng khi tải thất bại" "0" "$([ -d "$WORK/solo2/src" ] && echo 1 || echo 0)"
+
+# (c) --version chạy được kể cả khi thiếu src
+check "--version không cần src/, không chờ mạng" "anisub $ANISUB_VERSION" \
+    "$( cd "$WORK/solo2" && ANISUB_SRC_DIR="" HOME="$WORK/home-solo2" PATH="$HERE/mockbin:$PATH" bash ./anisub.sh --version 2>/dev/null )"
+
+# (d) source file (test/nhúng) KHÔNG chạy entry point: không tự tải, không exit
+( cd "$WORK/solo2" && ANISUB_SRC_DIR=/khong/co/that bash -c "source '$WORK/lib.sh' >/dev/null 2>&1"; echo "rc=$?" ) > "$WORK/source-rc.txt" 2>&1
+check "source lib không tự chạy entry point" "rc=0" "$(cat "$WORK/source-rc.txt")"
+check "source lib không tạo src/ lạ" "0" "$([ -d /khong/co/that ] && echo 1 || echo 0)"
+
+# (e) 🔄 Cập nhật: cập nhật cả anisub.sh + src/ (trước đây chỉ 1 file -> hỏng truyện)
+mkdir -p "$WORK/upd" "$WORK/home-upd"
+cp "$ROOT/anisub.sh" "$WORK/upd/"
+cp -R "$ROOT/src" "$WORK/upd/src"
+rm -f "$WORK/upd/src/comic/ehentai.sh"          # giả lập bộ src/ cũ thiếu file
+( cd "$WORK/upd" && MOCK_UPDATE_TARBALL="$WORK/anisub-main.tar.gz" HOME="$WORK/home-upd" \
+  PATH="$HERE/mockbin:$PATH" bash -c "source ./anisub.sh; SCRIPT_DIR='$WORK/upd'; SELF_SCRIPT='$WORK/upd/anisub.sh'; update_script" \
+  > "$WORK/upd.txt" 2>&1 )
+has "update báo có bản mới" "Có bản mới" "$(cat "$WORK/upd.txt")"
+check "update thay anisub.sh bằng bản mới" "2999.01.01z" "$(sed -n '3s/.*ANISUB_VERSION="\(.*\)"/\1/p' "$WORK/upd/anisub.sh")"
+check "update chép lại src/ còn thiếu" "1" "$([ -f "$WORK/upd/src/comic/ehentai.sh" ] && echo 1 || echo 0)"
+check "update không tạo src/src lồng nhau" "0" "$([ -d "$WORK/upd/src/src" ] && echo 1 || echo 0)"
+
+# (f) đọc truyện vẫn chạy sau khi tự chữa lành (dùng src/ vừa tải)
+( cd "$WORK/solo" && ANISUB_SRC_DIR="$WORK/solo/src" HOME="$WORK/home-solo" \
+  PATH="$HERE/mockbin:$PATH" MOCK_FIXTURES="$HERE/fixtures" timeout 30 bash -c \
+  "source '$WORK/solo/anisub.sh'; MANGA_SOURCE=nettruyen; MANGA_BASE_URL=https://nettruyen.info; fetch_chapter_list toi-manh-hon-anh-hung | wc -l" \
+  > "$WORK/solo-read.txt" 2>&1 )
+check "đọc được chapter sau khi tự tải src/" "1" "$([ "$(tr -d ' \n' < "$WORK/solo-read.txt")" -ge 3 ] 2>/dev/null && echo 1 || echo 0)"
+
 
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"

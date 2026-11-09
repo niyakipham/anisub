@@ -601,6 +601,7 @@ eh_genre_menu() {
 
 # ─── CHẨN ĐOÁN ───────────────────────────────────────────────────────────────
 eh_diagnose() {
+    local pause="${1:-}"
     local base tag
     base=$(eh_base)
     tag=$(eh_tag)
@@ -667,7 +668,9 @@ eh_diagnose() {
         fi
     fi
     echo "──────────────────────────────────────────────────────────"
-    printf 'Nhấn Enter để quay lại... '
-    read -r _
+    if [ "$pause" != "--no-pause" ]; then
+        printf 'Nhấn Enter để quay lại... '
+        read -r _ || true
+    fi
     return 0
 }

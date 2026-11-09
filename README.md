@@ -25,6 +25,9 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🩺》- Sửa lỗi **không đọc được truyện tranh**: nếu máy chỉ có `anisub.sh` (thiếu `src/`) thì anisub **tự tải `src/` về** khi chạy, báo lỗi kèm cách sửa nếu không tải được, và có thêm `./anisub.sh --doctor` để chẩn đoán toàn bộ (module · phụ thuộc · nguồn truyện)<br>
+《🔄》- Sửa **🔄 Cập nhật**: trước đây luôn báo "thiếu anisub.sh hoặc src/" (giải nén nhầm thư mục tạm) — giờ cập nhật đúng cả `anisub.sh` + `src/`<br>
+《🔐》- `anisub.sh` được đặt quyền chạy (`chmod +x`) nên `./anisub.sh` chạy được ngay sau khi clone<br>
 《📺》- Thêm gợi ý từ khóa<br>
 《🧩》- Tách mã nguồn: `src/movie/` (nguồn phim) và `src/comic/` (nguồn truyện) — thêm nguồn mới chỉ cần thêm 1 file, code chính gọn còn ~1/6<br>
 《🔞》- Thêm nguồn truyện **e-hentai** (`https://e-hentai.org`), mặc định xem tag `language:vietnamese`<br>
@@ -193,11 +196,26 @@ kiểu trước không ra ảnh mới dùng kiểu sau. Tắt dịch vụ đọc
 bên thứ ba): `⚙️ Cài đặt → 📚 Nguồn truyện → 🛡 Dịch vụ đọc hộ` hoặc đặt
 `MANGA_READER_PROXY="off"` trong `~/.config/anisub_cli/config.cfg`.
 
+**Bấm `📚 Đọc Truyện Tranh` mà không có gì xảy ra / menu truyện trống?** Gần như chắc là máy
+đang thiếu thư mục `src/` (bản cài cũ chỉ có 1 file `anisub.sh`, hoặc `src/` bị xoá/di chuyển).
+anisub sẽ tự tải `src/` về khi chạy; nếu mạng đang tắt thì chép lại cả repo. Kiểm tra bằng:
+
+```shell
+./anisub.sh --doctor        # in ra: script ở đâu · nạp module nào · thiếu gói gì · nguồn truyện nào
+```
+
+Chạy xong mà vẫn lỗi thì gửi nguyên kết quả:
+
+```shell
+./anisub.sh --doctor 2>&1 | tee anisub-doctor.txt
+```
+
 Kiểm tra nhanh toàn bộ luồng đọc: vào `📚 Truyện tranh` → **`🧪 Kiểm tra đọc truyện (chẩn đoán)`**
 (kết quả được lưu vào `~/.config/anisub_cli/cache/manga-selftest.txt`), hoặc bằng **một lệnh**:
 
 ```shell
 ./anisub.sh --version                          # xem đang chạy bản nào
+./anisub.sh --doctor                           # 🩺 kiểm tra module src/, phụ thuộc, nguồn truyện (tự tải src/ nếu thiếu)
 ./anisub.sh --manga-selftest                   # tự chọn truyện mẫu theo nguồn đang dùng
 ./anisub.sh --manga-selftest one-piece-dao-hai-tac
 # 1️⃣ trang truyện (HTTP + kích thước)  2️⃣ danh sách chapter (HTTP + số chapter)
@@ -206,6 +224,7 @@ Kiểm tra nhanh toàn bộ luồng đọc: vào `📚 Truyện tranh` → **`�
 
 | Kết quả | Nguyên nhân | Cách xử lý |
 | --- | --- | --- |
+| Bấm **📚 Đọc Truyện Tranh** không có gì xảy ra / menu truyện trống | thiếu thư mục `src/` (chỉ có `anisub.sh`, hoặc cập nhật dở) | chạy `./anisub.sh --doctor` (tự tải `src/` về); không có mạng thì `git clone https://github.com/NiyakiPham/anisub.git` |
 | `HTTP 000` | không với được trang nguồn | kiểm tra mạng / DNS / VPN, hoặc `curl -I https://nettruyen.info` |
 | `HTTP 403` / Cloudflare challenge | trang chặn client không phải trình duyệt | anisub đã gửi User-Agent trình duyệt; thử lại sau, hoặc đổi `MANGA_BASE_URL` sang domain mirror (nettruyen: `nettruyenn.org`, truyenvn: domain mới) |
 | `❌ Không tìm thấy hình ảnh` khi đọc chapter nettruyen | trang đọc không trả `<img>` hoặc đổi host ảnh | chạy `./anisub.sh --manga-selftest <slug>`; xem `~/.config/anisub_cli/cache/manga-debug.txt`; bấm `o` để mở chapter bằng trình duyệt |

@@ -27,7 +27,7 @@ for i in "${!args[@]}"; do
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*"/uploads/"*|*"manga-offline"*)
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*codeload.github.com*|*"/uploads/"*|*"manga-offline"*)
                     url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
@@ -42,6 +42,13 @@ fi
 code="200"
 body=""
 case "$eff" in
+    *codeload.github.com*)
+        # archive cập nhật (tar.gz) - có MOCK_UPDATE_TARBALL thì trả file thật
+        if [ -n "${MOCK_UPDATE_TARBALL:-}" ] && [ -f "$MOCK_UPDATE_TARBALL" ]; then
+            body="$MOCK_UPDATE_TARBALL"
+        else
+            code="000"; body=""
+        fi ;;
     *manga-offline*)        code="000"; body="" ;;
     *"/webapi/stories/list-chapter"*)
         if [ -n "${MOCK_API_419:-}" ] && [ ! -f "${MOCK_API_419}" ]; then
@@ -110,6 +117,18 @@ if [ "$headmode" = "1" ]; then
         *) printf '%s' 404 ;;
     esac
     exit 0
+fi
+
+# Tải archive cập nhật (không có -w): chép đúng file tar.gz, không ghi ảnh giả
+if [ -z "$wmode" ] && [ -n "$out" ]; then
+    case "$url" in
+        *codeload.github.com*)
+            if [ -n "${MOCK_UPDATE_TARBALL:-}" ] && [ -f "$MOCK_UPDATE_TARBALL" ]; then
+                cp "$MOCK_UPDATE_TARBALL" "$out"
+                exit 0
+            fi
+            exit 22 ;;
+    esac
 fi
 
 # Tải ảnh (không có -w): ghi file giả rồi thoát
