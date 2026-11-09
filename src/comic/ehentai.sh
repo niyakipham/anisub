@@ -99,6 +99,14 @@ eh_is_gallery_url() {
 # ─── HTTP ─────────────────────────────────────────────────────────────────────
 # Tải 1 trang của e-hentai. $1 = đường dẫn (/tag/...) hoặc URL đầy đủ;
 # $2.. = key=value sẽ được curl -G --data-urlencode mã hoá.
+# URL đầy đủ để in ra cho người dùng thấy (path tương đối -> https://e-hentai.org/...)
+eh_full_url() {
+    case "${1:-}" in
+        http*) printf '%s' "$1" ;;
+        *)     printf '%s/%s' "$(eh_base)" "${1#/}" ;;
+    esac
+}
+
 eh_fetch() {
     local path="${1:-}"
     shift 2>/dev/null || true
@@ -120,7 +128,7 @@ eh_fetch() {
     [ -n "${EHENTAI_COOKIE:-}" ] && cookie="nw=1; ${EHENTAI_COOKIE}"
     local tmp status
     tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-eh.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-eh.$$.tmp"
-    status=$(curl -sS -G -L --compressed --max-time 30 --retry 1 --retry-delay 1 \
+    status=$(curl -sS -G -L --compressed --connect-timeout 10 --max-time 30 --retry 1 --retry-delay 1 \
         -A "${MANGA_USER_AGENT:-Mozilla/5.0}" \
         -b "$cookie" \
         -c "${MANGA_COOKIE_JAR:-/dev/null}" \
@@ -129,8 +137,10 @@ eh_fetch() {
         -H "accept-language: vi,en;q=0.8" \
         -o "$tmp" -w '%{http_code}' \
         "${q[@]}" "$url" 2>/dev/null)
+    local curl_rc=$?
     MANGA_HTTP_STATUS="${status:-000}"
     printf '%s' "$MANGA_HTTP_STATUS" > "${ANISUB_STATUS_FILE:-/dev/null}" 2>/dev/null || true
+    printf '%s' "$curl_rc" > "${ANISUB_CURL_ERR_FILE:-/dev/null}" 2>/dev/null || true
     case "$MANGA_HTTP_STATUS" in
         2??)
             if [ -s "$tmp" ]; then
@@ -314,7 +324,10 @@ eh_list_items() {
     shift 2>/dev/null || true
     local html items
     if ! html=$(eh_fetch "$path" "$@"); then
-        echo "⚠️ Không tải được $path (HTTP $(anisub_last_http))." >&2
+        echo "⚠️ Không tải được $(eh_full_url "$path") (HTTP $(anisub_last_http))." >&2
+        if [ "$(anisub_last_http)" = "000" ]; then
+            manga_net_hint "$(eh_base)" "$(anisub_last_curl_err)" >&2
+        fi
         return 1
     fi
     items=$(printf '%s' "$html" | eh_parse_items)
@@ -346,12 +359,28 @@ eh_browse_menu() {
     [ -z "$url" ] && url=$(eh_start_url)
     while true; do
         clear
-        echo "⏳ Đang tải: $url"
+        echo "⏳ Đang tải: $(eh_full_url "$url")"
         local html items next n
         if ! html=$(eh_fetch "$url"); then
             echo "❌ Không tải được trang này (HTTP $(anisub_last_http))."
-            echo "   Kiểm tra mạng, hoặc đổi domain trong ⚙️ Cài đặt → 📚 Nguồn truyện."
-            sleep 2
+            if [ "$(anisub_last_http)" = "000" ]; then
+                manga_net_hint "$(eh_base)" "$(anisub_last_curl_err)"
+            else
+                echo "   Máy chủ trả lỗi — thử lại sau, hoặc thêm cookie e-hentai trong Cài đặt."
+            fi
+            echo ""
+            printf '   1 = chuyển sang nettruyen (truyện tranh thường) · Enter = quay lại: '
+            local ch=""
+            read -r -n 1 ch || true
+            echo ""
+            if [ "${ch:-}" = "1" ]; then
+                MANGA_SOURCE="nettruyen"
+                MANGA_BASE_URL="${DEFAULT_MANGA_BASE_URL:-https://nettruyen.info}"
+                save_config 2>/dev/null || true
+                echo "✅ Đã chuyển nguồn truyện sang nettruyen."
+                sleep 1
+                return 2
+            fi
             return 1
         fi
         items=$(printf '%s' "$html" | eh_parse_items)
@@ -631,7 +660,10 @@ eh_diagnose() {
             echo "     ⚠️ HTTP OK nhưng không parse được gallery nào (web đổi cấu trúc?)"
         fi
     else
-        echo "     ❌ không tải được (HTTP $(anisub_last_http))"
+        echo "     ❌ không tải được $(eh_full_url "$(eh_start_url)") (HTTP $(anisub_last_http))"
+        if [ "$(anisub_last_http)" = "000" ]; then
+            manga_net_hint "$base" "$(anisub_last_curl_err)" | sed 's/^/     /'
+        fi
         echo "        → mạng bị chặn, hoặc đổi domain ở Cài đặt."
         return 1
     fi

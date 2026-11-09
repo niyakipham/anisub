@@ -159,4 +159,6 @@ else
     [ "$code" = "200" ] && [ -n "$body" ] && cat "$body"
 fi
 printf '%s' "$code"
+# Giả lập mã thoát của curl khi không kết nối được (000) để test phần gợi ý lỗi
+[ "$code" = "000" ] && exit "${MOCK_CURL_EXIT:-6}"
 exit 0

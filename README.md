@@ -25,6 +25,8 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🌐》- **e-hentai không tải được (HTTP 000)** giờ nói rõ nguyên nhân theo mã lỗi curl (DNS / không kết nối / timeout / TLS) và cảnh báo e-hentai hay bị nhà mạng VN chặn; in **URL đầy đủ** thay vì `/?f_search=…`, và cho **bấm `1` để chuyển ngay sang nettruyen**; kết nối bị chặn giờ báo lỗi sau ~10s thay vì treo 30s<br>
+《💾》- Sửa `save_config`: tự tạo `~/.config/anisub_cli` (trước đây lưu cài đặt **mất im lặng** nếu thư mục chưa có) và báo lỗi nếu không ghi được<br>
 《🧾》- **📚 Đọc Truyện Tranh** giờ không im lặng nữa: nếu menu truyện không mở được, anisub nói rõ (đã vẽ menu chưa, fzf trả về gì), tự thử nạp/tải lại bộ nguồn ngay tại chỗ, và ghi lại dấu vết vào `~/.config/anisub_cli/cache/anisub-debug.log`<br>
 《🩺》- `--doctor` in thêm môi trường (bash/fzf/TERM), commit git đang chạy + nhắc `git pull` khi chậm bản, và tình trạng các hàm chính (`manga_main_menu`, `fetch_chapter_list`, …)<br>
 《🩺》- Sửa lỗi **không đọc được truyện tranh**: nếu máy chỉ có `anisub.sh` (thiếu `src/`) thì anisub **tự tải `src/` về** khi chạy, báo lỗi kèm cách sửa nếu không tải được, và có thêm `./anisub.sh --doctor` để chẩn đoán toàn bộ (module · phụ thuộc · nguồn truyện)<br>
@@ -229,7 +231,7 @@ tail -n 20 ~/.config/anisub_cli/cache/anisub-debug.log   # log mở menu truyệ
 | --- | --- | --- |
 | Bấm **📚 Đọc Truyện Tranh** nháy một cái rồi quay lại menu chính | fzf trả về rỗng (Esc, terminal quá thấp, hoặc fzf lỗi) | anisub đã báo rõ số lần fzf trả về; xem `~/.config/anisub_cli/cache/anisub-debug.log` (dòng `comic-menu:`) rồi gửi kèm khi báo lỗi |
 | Bấm **📚 Đọc Truyện Tranh** không có gì xảy ra / menu truyện trống | thiếu thư mục `src/` (chỉ có `anisub.sh`, hoặc cập nhật dở) | chạy `./anisub.sh --doctor` (tự tải `src/` về); không có mạng thì `git clone https://github.com/NiyakiPham/anisub.git` |
-| `HTTP 000` | không với được trang nguồn | kiểm tra mạng / DNS / VPN, hoặc `curl -I https://nettruyen.info` |
+| `HTTP 000` | không với được trang nguồn | anisub in kèm mã lỗi curl: `6` DNS (đổi DNS 1.1.1.1), `7` bị chặn/không kết nối, `28` timeout, `35/60` TLS. Với **e-hentai**: site hay bị nhà mạng VN chặn → bật VPN, hoặc bấm `1` để đổi sang nettruyen |
 | `HTTP 403` / Cloudflare challenge | trang chặn client không phải trình duyệt | anisub đã gửi User-Agent trình duyệt; thử lại sau, hoặc đổi `MANGA_BASE_URL` sang domain mirror (nettruyen: `nettruyenn.org`, truyenvn: domain mới) |
 | `❌ Không tìm thấy hình ảnh` khi đọc chapter nettruyen | trang đọc không trả `<img>` hoặc đổi host ảnh | chạy `./anisub.sh --manga-selftest <slug>`; xem `~/.config/anisub_cli/cache/manga-debug.txt`; bấm `o` để mở chapter bằng trình duyệt |
 | `❌ Không lấy được danh sách chapter` | slug sai hoặc trang đổi layout | dùng `🔗 Mở bằng link / slug` dán link thật từ trình duyệt |
