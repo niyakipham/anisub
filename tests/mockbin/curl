@@ -52,6 +52,8 @@ case "$eff" in
         else
             body="${MOCK_FIXTURES}/manga-chapters-api.json"
         fi ;;
+    *cloudflare*)            body="${MOCK_FIXTURES}/manga-challenge.html" ;;
+    *modern*)                body="${MOCK_FIXTURES}/manga-chapter-modern.html" ;;
     *"/chapter-"*js*)       body="${MOCK_FIXTURES}/manga-chapter-js.html" ;;
     *"no-story-id"*)        body="${MOCK_FIXTURES}/manga-detail-no-story-id.html" ;;
     *"/chapter-"*)           body="${MOCK_FIXTURES}/manga-chapter.html" ;;

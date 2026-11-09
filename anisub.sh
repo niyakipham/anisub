@@ -59,7 +59,15 @@ MANGA_BASE_URL=""
 MANGA_SEARCH_FEEDS=""
 MANGA_SEARCH_PAGES=""
 MANGA_IMAGE_PROTOCOL=""
-MANGA_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+MANGA_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+# Trang chapter của TruyenVN trả bản rút gọn (không có ảnh) nếu request "không giống
+# trình duyệt". Gửi kèm đủ header điều hướng để nhận đúng HTML có <img>.
+MANGA_BROWSER_HEADERS=(
+    -H "sec-ch-ua: \"Chromium\";v=\"131\", \"Google Chrome\";v=\"131\", \"Not-A.Brand\";v=\"99\""
+    -H "sec-ch-ua-mobile: ?0"
+    -H "sec-ch-ua-platform: \"Linux\""
+    -H "upgrade-insecure-requests: 1"
+)
 MANGA_HTTP_STATUS="000"
 MANGA_STORY_COVER=""      # ảnh bìa lấy được từ trang truyện gần nhất
 # API chặn nếu thiếu phiên: CSRF token chỉ đúng khi gửi kèm cookie của chính trang
@@ -1587,8 +1595,13 @@ manga_http_fetch() {
     status=$(curl -sS -G -L --compressed --max-time 25 --retry 2 --retry-delay 1 \
         -A "$MANGA_USER_AGENT" \
         -c "$MANGA_COOKIE_JAR" -b "$MANGA_COOKIE_JAR" \
-        -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+        -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
         -H "accept-language: vi,en;q=0.8" \
+        -H "sec-fetch-dest: document" \
+        -H "sec-fetch-mode: navigate" \
+        -H "sec-fetch-site: none" \
+        -H "sec-fetch-user: ?1" \
+        "${MANGA_BROWSER_HEADERS[@]}" \
         -e "${base%/}/" \
         -o "$tmp" -w '%{http_code}' \
         "${opts[@]}" \
@@ -1629,6 +1642,10 @@ manga_http_post() {
         -H "accept-language: vi,en;q=0.8" \
         -H "X-Requested-With: XMLHttpRequest" \
         -H "content-type: application/x-www-form-urlencoded; charset=UTF-8" \
+        -H "sec-fetch-dest: empty" \
+        -H "sec-fetch-mode: cors" \
+        -H "sec-fetch-site: same-origin" \
+        "${MANGA_BROWSER_HEADERS[@]}" \
         "${opts[@]}" \
         --data "$body" \
         -o "$tmp" -w '%{http_code}' \
@@ -2409,23 +2426,34 @@ fetch_chapter_images() {
         [ -n "$nav_next" ] && nav_next=$(manga_abs_url "$nav_next")
         printf '%s|%s\n' "$nav_prev" "$nav_next" > "$ANISUB_MANGA_NAV_FILE" 2>/dev/null
     fi
-    printf '%s' "$html" | MANGA_PREFER="$prefer_slug" \
+    local found
+    found=$(printf '%s' "$html" | MANGA_PREFER="$prefer_slug" \
         MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
         my $doc = $_;
         $doc =~ s{\\+/}{/}g;                       # bỏ escape trong JSON: \/ (hoặc \\/) -> /
         my @cand;
-        while ($doc =~ /<img\b([^>]*)>/gs) {      # 1) <img src|data-src ...>
+        # 1) mọi thẻ <img>/<source>: data-src, data-lazy-src, data-original, src, srcset...
+        my @attrs = qw(data-src data-lazy-src data-original data-echo data-file data-url
+                       data-img data-image data-thumb src);
+        while ($doc =~ /<(?:img|source)\b([^>]*)>/gsi) {
             my $a = $1;
-            my $u = "";
-            if ($a =~ /data-(?:lazy-)?(?:src|original|eco)\s*=\s*(?:"([^"]+)"|\x27([^\x27]+)\x27)/i) {
-                $u = defined $1 ? $1 : $2;
-            } elsif ($a =~ /\ssrc\s*=\s*(?:"([^"]+)"|\x27([^\x27]+)\x27)/i) {
-                $u = defined $1 ? $1 : $2;
+            for my $at (@attrs) {
+                next unless $a =~ /\b\Q$at\E\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27)/i;
+                my $u = defined $1 ? $1 : $2;
+                push @cand, $u if defined $u && length $u;
             }
-            push @cand, $u if length $u;
+            while ($a =~ /\bsrcset\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27)/gi) {
+                my $set = defined $1 ? $1 : $2;
+                for my $part (split /,/, $set) {
+                    $part =~ s/^\s+|\s+$//g;
+                    $part =~ s/\s+\S+$//;           # bỏ "800w"/"2x"
+                    push @cand, $part if length $part;
+                }
+            }
         }
-        while ($doc =~ m{(["\x27(])((?:https?:)?//[^"\x27\s<>]+?\.(?:jpe?g|png|webp|gif))}gi) {
-            push @cand, $2;                       # 2) moi URL anh trong trang (ke ca JSON)
+        # 2) mọi URL ảnh trong trang (kể cả trong JSON/JS): tuyệt đối, //host, hoặc /duong-dan
+        while ($doc =~ m{(["\x27(=])((?:(?:https?:)?//|/)[^"\x27\s<>()]+?\.(?:jpe?g|png|webp|gif|avif)(?:\?[^"\x27\s<>]*)?)}gi) {
+            push @cand, $2;
         }
         my $base = $ENV{MANGA_BASE_URL} // ""; $base =~ s{/$}{};
         my $prefer = $ENV{MANGA_PREFER} // "";
@@ -2434,8 +2462,10 @@ fetch_chapter_images() {
             next unless defined $u && length $u;
             $u =~ s/&amp;/&/g;
             $u =~ s/^\s+|\s+$//g;
+            next if $u =~ m{^data:}i;                 # ảnh placeholder base64
             $u =~ s{^//}{https://};
-            $u = "$base$u" if $u =~ m{^/};   # anh dung duong dan tuong doi
+            $u = "$base$u" if $u =~ m{^/};            # đường dẫn tương đối -> tuyệt đối
+            next unless $u =~ m{^https?://}i;
             next if $u =~ /\.(svg|ico)(\?|$)/i;
             next if $u =~ /(logo|icon|avatar|thumb|thumbnail|cover|poster|banner|ads?|emoji|flag|loading|placeholder|sprite|facebook|twitter|zalo|recaptcha)/i;
             next if $seen{$u}++;
@@ -2446,7 +2476,40 @@ fetch_chapter_images() {
             @keep = @better if @better >= 2;
         }
         print "$_\n" for @keep;
-    '
+    ')
+    if [ -z "$found" ]; then
+        manga_debug_dump "$chapter_url" "$html"
+    fi
+    printf '%s\n' "$found"
+}
+
+# HTML trang chapter có phải trang "kiểm tra trình duyệt" (Cloudflare) không
+manga_looks_challenged() {
+    printf '%s' "$1" | grep -qiE '_cf_chl_opt|cf-browser-verification|cf_chl_|just a moment|checking your browser|enable javascript and cookies'
+}
+
+# Khi không tìm được ảnh: ghi báo cáo ngắn để người dùng gửi kèm khi báo lỗi
+manga_debug_dump() {
+    local url="$1" html="$2"
+    local dir="${CACHE_DIR:-${TMPDIR:-/tmp}}"
+    local f="$dir/manga-debug.txt"
+    mkdir -p "$dir" 2>/dev/null
+    {
+        echo "url      : $url"
+        echo "http     : $(anisub_last_http)"
+        echo "base     : ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+        echo "bytes    : $(printf '%s' "$html" | wc -c | tr -d ' ')"
+        echo "img tags : $(printf '%s' "$html" | grep -oi '<img' | wc -l | tr -d ' ')"
+        echo "jpg/png  : $(printf '%s' "$html" | grep -oiE '\.(jpe?g|png|webp)' | wc -l | tr -d ' ')"
+        echo "imggo    : $(printf '%s' "$html" | grep -oi 'imggo' | wc -l | tr -d ' ')"
+        if manga_looks_challenged "$html"; then echo "challenge: YES (Cloudflare)"; else echo "challenge: no"; fi
+        echo "title    : $(printf '%s' "$html" | perl -0777 -ne 'print $1 if /<title[^>]*>(.*?)<\/title>/si' 2>/dev/null | head -c 120)"
+        echo "--- 300 ký tự quanh .reading-content ---"
+        printf '%s' "$html" | perl -0777 -ne 'if (/reading-content/i) { s/.*?(reading-content)/$1/s; print substr($_,0,300) }' 2>/dev/null
+        echo ""
+    } > "$f" 2>/dev/null
+    [ -f "$f" ] && echo "🔎 Đã ghi chẩn đoán: $f" >&2
+    return 0
 }
 
 # --- PREFETCH IMAGES ---
@@ -2646,6 +2709,11 @@ read_manga_chapter() {
             echo ""
             echo "❌ Không tìm thấy hình ảnh trong chapter này!"
             echo "   HTTP $(anisub_last_http) · URL: $chapter_url"
+            local dbg="${CACHE_DIR:-${TMPDIR:-/tmp}}/manga-debug.txt"
+            if [ -f "$dbg" ]; then
+                echo "   Chẩn đoán: $(grep -E '^(img tags|jpg/png|imggo|challenge|bytes)' "$dbg" 2>/dev/null | tr '\n' ' ')"
+                echo "   File đầy đủ: $dbg"
+            fi
             echo "   Nhấn [r] để thử lại, [c] để chọn chapter khác, [o] mở trang chapter bằng trình duyệt, [q] để thoát."
             read -rsn1 key
             case "$key" in
@@ -2800,6 +2868,10 @@ manga_selftest() {
     echo "    chap trước|sau: ${nav:-(không thấy link)}"
     if [ "$nimg" -eq 0 ]; then
         echo "    ❌ Không tìm thấy ảnh -> trang chapter đổi cấu trúc hoặc bị chặn."
+        local dbg="${CACHE_DIR:-${TMPDIR:-/tmp}}/manga-debug.txt"
+        if [ -f "$dbg" ]; then
+            sed -n '1,9p' "$dbg" | sed 's/^/    /'
+        fi
         echo "       Mở thử bằng trình duyệt: $chap_url"
         return 1
     fi

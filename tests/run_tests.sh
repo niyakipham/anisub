@@ -389,6 +389,48 @@ has "kết luận rõ ràng" "Luồng đọc hoạt động" "$out"
   MANGA_BASE_URL=https://manga-offline.example manga_selftest bocchi-the-rock >/dev/null 2>&1 ) \
     && bad "mất mạng -> selftest phải fail" "rc!=0" "rc=0" || ok "mất mạng -> selftest fail (rc!=0)"
 
+echo "== 22. đọc ảnh từ mọi kiểu markup hiện nay =="
+( MANGA_BASE_URL=https://truyenvn.my
+  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243-modern" bocchi-the-rock 2>/dev/null)
+  printf '%s' "$out" > "$WORK/modern.log" )
+out=$(cat "$WORK/modern.log")
+check "data-lazy-src + srcset + JSON \\/ + data: placeholder -> 5 ảnh" "5" \
+    "$(printf '%s\n' "$out" | grep -c 'bb_00')"
+has "srcset: lấy cả 2 kích thước" "bb_003.jpg" "$out"
+has "JSON \\/books -> URL tuyệt đối theo nguồn" "https://truyenvn.my/books/bocchi-the-rock/243/bb_004.jpg" "$out"
+has "JSON https:\\/\\/ -> bỏ escape" "https://dmd-image-content-sng-1.imggo.net/books/bocchi-the-rock/243/bb_005.jpg" "$out"
+check "bỏ ảnh placeholder data:image/gif" "0" "$(printf '%s\n' "$out" | grep -c 'data:image')"
+check "không lặp ảnh" "5" "$(printf '%s\n' "$out" | sort -u | grep -c 'bb_00')"
+has "trang này cũng lưu được link chuyển chap" "chapter-244" "$(manga_saved_nav)"
+
+echo "== 23. trang chapter không có ảnh -> chẩn đoán rõ ràng =="
+MANGA_BASE_URL=https://truyenvn.my
+dbg="${CACHE_DIR:-/tmp}/manga-debug.txt"
+rm -f "$dbg"
+out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/x/chapter-9-cloudflare" x 2>&1)
+check "trang Cloudflare -> 0 ảnh" "0" "$(printf '%s\n' "$out" | grep -c 'imggo')"
+check "có ghi file chẩn đoán" "1" "$([ -f "$dbg" ] && echo 1 || echo 0)"
+has "chẩn đoán nêu Cloudflare" "challenge: YES" "$(cat "$dbg" 2>/dev/null)"
+has "chẩn đoán đếm thẻ img" "img tags : 0" "$(cat "$dbg" 2>/dev/null)"
+manga_looks_challenged '<html>Just a moment...</html>' && ok "nhận diện trang kiểm tra trình duyệt" \
+    || bad "nhận diện trang kiểm tra trình duyệt" "0 (true)" "1"
+manga_looks_challenged "$(cat "$MOCK_FIXTURES/manga-chapter.html")" \
+    && bad "trang chapter bình thường không bị coi là challenge" "1" "0" \
+    || ok "trang chapter bình thường không bị coi là challenge"
+rm -f "$dbg"
+
+echo "== 24. header giống trình duyệt khi tải trang =="
+: > "$MOCK_CURL_HEADER_LOG"
+manga_http_fetch "https://truyenvn.my/truyen-tranh/bocchi-the-rock" > /dev/null 2>&1
+hdr=$(grep 'truyen-tranh' "$MOCK_CURL_HEADER_LOG" | head -1)
+has "gửi sec-fetch-mode: navigate" "sec-fetch-mode: navigate" "$hdr"
+has "gửi sec-ch-ua" "sec-ch-ua" "$hdr"
+has "gửi upgrade-insecure-requests" "upgrade-insecure-requests" "$hdr"
+: > "$MOCK_CURL_HEADER_LOG"
+manga_http_post "https://truyenvn.my/webapi/stories/list-chapter" "story_id=12189&routeName=story.detail" "tok" "https://truyenvn.my/x" > /dev/null 2>&1
+hdr2=$(grep 'list-chapter' "$MOCK_CURL_HEADER_LOG" | head -1)
+has "POST vẫn có X-Requested-With" "X-Requested-With: XMLHttpRequest" "$hdr2"
+
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"
 [ "$fail" -gt 0 ] && printf ', \033[31m%s fail\033[0m' "$fail"
