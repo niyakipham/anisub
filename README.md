@@ -26,8 +26,7 @@
 《🪟》- Chạy trên windows<br>
 ## UPDATE
 《📺》- Thêm gợi ý từ khóa<br>
-《🚫》- Chặn quảng cáo khi xem phim từ KKPhim: lọc segment quảng cáo + marker chèn quảng cáo trong playlist `.m3u8` trước khi phát<br>
-《🚫》- Sửa lỗi phát 3 giây lại khựng 3 giây sau khi chặn quảng cáo: playlist kiểu live được chuẩn hoá thành VOD, chèn `#EXT-X-DISCONTINUITY` tại chỗ cắt, giữ nguyên `MEDIA-SEQUENCE` (IV của AES), chọn variant nhẹ nhất theo mặc định; thêm `--kkphim-ad-debug` để soi playlist<br>
+《🚫》- Gỡ tính năng chặn quảng cáo trong `.m3u8` (lọc playlist làm phim phát 3 giây lại khựng 3 giây): giờ phát thẳng link `.m3u8` gốc của KKPhim, mượt như trước<br>
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
 《📖》- Tích hợp truyenvn ( manga thì đọc oke còn webtoon thì như hạch ) <br>
 《📖》- Đổi nguồn truyện sang `truyenvn.my`, sửa lỗi không tải được danh sách chapter / ảnh trang đọc<br>
@@ -65,59 +64,14 @@ KKPHIM_REFERER="https://kkphim.com/"   # Referer gửi kèm khi phát / tải
 KKPHIM_SEARCH_LIMIT="24"               # số kết quả mỗi trang
 KKPHIM_DETAIL_TTL="600"                # giây cache thông tin phim
 KKPHIM_SERVER_PREF="auto"              # auto | vietsub | long-tieng | thuyet-minh
-KKPHIM_AD_BLOCK="1"                    # 1 = chặn quảng cáo chèn trong .m3u8, 0 = tắt
-KKPHIM_AD_VARIANT="first"             # first (mặc định) | max | số thứ tự variant 1..9
-KKPHIM_AD_PATTERNS="ad,ads,advert,adserver,adservice,adtag,preroll,pre-roll,quangcao,quang-cao,promo,sponsor,vast"
-                                       # mẫu nhận diện host/segment quảng cáo (cách nhau bằng dấu phẩy)
 ```
 
-**🚫 Chặn quảng cáo khi xem phim.** KKPhim chèn quảng cáo bằng cách thêm segment lạ vào chính
-playlist HLS (kèm marker `#EXT-X-CUE-OUT` / `#EXT-OATCLS-SCTE35`). Trình phát phát đúng những gì
-playlist ghi, nên anisub **tải playlist trước khi phát, lọc rồi mới đưa cho mpv/vlc**:
+**▶️ Phát phim.** Anisub phát **đúng link `.m3u8` gốc** mà API KKPhim trả về (kèm `Referer` /
+`User-Agent` của `KKPHIM_REFERER`), không tải lại hay sửa playlist. Bản trước có thêm tính năng
+"chặn quảng cáo" bằng cách lọc segment trong playlist, nhưng chính bước lọc đó làm phim phát 3 giây
+lại khựng 3 giây, nên **đã gỡ hẳn** — quảng cáo (nếu có) nằm cùng CDN với phim và không thể bỏ
+segment mà không làm hỏng luồng phát.
 
-1. tải `.m3u8` (giữ `Referer`/`User-Agent` như khi phát); nếu là **master playlist** thì chọn
-   **variant đầu tiên** rồi tải playlist con (giống cách trình phát vẫn chọn trước đây — chọn
-   variant nặng nhất rất dễ thành "phát 3 giây, đệm 3 giây" nếu mạng không đủ). Đổi bằng
-   `KKPHIM_AD_VARIANT=max` hoặc `1..9`;
-2. bỏ segment có host/đường dẫn khớp `KKPHIM_AD_PATTERNS` (so khớp **nguyên một thành phần**
-   host/đường dẫn nên `media`, `shadow`, `load`… không bị xoá nhầm; query `?ad=0` cũng không tính);
-3. bỏ marker chèn quảng cáo `#EXT-X-CUE-OUT/CUE-IN`, `#EXT-OATCLS-SCTE35`, `#EXT-X-ASSET`;
-4. đổi URL tương đối (segment, `#EXT-X-KEY`, `#EXT-X-MAP`) sang tuyệt đối để file local vẫn tải được;
-   **giữ nguyên** `#EXT-X-MEDIA-SEQUENCE` / `#EXT-X-DISCONTINUITY-SEQUENCE` (đó là IV mặc định của
-   AES-128 và mốc của `#EXT-X-BYTERANGE` — đổi đi là giải mã sai, phim giật/đứng) và **chèn
-   `#EXT-X-DISCONTINUITY` ngay chỗ cắt** (trước `#EXTINF`) để trình phát nối tiếp tức thì thay vì
-   chờ mốc thời gian bị thiếu;
-   playlist mã hoá AES-128 mà **không kèm `IV=`** thì anisub **không lọc** (phát bản gốc), vì bỏ
-   segment sẽ làm lệch IV → giải mã hỏng toàn bộ;
-5. **chuẩn hoá thành VOD**: playlist kiểu live (thiếu `#EXT-X-ENDLIST`) bị trình phát tải lại mỗi
-   `#EXT-X-TARGETDURATION` giây — mà bản đã lọc là ảnh chụp tĩnh, nên hiện tượng "phát 3 giây lại
-   khựng 3 giây". anisub thêm `#EXT-X-ENDLIST` + `#EXT-X-PLAYLIST-TYPE:VOD` và đưa
-   `#EXT-X-MEDIA-SEQUENCE` / `#EXT-X-DISCONTINUITY-SEQUENCE` về 0;
-6. ghi ra `$TMPDIR/anisub-adfree-<pid>.m3u8` rồi phát file đó (tự xoá khi thoát); mpv được thêm
-   `--cache=yes --cache-secs=30 --demuxer-readahead-secs=30` để đệm trước, không khựng mỗi segment.
-
-Không tải/lọc được (mạng lỗi, playlist lạ) thì anisub **phát đúng link gốc** như trước — không bao
-giờ làm bạn không xem được phim. Bật/tắt và sửa mẫu nhận diện tại
-`⚙️ Cài đặt → 🎞 Nguồn phim` (`🚫 Chặn quảng cáo trong m3u8`, `🎚️ Chất lượng khi chặn quảng cáo`,
-`🏷️ Mẫu nhận diện quảng cáo`).
-
-Chẩn đoán nhanh bằng một lệnh (in số segment giữ/bỏ, segment bị bỏ, host, kiểu playlist gốc và
-lưu 2 bản playlist để đối chiếu):
-
-```shell
-./anisub.sh --kkphim-ad-debug "https://.../index.m3u8"
-# → ~/.config/anisub_cli/cache/kkphim-playlist-original.m3u8  (bản web trả về)
-# → ~/.config/anisub_cli/cache/kkphim-playlist-filtered.m3u8   (bản đã lọc, dùng để phát)
-```
-
-> Nếu vẫn thấy quảng cáo: quảng cáo đó nằm **cùng host, cùng CDN** với phim (server-side cắt vào
-> luồng) nên không thể bỏ segment — khi đó gửi mình 2 file playlist ở trên, anisub sẽ bổ sung mẫu
-> nhận diện hoặc cách tua qua đoạn đó.
->
-> Nếu phim vẫn phát khựng từng nhịp: (1) đặt `🎚️ Chất lượng khi chặn quảng cáo` = `first` hoặc `1`
-> (variant nhẹ nhất) để loại trừ nguyên nhân mạng yếu; (2) tắt thử `🚫 Chặn quảng cáo trong m3u8`
-> để so sánh — nếu tắt mà hết khựng thì gửi mình 2 file playlist trên, mình chỉnh cách lọc cho khớp
-> đúng cấu trúc thật của web.
 
 > **Lưu ý:** link `.m3u8` của KKPhim được cấp theo từng lần gọi API và hết hạn sau vài phút,
 > nên anisub luôn xin lại link khi bạn xem lại từ lịch sử, đổi server, hoặc khi trình phát
