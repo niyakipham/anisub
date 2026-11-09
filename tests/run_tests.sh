@@ -407,7 +407,7 @@ echo "== 23. trang chapter không có ảnh -> chẩn đoán rõ ràng =="
 MANGA_BASE_URL=https://truyenvn.my
 dbg="${CACHE_DIR:-/tmp}/manga-debug.txt"
 rm -f "$dbg"
-out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/x/chapter-9-cloudflare" x 2>&1)
+out=$(MANGA_READER_PROXY="" fetch_chapter_images "https://truyenvn.my/truyen-tranh/x/chapter-9-cloudflare" x 2>&1)
 check "trang Cloudflare -> 0 ảnh" "0" "$(printf '%s\n' "$out" | grep -c 'imggo')"
 check "có ghi file chẩn đoán" "1" "$([ -f "$dbg" ] && echo 1 || echo 0)"
 has "chẩn đoán nêu Cloudflare" "challenge: YES" "$(cat "$dbg" 2>/dev/null)"
@@ -446,13 +446,40 @@ check "đã thử nhiều kiểu request (normal -> minimal -> bot)" "1" \
 check "bản rút gọn -> thử kiểu minimal (không cookie/referer) cũng được" "5" \
     "$(grep -c 'bb_00' "$WORK/fallback2.log")"
 ( export MOCK_STRIP_CHAPTER=1 MOCK_STRIP_UNLESS=never
-  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>&1)
+  out=$(MANGA_READER_PROXY="" fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>&1)
   printf '%s' "$out" > "$WORK/fallback3.log" )
-has "mọi kiểu đều thất bại -> nói rõ đã thử 3 kiểu" "Đã thử 3 kiểu request" "$(cat "$WORK/fallback3.log")"
+has "cả 4 kiểu thất bại (proxy tắt) -> nói rõ đã thử 4 kiểu" "Đã thử 4 kiểu request" "$(cat "$WORK/fallback3.log")"
 has "vẫn ghi file chẩn đoán" "challenge: YES" "$(cat "${CACHE_DIR:-/tmp}/manga-debug.txt" 2>/dev/null)"
 
-echo "== 26. phiên bản & lối vào chẩn đoán =="
-check "có nhãn phiên bản" "1" "$(printf '%s' "$ANISUB_VERSION" | grep -cE '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$')"
+echo "== 26. fallback qua reader-proxy (r.jina.ai) =="
+( export MOCK_STRIP_CHAPTER=1 MOCK_STRIP_UNLESS=never
+  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>"$WORK/proxy.err")
+  printf '%s' "$out" > "$WORK/proxy.log" )
+check "máy bị chặn -> lấy ảnh qua reader-proxy" "3" "$(grep -c 'cc_00' "$WORK/proxy.log")"
+has "báo rõ đang dùng proxy" "qua https://r.jina.ai" "$(cat "$WORK/proxy.err")"
+has "bỏ ảnh bìa truyện khác (cover_/thumb)" "" "$(grep -c 'cover_\|thumb' "$WORK/proxy.log" | grep -q '^0$' || echo X)"
+check "markdown ![]() -> đúng URL ảnh" "https://dmd-image-content-sng-1.imggo.net/books/bocchi-the-rock/243/cc_001.jpg" \
+    "$(head -1 "$WORK/proxy.log")"
+check "proxy: đọc được link chuyển chap từ markdown" "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-242|https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-244" \
+    "$(manga_saved_nav)"
+( export MOCK_STRIP_CHAPTER=1 MOCK_STRIP_UNLESS=never
+  MANGA_READER_PROXY=""
+  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>/dev/null)
+  printf '%s' "$out" > "$WORK/noproxy.log" )
+check "tắt proxy -> không lấy ảnh (tôn trọng cấu hình)" "0" "$(grep -c 'cc_00' "$WORK/noproxy.log")"
+( export MOCK_STRIP_CHAPTER=1 MOCK_STRIP_UNLESS=bot
+  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>/dev/null)
+  printf '%s' "$out" > "$WORK/directfirst.log" )
+check "direct được thì không cần proxy" "5" "$(grep -c 'bb_00' "$WORK/directfirst.log")"
+MANGA_READER_PROXY="off" manga_proxy_fetch "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" >/dev/null 2>&1
+check "proxy=off -> không gọi dịch vụ ngoài" "1" "$?"
+MANGA_READER_PROXY="https://r.jina.ai" manga_proxy_fetch "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" >"$WORK/jina.log" 2>/dev/null
+check "proxy bật -> lấy được markdown" "3" "$(grep -c 'cc_00' "$WORK/jina.log")"
+check "mặc định có bật proxy (để tự cứu khi bị chặn)" "https://r.jina.ai" "$DEFAULT_MANGA_READER_PROXY"
+has "Cài đặt có mục bật/tắt dịch vụ đọc hộ" "Dịch vụ đọc hộ khi bị chặn" "$(grep -o 'Dịch vụ đọc hộ khi bị chặn' "$ROOT/anisub.sh" | head -1)"
+
+echo "== 27. phiên bản & lối vào chẩn đoán =="
+check "có nhãn phiên bản" "1" "$(printf '%s' "$ANISUB_VERSION" | grep -cE '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}[a-z0-9]*$')"
 has "selftest in phiên bản để biết đang chạy bản nào" "anisub: $ANISUB_VERSION" "$(manga_selftest bocchi-the-rock 2>&1)"
 check "CLI --version chạy được" "anisub $ANISUB_VERSION" "$(bash "$ROOT/anisub.sh" --version 2>/dev/null)"
 has "menu truyện có mục chẩn đoán" "Kiểm tra đọc truyện (chẩn đoán)" "$(grep -o 'Kiểm tra đọc truyện (chẩn đoán)' "$ROOT/anisub.sh" | head -1)"

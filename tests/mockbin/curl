@@ -53,6 +53,7 @@ case "$eff" in
         else
             body="${MOCK_FIXTURES}/manga-chapters-api.json"
         fi ;;
+    *r.jina.ai*)             body="${MOCK_FIXTURES}/manga-chapter-jina.md" ;;
     *cloudflare*)            body="${MOCK_FIXTURES}/manga-challenge.html" ;;
     *modern*)                body="${MOCK_FIXTURES}/manga-chapter-modern.html" ;;
     *"/chapter-"*js*)       body="${MOCK_FIXTURES}/manga-chapter-js.html" ;;
