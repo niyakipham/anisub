@@ -27,7 +27,7 @@ for i in "${!args[@]}"; do
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*"/uploads/"*|*"manga-offline"*)
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*phim.test*|*adtag*|*quangcao*|*"/uploads/"*|*"manga-offline"*)
                     url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
@@ -55,6 +55,8 @@ case "$eff" in
             body="${MOCK_FIXTURES}/manga-chapters-api.json"
         fi ;;
     *r.jina.ai*)             body="${MOCK_FIXTURES}/manga-chapter-jina.md" ;;
+    *phim.test*master.m3u8*)         body="${MOCK_FIXTURES}/kkphim-master.m3u8" ;;
+    *phim.test*index.m3u8*)          body="${MOCK_FIXTURES}/kkphim-ad-playlist.m3u8" ;;
     *nettruyen.info/tim-kiem*)       body="${MOCK_FIXTURES}/nt-search.html" ;;
     *nettruyen.info/the-loai/*)      body="${MOCK_FIXTURES}/nt-search.html" ;;
     *nettruyen.info/truyen-tranh-hot*) body="${MOCK_FIXTURES}/nt-search.html" ;;

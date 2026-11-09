@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.09d"
+ANISUB_VERSION="2026.11.09e"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -29,6 +29,12 @@ DEFAULT_KKPHIM_REFERER="https://kkphim.com/"
 DEFAULT_KKPHIM_SEARCH_LIMIT=24      # số kết quả trả về mỗi lần tìm kiếm / 1 trang
 DEFAULT_KKPHIM_DETAIL_TTL=600       # giây - cache chi tiết phim (link m3u8 hết hạn rất nhanh)
 DEFAULT_KKPHIM_SERVER_PREF="auto"   # auto | vietsub | long-tieng | thuyet-minh | <tên bất kỳ>
+# Chặn quảng cáo chèn trong playlist HLS (.m3u8): tải playlist, bỏ các segment quảng
+# cáo + marker chèn quảng cáo (CUE-OUT/IN, SCTE35) rồi phát bản đã lọc.
+DEFAULT_KKPHIM_AD_BLOCK=1
+# Mẫu nhận diện quảng cáo: so khớp NGUYÊN một thành phần của host/đường dẫn
+# (tách theo / . - _ ? & =), nên "media"/"load"/"shadow" không bị coi là "ad".
+DEFAULT_KKPHIM_AD_PATTERNS="ad,ads,advert,adserver,adservice,adtag,preroll,pre-roll,quangcao,quang-cao,promo,sponsor,vast"
 KKPHIM_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 KKPHIM_SITE_URL=""
 KKPHIM_API_URL=""
@@ -37,6 +43,9 @@ KKPHIM_REFERER=""
 KKPHIM_SEARCH_LIMIT=""
 KKPHIM_DETAIL_TTL=""
 KKPHIM_SERVER_PREF=""
+KKPHIM_AD_BLOCK=""
+KKPHIM_AD_PATTERNS=""
+KKPHIM_ADFREE_FILE=""
 KKPHIM_FFMPEG_HEADERS=""
 
 # Local Data File
@@ -123,6 +132,8 @@ load_config() {
         echo "KKPHIM_SEARCH_LIMIT=\"$DEFAULT_KKPHIM_SEARCH_LIMIT\"" >> "$CONFIG_FILE"
         echo "KKPHIM_DETAIL_TTL=\"$DEFAULT_KKPHIM_DETAIL_TTL\"" >> "$CONFIG_FILE"
         echo "KKPHIM_SERVER_PREF=\"$DEFAULT_KKPHIM_SERVER_PREF\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_BLOCK=\"$DEFAULT_KKPHIM_AD_BLOCK\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_PATTERNS=\"$DEFAULT_KKPHIM_AD_PATTERNS\"" >> "$CONFIG_FILE"
     fi
     ANISUB_CONFIG_HAS_SOURCE=0
     grep -q '^MANGA_SOURCE=' "$CONFIG_FILE" 2>/dev/null && ANISUB_CONFIG_HAS_SOURCE=1
@@ -151,6 +162,8 @@ load_config() {
     KKPHIM_SEARCH_LIMIT=${KKPHIM_SEARCH_LIMIT:-$DEFAULT_KKPHIM_SEARCH_LIMIT}
     KKPHIM_DETAIL_TTL=${KKPHIM_DETAIL_TTL:-$DEFAULT_KKPHIM_DETAIL_TTL}
     KKPHIM_SERVER_PREF=${KKPHIM_SERVER_PREF:-$DEFAULT_KKPHIM_SERVER_PREF}
+    KKPHIM_AD_BLOCK=${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}
+    KKPHIM_AD_PATTERNS=${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}
     # Chuỗi header cho ffmpeg (mỗi header cách nhau bằng CRLF thật)
     KKPHIM_FFMPEG_HEADERS="Referer: ${KKPHIM_REFERER}"$'\r\n'"User-Agent: ${KKPHIM_USER_AGENT}"$'\r\n'
     mkdir -p "$DOWNLOAD_DIR"
@@ -177,6 +190,7 @@ save_config() {
         echo "KKPHIM_API_URL=\"$KKPHIM_API_URL\""
         echo "KKPHIM_CDN_URL=\"$KKPHIM_CDN_URL\""
         echo "KKPHIM_REFERER=\"$KKPHIM_REFERER\""
+        echo "KKPHIM_AD_BLOCK=\"${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}\""
         echo "KKPHIM_SEARCH_LIMIT=\"$KKPHIM_SEARCH_LIMIT\""
         echo "KKPHIM_DETAIL_TTL=\"$KKPHIM_DETAIL_TTL\""
         echo "KKPHIM_SERVER_PREF=\"$KKPHIM_SERVER_PREF\""
@@ -848,6 +862,167 @@ kkphim_line_link() {
     printf '%s' "${1:-}" | cut -d'|' -f2
 }
 
+# ═══ CHẶN QUẢNG CÁO TRONG PLAYLIST HLS (.m3u8) ═══════════════════════════════
+# KKPhim chèn quảng cáo bằng cách thêm segment lạ vào chính playlist HLS (SSAI),
+# kèm marker #EXT-X-CUE-OUT / #EXT-OATCLS-SCTE35. Trình phát chỉ phát đúng những
+# gì playlist ghi, nên muốn chặn thì phải lọc playlist rồi phát bản đã lọc:
+#   - bỏ segment có host/đường dẫn khớp mẫu quảng cáo
+#   - bỏ marker chèn quảng cáo (CUE-OUT/CUE-IN, SCTE35, ASSET)
+#   - đổi URL tương đối -> tuyệt đối để file local vẫn tải được segment
+#   - giữ nguyên #EXT-X-KEY / #EXT-X-MAP (khoá giải mã) và toàn bộ phần còn lại
+# Không lọc được (mạng lỗi, playlist lạ) thì phát đúng link gốc như trước.
+kkphim_ad_block_enabled() {
+    case "$(printf '%s' "${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}" | tr 'A-Z' 'a-z')" in
+        0|off|no|false|tat|tắt) return 1 ;;
+        *)                      return 0 ;;
+    esac
+}
+
+# Ghép URL tương đối của playlist với URL gốc của nó.
+kkphim_abs_url() {
+    local base="$1" rel="$2"
+    case "$rel" in
+        http://*|https://*) printf '%s' "$rel"; return 0 ;;
+        //*)                printf 'https:%s' "$rel"; return 0 ;;
+    esac
+    local origin path
+    origin=$(printf '%s' "$base" | sed -n 's#^\(https\?://[^/]*\).*#\1#p')
+    [ -z "$origin" ] && origin="${KKPHIM_CDN_URL:-$DEFAULT_KKPHIM_CDN_URL}"
+    case "$rel" in
+        /*) printf '%s%s' "$origin" "$rel" ;;
+        *)
+            path="${base%%\?*}"
+            path="${path%/*}"
+            printf '%s/%s' "$path" "$rel"
+            ;;
+    esac
+}
+
+# Tải nội dung text (playlist) -> stdout. Giữ Referer/UA như trình phát.
+kkphim_fetch_text() {
+    local url="$1" tmp code
+    tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-hls.XXXXXX" 2>/dev/null) || return 1
+    code=$(curl -sSL --compressed --max-time 20 \
+        -A "$KKPHIM_USER_AGENT" -e "${KKPHIM_REFERER:-$DEFAULT_KKPHIM_REFERER}" \
+        -o "$tmp" -w '%{http_code}' "$url" 2>/dev/null)
+    if [ "$code" != "200" ] || [ ! -s "$tmp" ]; then
+        rm -f "$tmp" 2>/dev/null
+        return 1
+    fi
+    cat "$tmp"
+    rm -f "$tmp" 2>/dev/null
+    return 0
+}
+
+# Lọc 1 playlist (đọc stdin, $1 = URL gốc của playlist). In ra playlist đã lọc.
+kkphim_playlist_filter() {
+    KKPHIM_AD_PATTERNS="${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}" \
+    KKPHIM_BASE="$1" \
+    perl -CS -Mutf8 -0777 -ne '
+        my $base = $ENV{KKPHIM_BASE} // "";
+        my @pats = grep { length } map { lc } split /[,\s]+/, ($ENV{KKPHIM_AD_PATTERNS} // "");
+        my ($origin) = $base =~ m{^(https?://[^/]+)};
+        $origin //= "";
+        sub abs_url {
+            my ($u) = @_;
+            return $u if $u =~ m{^https?://}i;
+            return "https:$u" if $u =~ m{^//};
+            return $origin . $u if $u =~ m{^/};
+            my $p = $base; $p =~ s{[?#].*$}{}; $p =~ s{/[^/]*$}{};
+            return "$p/$u";
+        }
+        sub is_ad {
+            my ($u) = @_;
+            $u =~ s{[?#].*$}{};                 # bỏ query/hash: tránh nhầm ?ad=0
+            my @parts = grep { length } split m{[/.\-_\s]+}, lc($u);
+            for my $p (@parts) {
+                for my $pat (@pats) {
+                    return 1 if $p eq $pat || $p =~ /^\Q$pat\E[0-9]*$/;
+                }
+            }
+            return 0;
+        }
+        my @out; my @pending; my ($kept, $removed) = (0, 0);
+        for my $line (split /\r?\n/, $_) {
+            my $l = $line;
+            $l =~ s/^\s+|\s+$//g;
+            next if $l eq "";
+            if ($l =~ m{^#}) {
+                # marker chèn quảng cáo -> bỏ luôn
+                next if $l =~ m{^#EXT-X-CUE-(?:OUT|IN)\b}i;
+                next if $l =~ m{^#EXT-(?:OATCLS-)?SCTE35\b}i;
+                next if $l =~ m{^#EXT-X-ASSET\b}i;
+                # URI="..." trong tag -> tuyệt đối hoá
+                $l =~ s{(URI=")([^"]*)(")}{$1 . abs_url($2) . $3}ge;
+                # tag mô tả segment -> chờ xem segment có bị bỏ không
+                if ($l =~ m{^#EXT(?:INF|-X-BYTERANGE|-X-DISCONTINUITY|-X-PROGRAM-DATE-TIME)\b}i) {
+                    push @pending, $l;
+                    next;
+                }
+                push @out, @pending; @pending = ();
+                push @out, $l;
+                next;
+            }
+            my $u = abs_url($l);
+            if (is_ad($u)) { @pending = (); $removed++; next }
+            push @out, @pending; @pending = ();
+            push @out, $u;
+            $kept++;
+        }
+        push @out, @pending;
+        exit 2 if $kept == 0;                   # không còn segment nào -> đừng dùng
+        print join("\n", @out), "\n";
+    '
+}
+
+# Tải playlist (tự chọn variant nếu là master playlist) rồi lọc quảng cáo.
+# In ra đường dẫn file .m3u8 đã lọc; lỗi thì trả về 1.
+kkphim_adfree_playlist() {
+    local url="$1" text variant filtered out
+    text=$(kkphim_fetch_text "$url") || return 1
+    case "$text" in
+        *"#EXTM3U"*) : ;;
+        *)           return 1 ;;
+    esac
+    # master playlist: chọn variant băng thông cao nhất rồi tải playlist con
+    if printf '%s' "$text" | grep -q '#EXT-X-STREAM-INF'; then
+        variant=$(printf '%s\n' "$text" | perl -ne '
+            if (/^#EXT-X-STREAM-INF:.*BANDWIDTH=(\d+)/i) { $bw = $1; next }
+            next if /^#/ || /^\s*$/;
+            chomp;
+            if (defined $bw && $bw > ($best // -1)) { $best = $bw; $uri = $_ }
+            END { print $uri // "" }')
+        [ -z "$variant" ] && return 1
+        url=$(kkphim_abs_url "$url" "$variant")
+        text=$(kkphim_fetch_text "$url") || return 1
+    fi
+    filtered=$(printf '%s' "$text" | kkphim_playlist_filter "$url" 2>/dev/null) || return 1
+    [ -z "$filtered" ] && return 1
+    out="${TMPDIR:-/tmp}/anisub-adfree-$$.m3u8"
+    printf '%s\n' "$filtered" > "$out" 2>/dev/null || return 1
+    printf '%s' "$out"
+}
+
+# URL để đưa cho trình phát: nếu là .m3u8 và đang bật chặn quảng cáo thì trả về
+# playlist đã lọc (kèm thông báo), lỗi thì trả lại đúng link gốc.
+kkphim_play_url() {
+    local url="$1" f
+    case "$url" in
+        *.m3u8*|*m3u8*) : ;;
+        *)              printf '%s' "$url"; return 0 ;;
+    esac
+    kkphim_ad_block_enabled || { printf '%s' "$url"; return 0; }
+    if f=$(kkphim_adfree_playlist "$url" 2>/dev/null) && [ -n "$f" ] && [ -s "$f" ]; then
+        KKPHIM_ADFREE_FILE="$f"
+        echo "🚫 Đã lọc quảng cáo trong playlist HLS." >&2
+        printf '%s' "$f"
+    else
+        [ -n "${KKPHIM_ADFREE_FILE:-}" ] && rm -f "$KKPHIM_ADFREE_FILE" 2>/dev/null
+        KKPHIM_ADFREE_FILE=""
+        printf '%s' "$url"
+    fi
+}
+
 play_stream() {
     local url="$1"
     local title="$2"
@@ -866,21 +1041,26 @@ play_stream() {
     # Kill any existing player instance to avoid conflicts
     killall "$PLAYER" 2>/dev/null
 
+    # Chặn quảng cáo: nếu link là playlist HLS, phát bản đã lọc segment quảng cáo
+    local play_url
+    play_url=$(kkphim_play_url "$url")
+    [ -z "$play_url" ] && play_url="$url"
+
     # CDN phim của KKPhim kiểm tra Referer/User-Agent, vì vậy truyền header
     # cho những trình phát có hỗ trợ; trình phát khác dùng link thô.
     case "$PLAYER" in
         mpv)
-            mpv "$url" --no-terminal --profile=sw-fast --audio-display=no \
+            mpv "$play_url" --no-terminal --profile=sw-fast --audio-display=no \
                 --no-keepaspect-window --title="Anisub: $title" \
                 --referrer="$KKPHIM_REFERER" --user-agent="$KKPHIM_USER_AGENT" \
                 --http-header-fields="Referer: $KKPHIM_REFERER" &
             ;;
         vlc)
             vlc --referrer="$KKPHIM_REFERER" --user-agent="$KKPHIM_USER_AGENT" \
-                "$url" &
+                "$play_url" &
             ;;
         *)
-            "$PLAYER" "$url" &
+            "$PLAYER" "$play_url" &
             ;;
     esac
     PLAYER_PID=$!
@@ -1479,7 +1659,9 @@ play_anidata_local() {
 show_source_settings() {
     local opt inp pref
     while true; do
-        opt=$(echo -e "🩺 Kiểm tra kết nối & phụ thuộc\n🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document · lỗi tìm kiếm? chạy 🩺 trước")
+        local ad_state="bật"
+        kkphim_ad_block_enabled || ad_state="tắt"
+        opt=$(echo -e "🩺 Kiểm tra kết nối & phụ thuộc\n🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🚫 Chặn quảng cáo trong m3u8: $ad_state\n🏷️ Mẫu nhận diện quảng cáo: ${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document · lỗi tìm kiếm? chạy 🩺 trước")
         case "$opt" in
             *"Kiểm tra kết nối"*)
                 clear
@@ -1523,6 +1705,27 @@ show_source_settings() {
                     [ "${KKPHIM_DETAIL_TTL:-0}" -gt 1800 ] && echo "⚠️ Cache lâu quá 30 phút: link m3u8 có thể đã hết hạn." && sleep 2
                 else
                     echo "❌ Phải là số giây."; sleep 1
+                fi ;;
+            *"Chặn quảng cáo"*)
+                if kkphim_ad_block_enabled; then
+                    KKPHIM_AD_BLOCK=0
+                    echo "⏹ Đã TẮT chặn quảng cáo (phát nguyên playlist gốc)."
+                else
+                    KKPHIM_AD_BLOCK=1
+                    echo "✅ Đã BẬT chặn quảng cáo (lọc segment quảng cáo trong m3u8)."
+                fi
+                save_config
+                sleep 1.2 ;;
+            *"Mẫu nhận diện quảng cáo"*)
+                echo "🏷️ Các mẫu cách nhau bằng dấu phẩy; so khớp nguyên 1 thành phần"
+                echo "   của host/đường dẫn (vd: ad, ads, preroll, quangcao, vast)."
+                echo "   Mặc định: $DEFAULT_KKPHIM_AD_PATTERNS"
+                read -r -p "Mẫu mới (Enter = giữ nguyên): " inp
+                if [ -n "$inp" ]; then
+                    KKPHIM_AD_PATTERNS="$inp"
+                    save_config
+                    echo "✅ Đã lưu: $KKPHIM_AD_PATTERNS"
+                    sleep 1.2
                 fi ;;
             *"Xóa cache"*)
                 rm -f "$CACHE_DIR"/kkphim-*.json "$CACHE_DIR"/poster-* 2>/dev/null
@@ -3962,7 +4165,7 @@ manga_main_menu() {
 
 # --- MAIN LOGIC ---
 main() {
-    trap 'rm -f "$ANISUB_STATUS_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
+    trap 'rm -f "$ANISUB_STATUS_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE" "${TMPDIR:-/tmp}/anisub-adfree-$$.m3u8"; kill $(jobs -p) 2>/dev/null' EXIT
     check_dependencies
     load_config
 
