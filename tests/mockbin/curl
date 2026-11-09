@@ -4,7 +4,7 @@
 # - API POST /webapi/stories/list-chapter: trả JSON fixture (giả lập được 419/500)
 # - Ảnh (imggo.net / /uploads/): ghi vài byte giả, không có -w
 # - Host chứa "manga-offline": mô phỏng mất mạng (HTTP 000, không body)
-url=""; out=""; data=""; post=""; wmode=""; referer=""
+url=""; out=""; data=""; post=""; wmode=""; referer=""; ua=""; has_cookie=0
 args=("$@")
 skip_next=0
 for i in "${!args[@]}"; do
@@ -18,9 +18,10 @@ for i in "${!args[@]}"; do
         -o|--output) out="$nxt"; skip_next=1 ;;
         -w|--write-out) wmode="1"; skip_next=1 ;;
         -e|--referer) referer="$nxt"; skip_next=1 ;;
-        -H|--header|-A|--user-agent|-X|--request) skip_next=1 ;;
+        -A|--user-agent) ua="$nxt"; skip_next=1 ;;
+        -H|--header|-X|--request) skip_next=1 ;;
         --max-time|--retry|--retry-delay|--connect-timeout) skip_next=1 ;;
-        -c|--cookie-jar|-b|--cookie) skip_next=1 ;;
+        -c|--cookie-jar|-b|--cookie) has_cookie=1; skip_next=1 ;;
         --data|--data-raw|--data-binary) post="$nxt"; skip_next=1 ;;
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
@@ -56,6 +57,17 @@ case "$eff" in
     *modern*)                body="${MOCK_FIXTURES}/manga-chapter-modern.html" ;;
     *"/chapter-"*js*)       body="${MOCK_FIXTURES}/manga-chapter-js.html" ;;
     *"no-story-id"*)        body="${MOCK_FIXTURES}/manga-detail-no-story-id.html" ;;
+    *"/chapter-"*)
+        if [ "${MOCK_STRIP_CHAPTER:-0}" = "1" ]; then
+            # giả lập: trang chapter trả bản rút gọn trừ khi request đúng kiểu
+            case "${MOCK_STRIP_UNLESS:-bot}" in
+                bot)     case "$ua" in *Googlebot*) body="${MOCK_FIXTURES}/manga-chapter-modern.html" ;; *) body="${MOCK_FIXTURES}/manga-challenge.html" ;; esac ;;
+                minimal) if [ "$has_cookie" = "1" ]; then body="${MOCK_FIXTURES}/manga-challenge.html"; else body="${MOCK_FIXTURES}/manga-chapter-modern.html"; fi ;;
+                *)       body="${MOCK_FIXTURES}/manga-challenge.html" ;;
+            esac
+        else
+            body="${MOCK_FIXTURES}/manga-chapter.html"
+        fi ;;
     *"/chapter-"*)           body="${MOCK_FIXTURES}/manga-chapter.html" ;;
     *"/truyen-tranh/"*)      body="${MOCK_FIXTURES}/manga-detail.html" ;;
     *"/tim-kiem"*|*"/the-loai/"*|*"/danh-sach"*) body="${MOCK_FIXTURES}/manga-home.html" ;;

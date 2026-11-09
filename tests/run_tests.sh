@@ -431,6 +431,32 @@ manga_http_post "https://truyenvn.my/webapi/stories/list-chapter" "story_id=1218
 hdr2=$(grep 'list-chapter' "$MOCK_CURL_HEADER_LOG" | head -1)
 has "POST vẫn có X-Requested-With" "X-Requested-With: XMLHttpRequest" "$hdr2"
 
+echo "== 25. server trả bản rút gọn -> tự thử kiểu request khác =="
+( export MOCK_STRIP_CHAPTER=1 MOCK_STRIP_UNLESS=bot
+  : > "$MOCK_CURL_LOG"
+  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>/dev/null)
+  printf '%s' "$out" > "$WORK/fallback.log" )
+check "bản rút gọn -> vẫn lấy được ảnh nhờ request kiểu bot" "5" \
+    "$(grep -c 'bb_00' "$WORK/fallback.log")"
+check "đã thử nhiều kiểu request (normal -> minimal -> bot)" "1" \
+    "$([ "$(grep -c 'chapter-243' "$MOCK_CURL_LOG")" -ge 3 ] && echo 1 || echo 0)"
+( export MOCK_STRIP_CHAPTER=1 MOCK_STRIP_UNLESS=minimal
+  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>/dev/null)
+  printf '%s' "$out" > "$WORK/fallback2.log" )
+check "bản rút gọn -> thử kiểu minimal (không cookie/referer) cũng được" "5" \
+    "$(grep -c 'bb_00' "$WORK/fallback2.log")"
+( export MOCK_STRIP_CHAPTER=1 MOCK_STRIP_UNLESS=never
+  out=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" bocchi-the-rock 2>&1)
+  printf '%s' "$out" > "$WORK/fallback3.log" )
+has "mọi kiểu đều thất bại -> nói rõ đã thử 3 kiểu" "Đã thử 3 kiểu request" "$(cat "$WORK/fallback3.log")"
+has "vẫn ghi file chẩn đoán" "challenge: YES" "$(cat "${CACHE_DIR:-/tmp}/manga-debug.txt" 2>/dev/null)"
+
+echo "== 26. phiên bản & lối vào chẩn đoán =="
+check "có nhãn phiên bản" "1" "$(printf '%s' "$ANISUB_VERSION" | grep -cE '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$')"
+has "selftest in phiên bản để biết đang chạy bản nào" "anisub: $ANISUB_VERSION" "$(manga_selftest bocchi-the-rock 2>&1)"
+check "CLI --version chạy được" "anisub $ANISUB_VERSION" "$(bash "$ROOT/anisub.sh" --version 2>/dev/null)"
+has "menu truyện có mục chẩn đoán" "Kiểm tra đọc truyện (chẩn đoán)" "$(grep -o 'Kiểm tra đọc truyện (chẩn đoán)' "$ROOT/anisub.sh" | head -1)"
+
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"
 [ "$fail" -gt 0 ] && printf ', \033[31m%s fail\033[0m' "$fail"
