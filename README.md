@@ -26,6 +26,7 @@
 《🪟》- Chạy trên windows<br>
 ## UPDATE
 《📺》- Thêm gợi ý từ khóa<br>
+《🚫》- Chặn quảng cáo khi xem phim từ KKPhim: lọc segment quảng cáo + marker chèn quảng cáo trong playlist `.m3u8` trước khi phát<br>
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
 《📖》- Tích hợp truyenvn ( manga thì đọc oke còn webtoon thì như hạch ) <br>
 《📖》- Đổi nguồn truyện sang `truyenvn.my`, sửa lỗi không tải được danh sách chapter / ảnh trang đọc<br>
@@ -63,7 +64,30 @@ KKPHIM_REFERER="https://kkphim.com/"   # Referer gửi kèm khi phát / tải
 KKPHIM_SEARCH_LIMIT="24"               # số kết quả mỗi trang
 KKPHIM_DETAIL_TTL="600"                # giây cache thông tin phim
 KKPHIM_SERVER_PREF="auto"              # auto | vietsub | long-tieng | thuyet-minh
+KKPHIM_AD_BLOCK="1"                    # 1 = chặn quảng cáo chèn trong .m3u8, 0 = tắt
+KKPHIM_AD_PATTERNS="ad,ads,advert,adserver,adservice,adtag,preroll,pre-roll,quangcao,quang-cao,promo,sponsor,vast"
+                                       # mẫu nhận diện host/segment quảng cáo (cách nhau bằng dấu phẩy)
 ```
+
+**🚫 Chặn quảng cáo khi xem phim.** KKPhim chèn quảng cáo bằng cách thêm segment lạ vào chính
+playlist HLS (kèm marker `#EXT-X-CUE-OUT` / `#EXT-OATCLS-SCTE35`). Trình phát phát đúng những gì
+playlist ghi, nên anisub **tải playlist trước khi phát, lọc rồi mới đưa cho mpv/vlc**:
+
+1. tải `.m3u8` (giữ `Referer`/`User-Agent` như khi phát); nếu là **master playlist** thì chọn
+   variant băng thông cao nhất rồi tải playlist con;
+2. bỏ segment có host/đường dẫn khớp `KKPHIM_AD_PATTERNS` (so khớp **nguyên một thành phần**
+   host/đường dẫn nên `media`, `shadow`, `load`… không bị xoá nhầm; query `?ad=0` cũng không tính);
+3. bỏ marker chèn quảng cáo `#EXT-X-CUE-OUT/CUE-IN`, `#EXT-OATCLS-SCTE35`, `#EXT-X-ASSET`;
+4. đổi URL tương đối (segment, `#EXT-X-KEY`, `#EXT-X-MAP`) sang tuyệt đối để file local vẫn tải được;
+5. ghi ra `$TMPDIR/anisub-adfree-<pid>.m3u8` rồi phát file đó (tự xoá khi thoát).
+
+Không tải/lọc được (mạng lỗi, playlist lạ) thì anisub **phát đúng link gốc** như trước — không bao
+giờ làm bạn không xem được phim. Bật/tắt và sửa mẫu nhận diện tại
+`⚙️ Cài đặt → 🎞 Nguồn phim` (`🚫 Chặn quảng cáo trong m3u8`, `🏷️ Mẫu nhận diện quảng cáo`).
+
+> Nếu vẫn thấy quảng cáo: quảng cáo đó nằm **cùng host, cùng CDN** với phim (server-side cắt vào
+> luồng) nên không thể bỏ segment — khi đó gửi mình link `.m3u8` mẫu, anisub sẽ bổ sung mẫu nhận
+> diện hoặc cách tua qua đoạn đó.
 
 > **Lưu ý:** link `.m3u8` của KKPhim được cấp theo từng lần gọi API và hết hạn sau vài phút,
 > nên anisub luôn xin lại link khi bạn xem lại từ lịch sử, đổi server, hoặc khi trình phát
