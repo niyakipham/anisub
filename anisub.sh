@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.09"
+ANISUB_VERSION="2026.11.09b"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -57,10 +57,15 @@ DEFAULT_MANGA_SEARCH_PAGES=1                          # số trang tải cho m�
 #   symbols : luôn vẽ bằng ký tự (hiện hình ở MỌI terminal, độ nét thấp)
 #   kitty/sixel/iterm: ảnh nét, chỉ dùng khi terminal thật sự hỗ trợ
 DEFAULT_MANGA_IMAGE_PROTOCOL="auto"
+# Khi trang chapter bị chặn/trả bản rút gọn cho máy mình, anisub lấy danh sách ảnh
+# qua dịch vụ đọc hộ này (nó tải trang bằng trình duyệt thật rồi trả markdown).
+# Đặt "" hoặc "off" để tắt (khi tắt, anisub không gửi URL truyện ra bên thứ ba).
+DEFAULT_MANGA_READER_PROXY="https://r.jina.ai"
 MANGA_BASE_URL=""
 MANGA_SEARCH_FEEDS=""
 MANGA_SEARCH_PAGES=""
 MANGA_IMAGE_PROTOCOL=""
+MANGA_READER_PROXY="$DEFAULT_MANGA_READER_PROXY"
 MANGA_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 # Trang chapter của TruyenVN trả bản rút gọn (không có ảnh) nếu request "không giống
 # trình duyệt". Gửi kèm đủ header điều hướng để nhận đúng HTML có <img>.
@@ -102,6 +107,7 @@ load_config() {
         echo "MANGA_SEARCH_FEEDS=\"$DEFAULT_MANGA_SEARCH_FEEDS\"" >> "$CONFIG_FILE"
         echo "MANGA_SEARCH_PAGES=\"$DEFAULT_MANGA_SEARCH_PAGES\"" >> "$CONFIG_FILE"
         echo "MANGA_IMAGE_PROTOCOL=\"$DEFAULT_MANGA_IMAGE_PROTOCOL\"" >> "$CONFIG_FILE"
+        echo "MANGA_READER_PROXY=\"$DEFAULT_MANGA_READER_PROXY\"" >> "$CONFIG_FILE"
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---" >> "$CONFIG_FILE"
         echo "KKPHIM_SITE_URL=\"$DEFAULT_KKPHIM_SITE_URL\"" >> "$CONFIG_FILE"
         echo "KKPHIM_API_URL=\"$DEFAULT_KKPHIM_API_URL\"" >> "$CONFIG_FILE"
@@ -119,6 +125,8 @@ load_config() {
     MANGA_SEARCH_FEEDS=${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}
     MANGA_SEARCH_PAGES=${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}
     MANGA_IMAGE_PROTOCOL=${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL}
+    MANGA_READER_PROXY=${MANGA_READER_PROXY-$DEFAULT_MANGA_READER_PROXY}
+    case "${MANGA_READER_PROXY:-}" in off|OFF|none|null|0) MANGA_READER_PROXY="" ;; esac
     # Cấu hình nguồn phim KKPhim: config.cfg > giá trị mặc định
     KKPHIM_SITE_URL=${KKPHIM_SITE_URL:-$DEFAULT_KKPHIM_SITE_URL}
     KKPHIM_API_URL=${KKPHIM_API_URL:-$DEFAULT_KKPHIM_API_URL}
@@ -146,6 +154,7 @@ save_config() {
         echo "MANGA_SEARCH_FEEDS=\"$MANGA_SEARCH_FEEDS\""
         echo "MANGA_SEARCH_PAGES=\"$MANGA_SEARCH_PAGES\""
         echo "MANGA_IMAGE_PROTOCOL=\"$MANGA_IMAGE_PROTOCOL\""
+        echo "MANGA_READER_PROXY=\"$MANGA_READER_PROXY\""
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---"
         echo "KKPHIM_SITE_URL=\"$KKPHIM_SITE_URL\""
         echo "KKPHIM_API_URL=\"$KKPHIM_API_URL\""
@@ -1624,7 +1633,14 @@ manga_http_fetch() {
     tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-manga.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-manga.$$.tmp"
     local -a referer_opt=()
     [ -n "$referer" ] && referer_opt=(-e "$referer")
-    status=$(curl -sS -G -L --compressed --max-time 25 --retry 2 --retry-delay 1 \
+    # kiểu dự phòng (minimal/bot) chạy nhanh: không retry, timeout ngắn -> đỡ bắt chờ
+    local -a retry_opt=(--retry 2 --retry-delay 1)
+    local max_time=25
+    if [ "$variant" != "normal" ]; then
+        retry_opt=(--retry 0)
+        max_time=15
+    fi
+    status=$(curl -sS -G -L --compressed --max-time "$max_time" "${retry_opt[@]}" \
         -A "$ua" \
         "${cookie_opts[@]}" \
         "${hdr_opts[@]}" \
@@ -1997,6 +2013,15 @@ manga_parse_nav() {
             }
             if (!length $next && ($rel =~ /\bnext\b/i || $txt =~ /^(chap\s*)?(sau|ti(?:ế|e)p|next)\b/i)) {
                 $next = $href;
+            }
+        }
+        if (!length $prev || !length $next) {     # markdown: [Chap trước](url)
+            while (/\[([^\]]{1,40})\]\(\s*(https?:[^)\s]+)\s*\)/g) {
+                my ($txt, $href) = ($1, $2);
+                $txt =~ s/^[^A-Za-zÀ-ỹ]+//;
+                $txt =~ s/\s+$//;
+                if (!length $prev && $txt =~ /^(chap\s*)?(tr(?:ư|u)(?:ớ|o)c|prev(?:ious)?|back)\b/i) { $prev = $href }
+                if (!length $next && $txt =~ /^(chap\s*)?(sau|ti(?:ế|e)p|next)\b/i) { $next = $href }
             }
         }
         print "$prev|$next";
@@ -2436,9 +2461,13 @@ fetch_chapter_images() {
     local prefer_slug="${2:-}"
     [ -z "$chapter_url" ] && return 1
     rm -f "$ANISUB_MANGA_NAV_FILE" 2>/dev/null   # không dùng link chuyển chap của chapter cũ
-    local variant html="" last_html="" found=""
-    for variant in normal minimal bot; do
-        html=$(MANGA_FETCH_VARIANT="$variant" manga_http_fetch "$chapter_url" 2>/dev/null) || html=""
+    local variant html="" last_html="" found="" used_variant=""
+    for variant in normal minimal bot proxy; do
+        if [ "$variant" = "proxy" ]; then
+            html=$(manga_proxy_fetch "$chapter_url" 2>/dev/null) || html=""
+        else
+            html=$(MANGA_FETCH_VARIANT="$variant" manga_http_fetch "$chapter_url" 2>/dev/null) || html=""
+        fi
         [ -z "$html" ] && continue
         last_html="$html"
         found=$(printf '%s' "$html" | MANGA_PREFER="$prefer_slug" \
@@ -2491,8 +2520,15 @@ fetch_chapter_images() {
         }
         print "$_\n" for @keep;
     ')
-        [ -n "$found" ] && break
+        if [ -n "$found" ]; then
+            used_variant="$variant"
+            break
+        fi
     done
+    if [ "$used_variant" = "proxy" ]; then
+        echo "ℹ️ Trang chapter bị chặn với máy này — đã lấy danh sách ảnh qua ${MANGA_READER_PROXY:-reader-proxy}." >&2
+        echo "   (tắt bằng MANGA_READER_PROXY=\"\" trong ⚙️ Cài đặt)" >&2
+    fi
     if [ -z "$last_html" ]; then
         echo "⚠️ Không tải được chapter (HTTP $(anisub_last_http))" >&2
         return 1
@@ -2510,9 +2546,37 @@ fetch_chapter_images() {
     fi
     if [ -z "$found" ]; then
         manga_debug_dump "$chapter_url" "$html"
-        echo "⚠️ Đã thử 3 kiểu request (normal/minimal/bot) mà không thấy ảnh nào." >&2
+        echo "⚠️ Đã thử 4 kiểu request (normal/minimal/bot/proxy) mà không thấy ảnh nào." >&2
     fi
     printf '%s\n' "$found"
+}
+
+# Tải trang qua dịch vụ đọc hộ (mặc định https://r.jina.ai/<url>): dùng khi máy mình
+# bị chặn/bị trả bản rút gọn. Trả về markdown, ảnh vẫn ở dạng ![](https://...jpg).
+manga_proxy_fetch() {
+    local target="${1:-}"
+    [ -z "$target" ] && return 1
+    local proxy="${MANGA_READER_PROXY:-}"
+    case "$proxy" in ""|off|OFF|0|none|null) return 1 ;; esac
+    target=$(manga_abs_url "$target")
+    local tmp status
+    tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-proxy.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-proxy.$$.tmp"
+    status=$(curl -sS -L --compressed --max-time 45 --retry 1 \
+        -A "$MANGA_USER_AGENT" \
+        -H "accept: text/plain,text/markdown,*/*" \
+        -o "$tmp" -w '%{http_code}' \
+        "${proxy%/}/$target" 2>/dev/null)
+    MANGA_PROXY_STATUS="${status:-000}"
+    case "$MANGA_PROXY_STATUS" in
+        2??)
+            if [ -s "$tmp" ]; then
+                cat "$tmp"; rm -f "$tmp"
+                return 0
+            fi
+            ;;
+    esac
+    rm -f "$tmp"
+    return 1
 }
 
 # HTML trang chapter có phải trang "kiểm tra trình duyệt" (Cloudflare) không
@@ -3260,12 +3324,40 @@ manga_diagnose() {
 show_manga_settings() {
     local opt inp
     while true; do
-        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
+        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
             | fzf --prompt="📚 Nguồn truyện (TruyenVN) > " --header="TruyenVN: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}")
         case "$opt" in
             *"Kiểm tra nguồn truyện"*)
                 clear
                 manga_diagnose
+                ;;
+            *"Kiểm tra đọc truyện"*)
+                clear
+                local st_target=""
+                printf '🧪 Nhập slug hoặc link truyện (Enter = bocchi-the-rock): '
+                read -r st_target
+                [ -z "$st_target" ] && st_target="bocchi-the-rock"
+                mkdir -p "$CACHE_DIR" 2>/dev/null
+                manga_selftest "$st_target" 2>&1 | tee "$CACHE_DIR/manga-selftest.txt"
+                echo ""
+                echo "📄 Đã lưu: $CACHE_DIR/manga-selftest.txt"
+                echo "Nhấn Enter để tiếp tục..."; read -r _
+                ;;
+            *"Dịch vụ đọc hộ"*)
+                clear
+                echo "🛡 DỊCH VỤ ĐỌC HỘ (dùng khi trang chapter chặn máy bạn)"
+                echo "  Mặc định: $DEFAULT_MANGA_READER_PROXY"
+                echo "  anisub chỉ gọi dịch vụ này khi 3 kiểu tải trực tiếp đều không ra ảnh."
+                echo "  Nhập URL dịch vụ khác, hoặc 'off' để tắt (không gửi link truyện ra ngoài)."
+                read -r -p "Dịch vụ đọc hộ (Enter = giữ nguyên): " inp
+                case "${inp:-}" in
+                    "")  : ;;
+                    off|OFF|none|null|0) MANGA_READER_PROXY="" ;;
+                    *)   MANGA_READER_PROXY="${inp%/}" ;;
+                esac
+                save_config
+                echo "✅ Đã lưu: ${MANGA_READER_PROXY:-tắt}"
+                sleep 1.2
                 ;;
             *"Trang web nguồn"*)
                 read -r -p "Nhập URL trang truyện (Enter = $DEFAULT_MANGA_BASE_URL): " inp
