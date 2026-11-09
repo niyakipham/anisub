@@ -29,6 +29,7 @@
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
 《📖》- Tích hợp truyenvn ( manga thì đọc oke còn webtoon thì như hạch ) <br>
 《📖》- Đổi nguồn truyện sang `truyenvn.my`, sửa lỗi không tải được danh sách chapter / ảnh trang đọc<br>
+《📖》- Sửa lỗi bấm **📚 Đọc Truyện Tranh** ở menu chính không mở được menu truyện (nhãn nguồn trong menu đổi thành động)<br>
 《📖》- Chuyển nguồn truyện mặc định sang **nettruyen** (`nettruyen.info`): danh sách chapter đọc thẳng từ HTML, ảnh trang đọc trên `net.imgchapter.store`, có thêm `🔁 Đổi nguồn truyện` (nettruyen ⇄ truyenvn)<br>
 《📖》- Truyện tranh: xem trước **ảnh bìa** khi chọn truyện, lấy **đủ danh sách chapter** (API `list-chapter`) và **ảnh trang đọc hiện ở mọi terminal**<br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
