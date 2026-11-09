@@ -1965,37 +1965,94 @@ manga_diagnose() {
 }
 
 # Cấu hình riêng cho nguồn truyện
+# Bộ src/ đang dùng đã có module Kagane chưa? (máy chưa 🔄 Cập nhật thì chưa)
+manga_has_kagane_module() {
+    [ "${KAGANE_MODULE:-0}" = "1" ] && declare -F kg_list_items > /dev/null 2>&1
+}
+
+# Cảnh báo khi bộ src/ là bản cũ (thiếu nguồn mới) - in ở đầu menu nguồn truyện
+manga_src_outdated_hint() {
+    manga_has_kagane_module && return 0
+    echo "⚠️ Bộ src/ đang dùng là bản cũ: CHƯA có nguồn kagane."
+    echo "   Chạy 🔄 Cập nhật ở menu chính (hoặc ./anisub.sh --update) rồi mở lại mục này."
+    echo ""
+}
+
+# Các nguồn có thể chọn: "số|tên|link|mô tả" (dòng chọn cuối cùng = giữ nguyên)
+manga_source_choices() {
+    printf '%s\n' \
+        "1|nettruyen|https://nettruyen.info|mặc định, ảnh nhanh, đủ truyện" \
+        "2|truyenvn|https://truyenvn.my|nguồn cũ (cần API chapter)" \
+        "3|ehentai|${DEFAULT_MANGA_EHENTAI_URL:-https://e-hentai.org}|gallery ảnh (18+), tag $(eh_tag 2>/dev/null || echo 'language:vietnamese')" \
+        "4|kagane|${DEFAULT_KAGANE_BASE_URL:-https://kagane.moe}|manga/manhwa/manhua đa ngôn ngữ"
+}
+
+# Đổi nguồn truyện: chọn bằng fzf (có đánh dấu nguồn đang dùng), máy không có
+# fzf thì in danh sách + nhập số như trước. Chưa có module Kagane thì cảnh báo
+# "cần Cập nhật" thay vì chuyển sang nguồn không dùng được.
+manga_switch_source() {
+    clear
+    echo "🔁 ĐỔI NGUỒN TRUYỆN TRANH"
+    echo "  Đang dùng: $(manga_source_label) - ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+    echo ""
+    manga_src_outdated_hint
+    # nguồn đang dùng -> tên viết thường để so với cột 2 của manga_source_choices
+    local cur="truyenvn"
+    manga_is_kagane    && cur="kagane"
+    manga_is_ehentai   && cur="ehentai"
+    manga_is_nettruyen && cur="nettruyen"
+    local num name url desc mark line chosen="" inp
+    local -a rows=()
+    while IFS='|' read -r num name url desc; do
+        [ -n "${num:-}" ] || continue
+        mark="  "
+        [ "$name" = "$cur" ] && mark="✅"
+        line="$mark $num) $name  · $url  · $desc"
+        [ "$num" = "4" ] && ! manga_has_kagane_module && line="$line  (cần 🔄 Cập nhật)"
+        rows+=("$line")
+    done < <(manga_source_choices)
+    if command -v fzf > /dev/null 2>&1; then
+        chosen=$(printf '%s\n' "${rows[@]}" | fzf --prompt="Chọn nguồn truyện > " \
+            --header="Enter = chọn · Esc = giữ nguyên (đang dùng: $cur)")
+    else
+        printf '%s\n' "${rows[@]}"
+        echo ""
+        read -r -p "Chọn nguồn (1/2/3/4, Enter = giữ nguyên): " inp
+        chosen="$inp"
+    fi
+    [ -z "$chosen" ] && { echo "↩️ Giữ nguyên nguồn $(manga_source_label)."; sleep 0.8; return 0; }
+    num=$(printf '%s' "$chosen" | grep -oE '[1-9]\)' | head -1 | tr -d ')')
+    case "${num:-}" in
+        1) MANGA_SOURCE="nettruyen"; MANGA_BASE_URL="https://nettruyen.info" ;;
+        2) MANGA_SOURCE="truyenvn";  MANGA_BASE_URL="https://truyenvn.my" ;;
+        3) MANGA_SOURCE="ehentai";   MANGA_BASE_URL="${DEFAULT_MANGA_EHENTAI_URL:-https://e-hentai.org}"
+           echo "   ⚠️ e-hentai có nội dung người lớn (18+). Bạn tự chịu trách nhiệm khi xem." ;;
+        4) if ! manga_has_kagane_module; then
+               echo "⚠️ Bộ src/ đang dùng chưa có module kagane - chưa đổi được nguồn."
+               echo "   Chạy 🔄 Cập nhật ở menu chính (hoặc ./anisub.sh --update) rồi thử lại."
+               sleep 2.5
+               return 1
+           fi
+           MANGA_SOURCE="kagane";    MANGA_BASE_URL="${DEFAULT_KAGANE_BASE_URL:-https://kagane.moe}" ;;
+        *) echo "↩️ Giữ nguyên nguồn $(manga_source_label)."; sleep 0.8; return 0 ;;
+    esac
+    save_config
+    echo "✅ Nguồn: $(manga_source_label) - ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+    sleep 1.2
+    return 0
+}
+
 show_manga_settings() {
     local opt inp
     while true; do
+        local sm_header
+        sm_header="$(manga_source_label): ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+        manga_has_kagane_module || sm_header="$sm_header\n⚠️ bộ src/ cũ: thiếu nguồn kagane - chạy 🔄 Cập nhật"
         opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔁 Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🏷 Tag mặc định (e-hentai): ${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}\n🍪 Cookie e-hentai: $([ -n "${EHENTAI_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt (chỉ gallery công khai)')\n🔢 Số trang ảnh mỗi chapter (e-hentai): ${EHENTAI_CHUNK:-$DEFAULT_EHENTAI_CHUNK}\n🌏 Ngôn ngữ lọc Kagane: ${KAGANE_LANG:-mọi ngôn ngữ}\n🍪 Cookie Kagane: $([ -n "${KAGANE_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt (chỉ truyện công khai)')\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
-            | fzf --prompt="📚 Nguồn truyện ($(manga_source_label)) > " --header="$(manga_source_label): ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}")
+            | fzf --prompt="📚 Nguồn truyện ($(manga_source_label)) > " --header="$sm_header")
         case "$opt" in
             *"Đổi nguồn truyện"*)
-                clear
-                echo "🔁 ĐỔI NGUỒN TRUYỆN TRANH"
-                echo "  Đang dùng: $(manga_source_label) - ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
-                echo ""
-                echo "  1) nettruyen  (https://nettruyen.info)  - mặc định, ảnh nhanh, đủ truyện"
-                echo "  2) truyenvn   (https://truyenvn.my)     - nguồn cũ (cần API chapter)"
-                echo "  3) e-hentai   (https://e-hentai.org)    - gallery ảnh, mặc định xem tag"
-                echo "     $(eh_tag)  (nội dung 18+, cần cookie nếu gallery giới hạn)"
-                echo "  4) kagane     (https://kagane.moe)      - manga/manhwa/manhua đa ngôn ngữ"
-                echo "     Duyệt/tìm qua API riêng của site; ảnh trang dùng token ngắn hạn (tự xin)."
-                echo "     KAGANE_LANG=vi để ưu tiên truyện tiếng Việt, KAGANE_COOKIE cho truyện 18+."
-                echo ""
-                read -r -p "Chọn nguồn (1/2/3/4, Enter = giữ nguyên): " inp
-                case "${inp:-}" in
-                    1) MANGA_SOURCE="nettruyen"; MANGA_BASE_URL="https://nettruyen.info" ;;
-                    2) MANGA_SOURCE="truyenvn";  MANGA_BASE_URL="https://truyenvn.my" ;;
-                    3) MANGA_SOURCE="ehentai";   MANGA_BASE_URL="$DEFAULT_MANGA_EHENTAI_URL"
-                       echo "   ⚠️ e-hentai có nội dung người lớn (18+). Bạn tự chịu trách nhiệm khi xem." ;;
-                    4) MANGA_SOURCE="kagane";    MANGA_BASE_URL="$DEFAULT_KAGANE_BASE_URL" ;;
-                    *) : ;;
-                esac
-                save_config
-                echo "✅ Nguồn: $(manga_source_label) - ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
-                sleep 1.2
+                manga_switch_source
                 ;;
             *"Kiểm tra nguồn truyện"*)
                 clear

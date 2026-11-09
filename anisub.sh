@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.11a"
+ANISUB_VERSION="2026.11.11b"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"

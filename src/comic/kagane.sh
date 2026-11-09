@@ -27,6 +27,10 @@
 #   * Trang /search chỉ render server cho TRANG ĐẦU; tham số page lạ làm site trả
 #     danh sách rỗng, nên anisub chỉ duyệt trang đầu + tìm theo từ khoá.
 
+# Đánh dấu module đã nạp (menu nguồn truyện dựa vào đây để biết bộ src/ đã có
+# nguồn kagane hay còn là bản cũ -> nhắc người dùng chạy 🔄 Cập nhật).
+KAGANE_MODULE=1
+
 # ─── NHẬN DIỆN NGUỒN ───────────────────────────────────────────────────────────
 manga_is_kagane() {
     case "${MANGA_SOURCE:-$DEFAULT_MANGA_SOURCE}" in
