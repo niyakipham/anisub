@@ -231,6 +231,14 @@ rm -f "$WORK/api419"
 chaps419=$(MOCK_API_419="$WORK/api419" fetch_chapter_list "bocchi-the-rock" 2>/dev/null)
 check "HTTP 419 -> tải lại trang lấy token mới rồi thử lại" "6" "$(printf '%s\n' "$chaps419" | grep -c '.')"
 
+# trang truyện không có "story_id" -> suy từ URL ảnh bìa (/books/12189/) và slug trong
+# link chapter lại khác slug trên URL -> vẫn phải lấy đủ chapter
+: > "$MOCK_CURL_LOG"
+chaps_cover=$(fetch_chapter_list "bocchi-the-rock-no-story-id" 2>/dev/null)
+check "thiếu story_id -> lấy id từ ảnh bìa" "1" "$(grep -c 'story_id=12189' "$MOCK_CURL_LOG")"
+check "slug trên URL khác slug trong link chapter -> vẫn đủ chapter" "6" \
+    "$(printf '%s\n' "$chaps_cover" | grep -c '.')"
+
 out500=$(MOCK_API_FAIL=1 fetch_chapter_list "bocchi-the-rock" 2>"$WORK/err500.log")
 check "API lỗi -> fallback trang truyện (2 chapter)" "2" "$(printf '%s\n' "$out500" | grep -c '.')"
 has "API lỗi -> cảnh báo rõ lý do" "chỉ còn chapter đầu/cuối" "$(cat "$WORK/err500.log")"

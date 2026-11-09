@@ -106,7 +106,9 @@ MANGA_IMAGE_PROTOCOL="auto"                    # auto | symbols | kitty | sixel 
    (body `story_id=…&routeName=story.detail`, header `X-CSRF-TOKEN` lấy từ
    `<meta name="csrf-token">`, có cookie phiên). anisub gọi đúng API đó, tự tải lại trang khi
    gặp `HTTP 419` (phiên của web chỉ sống 60 giây), API lỗi thì mới fallback về 2 chapter và
-   cảnh báo rõ ra màn hình.
+   cảnh báo rõ ra màn hình. Nếu trang không còn `"story_id"`, anisub suy id từ URL ảnh bìa
+   (`/books/<id>/cover_*.jpg`); nếu slug trên URL khác slug trong link chapter thì tự dò slug
+   xuất hiện nhiều nhất trong danh sách để không lẫn chapter của truyện khác.
 3. **Ảnh trang đọc không hiện** — CDN ảnh (`*.imggo.net`) trả **403 với mọi request có
    `Referer`**, nên anisub tải ảnh **không kèm Referer** và kiểm tra magic bytes trước khi vẽ.
    Ngoài ra anisub không còn ép `sixel` cho mọi terminal: `MANGA_IMAGE_PROTOCOL=auto` tự nhận

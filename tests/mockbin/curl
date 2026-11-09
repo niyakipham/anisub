@@ -53,6 +53,7 @@ case "$eff" in
             body="${MOCK_FIXTURES}/manga-chapters-api.json"
         fi ;;
     *"/chapter-"*js*)       body="${MOCK_FIXTURES}/manga-chapter-js.html" ;;
+    *"no-story-id"*)        body="${MOCK_FIXTURES}/manga-detail-no-story-id.html" ;;
     *"/chapter-"*)           body="${MOCK_FIXTURES}/manga-chapter.html" ;;
     *"/truyen-tranh/"*)      body="${MOCK_FIXTURES}/manga-detail.html" ;;
     *"/tim-kiem"*|*"/the-loai/"*|*"/danh-sach"*) body="${MOCK_FIXTURES}/manga-home.html" ;;

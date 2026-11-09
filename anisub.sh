@@ -1700,6 +1700,10 @@ manga_chapter_list_html() {
     [ -n "$MANGA_STORY_COVER" ] && manga_cover_cache_put "${page_url##*/}" "$MANGA_STORY_COVER"
     local story_id token
     story_id=$(printf '%s' "$html" | manga_story_id)
+    # Không thấy "story_id" trong HTML thì suy từ ảnh bìa: imggo.net/books/<id>/cover_*.jpg
+    if [ -z "$story_id" ] && [ -n "$MANGA_STORY_COVER" ]; then
+        story_id=$(printf '%s' "$MANGA_STORY_COVER" | sed -n 's#.*/books/\([0-9][0-9]*\)/.*#\1#p')
+    fi
     token=$(printf '%s' "$html" | manga_csrf_token)
     if [ -n "$story_id" ]; then
         local body="story_id=$story_id&routeName=story.detail"
@@ -2242,20 +2246,50 @@ fetch_chapter_list() {
         echo "⚠️ Không tải được trang truyện ($slug) - HTTP $(anisub_last_http)" >&2
         return 1
     fi
-    local tmp
+    local tmp n=0
     tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-chaps.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-chaps.$$.tmp"
-    printf '%s' "$html" \
-        | MANGA_SLUG="$slug" MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
+    printf '%s' "$html" | manga_parse_chapters "$slug" > "$tmp"
+    # Slug trên URL có thể khác slug trong link chapter (web đổi tên truyện / mirror) ->
+    # thử lại không lọc theo slug trước khi bỏ cuộc.
+    if [ ! -s "$tmp" ]; then
+        printf '%s' "$html" | manga_parse_chapters "" > "$tmp"
+    fi
+    if [ -s "$tmp" ]; then
+        cat "$tmp"
+        n=$(grep -c '.' "$tmp")
+    fi
+    rm -f "$tmp"
+    [ "$n" -gt 0 ]
+}
+
+# HTML (stdin) -> "Tên|URL|slug-chap", sắp xếp theo số chương (9 < 9.5 < 10).
+# $1 = slug truyện; rỗng nghĩa là chấp nhận link chapter của mọi truyện.
+manga_parse_chapters() {
+    local slug="${1:-}"
+MANGA_SLUG="$slug" MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
             my $base = $ENV{MANGA_BASE_URL} // ""; $base =~ s{/$}{};
             my $slug = $ENV{MANGA_SLUG} // "";
-            my $q = quotemeta($slug);
+            my $q = length $slug ? quotemeta($slug) : "";
+            my $link_re;
+            if (length $q) {
+                $link_re = qr{truyen-tranh/$q/([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)/?$};
+            } else {
+                # Không biết slug: lấy slug xuất hiện nhiều nhất trong HTML (bỏ link
+                # "truyện khác" lẫn vào) rồi lọc theo slug đó.
+                my %sc; $sc{$1}++ while ($_ =~ m{truyen-tranh/([A-Za-z0-9_.\-]+)/[A-Za-z0-9_.\-]+}g);
+                my ($best) = sort { $sc{$b} <=> $sc{$a} } keys %sc;
+                $best = "" unless defined $best;
+                $link_re = length $best
+                    ? qr{truyen-tranh/\Q$best\E/([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)/?$}
+                    : qr{truyen-tranh/[A-Za-z0-9_.\-]+/([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)/?$};
+            }
             my (%seen, @out);
             while ($_ =~ /<a\b([^>]*)>(.*?)<\/a>/gs) {
                 my ($attrs, $inner) = ($1, $2);
                 my ($href) = $attrs =~ /href\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27|([^\s">]+))/;
                 $href = defined $href ? $href : "";
                 $href =~ s/&amp;/&/g;
-                next unless $href =~ m{truyen-tranh/$q/([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)/?$};
+                next unless $href =~ $link_re;
                 my $cslug = $1;
                 $cslug =~ s{/}{-}g;
                 next if $cslug =~ /^(danh-sach|tap-chi|-)$/;
@@ -2293,17 +2327,9 @@ fetch_chapter_list() {
                 $cslug =~ s/\|/-/g;
                 printf "%.6f|%s|%s|%s\n", (defined $num && $num ne "" ? $num : -1), $txt, $url, $cslug;
             }
-        ' \
+    ' \
         | sort -s -t'|' -k1,1g \
-        | awk -F'|' '{ sub(/^[^|]*\|/, "", $0); print }' \
-        > "$tmp"
-    local n=0
-    if [ -s "$tmp" ]; then
-        cat "$tmp"
-        n=$(grep -c '.' "$tmp")
-    fi
-    rm -f "$tmp"
-    [ "$n" -gt 0 ]
+        | awk -F'|' '{ sub(/^[^|]*\|/, "", $0); print }'
 }
 
 # --- FETCH CHAPTER IMAGES ---
