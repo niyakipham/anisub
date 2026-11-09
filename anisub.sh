@@ -50,11 +50,21 @@ LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 DEFAULT_MANGA_BASE_URL="https://truyenvn.my"
 DEFAULT_MANGA_SEARCH_FEEDS="latest,trending,views"   # danh sách dùng để lọc khi search
 DEFAULT_MANGA_SEARCH_PAGES=1                          # số trang tải cho mỗi danh sách
+# Giao thức vẽ ảnh trong fzf: auto | kitty | sixel | iterm | symbols
+#   auto    : tự đoán theo $TERM/$TERM_PROGRAM (an toàn, terminal lạ -> symbols)
+#   symbols : luôn vẽ bằng ký tự (hiện hình ở MỌI terminal, độ nét thấp)
+#   kitty/sixel/iterm: ảnh nét, chỉ dùng khi terminal thật sự hỗ trợ
+DEFAULT_MANGA_IMAGE_PROTOCOL="auto"
 MANGA_BASE_URL=""
 MANGA_SEARCH_FEEDS=""
 MANGA_SEARCH_PAGES=""
+MANGA_IMAGE_PROTOCOL=""
 MANGA_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 MANGA_HTTP_STATUS="000"
+MANGA_STORY_COVER=""      # ảnh bìa lấy được từ trang truyện gần nhất
+# API chặn nếu thiếu phiên: CSRF token chỉ đúng khi gửi kèm cookie của chính trang
+# vừa tải (laravel_session), nên mọi request tới web phải dùng chung 1 cookie jar.
+MANGA_COOKIE_JAR="${TMPDIR:-/tmp}/anisub-manga-cookies.$$"
 
 # --- DEFAULTS ---
 DEFAULT_PLAYER="mpv"
@@ -78,6 +88,7 @@ load_config() {
         echo "MANGA_BASE_URL=\"$DEFAULT_MANGA_BASE_URL\"" >> "$CONFIG_FILE"
         echo "MANGA_SEARCH_FEEDS=\"$DEFAULT_MANGA_SEARCH_FEEDS\"" >> "$CONFIG_FILE"
         echo "MANGA_SEARCH_PAGES=\"$DEFAULT_MANGA_SEARCH_PAGES\"" >> "$CONFIG_FILE"
+        echo "MANGA_IMAGE_PROTOCOL=\"$DEFAULT_MANGA_IMAGE_PROTOCOL\"" >> "$CONFIG_FILE"
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---" >> "$CONFIG_FILE"
         echo "KKPHIM_SITE_URL=\"$DEFAULT_KKPHIM_SITE_URL\"" >> "$CONFIG_FILE"
         echo "KKPHIM_API_URL=\"$DEFAULT_KKPHIM_API_URL\"" >> "$CONFIG_FILE"
@@ -94,6 +105,7 @@ load_config() {
     MANGA_BASE_URL=${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}
     MANGA_SEARCH_FEEDS=${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}
     MANGA_SEARCH_PAGES=${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}
+    MANGA_IMAGE_PROTOCOL=${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL}
     # Cấu hình nguồn phim KKPhim: config.cfg > giá trị mặc định
     KKPHIM_SITE_URL=${KKPHIM_SITE_URL:-$DEFAULT_KKPHIM_SITE_URL}
     KKPHIM_API_URL=${KKPHIM_API_URL:-$DEFAULT_KKPHIM_API_URL}
@@ -120,6 +132,7 @@ save_config() {
         echo "MANGA_BASE_URL=\"$MANGA_BASE_URL\""
         echo "MANGA_SEARCH_FEEDS=\"$MANGA_SEARCH_FEEDS\""
         echo "MANGA_SEARCH_PAGES=\"$MANGA_SEARCH_PAGES\""
+        echo "MANGA_IMAGE_PROTOCOL=\"$MANGA_IMAGE_PROTOCOL\""
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---"
         echo "KKPHIM_SITE_URL=\"$KKPHIM_SITE_URL\""
         echo "KKPHIM_API_URL=\"$KKPHIM_API_URL\""
@@ -1570,6 +1583,7 @@ manga_http_fetch() {
     tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-manga.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-manga.$$.tmp"
     status=$(curl -sS -G -L --compressed --max-time 25 --retry 2 --retry-delay 1 \
         -A "$MANGA_USER_AGENT" \
+        -c "$MANGA_COOKIE_JAR" -b "$MANGA_COOKIE_JAR" \
         -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
         -H "accept-language: vi,en;q=0.8" \
         -e "${base%/}/" \
@@ -1588,6 +1602,167 @@ manga_http_fetch() {
     esac
     rm -f "$tmp"
     return 1
+}
+
+# Gọi API POST (form-urlencoded) của TruyenVN, dùng cho /webapi/stories/list-chapter.
+# $1 = path/URL, $2 = body, $3 = CSRF token, $4 = Referer (đúng là trang truyện)
+# In body ra stdout; mã HTTP lưu ở MANGA_HTTP_STATUS; lỗi -> return 1.
+manga_http_post() {
+    local target="$1"
+    local body="$2"
+    local token="${3:-}"
+    local referer="${4:-}"
+    [ -z "$target" ] && return 1
+    target=$(manga_abs_url "$target")
+    local -a opts=()
+    [ -n "$token" ]   && opts+=(-H "X-CSRF-TOKEN: $token")
+    [ -n "$referer" ] && opts+=(-e "$referer")
+    local tmp status
+    tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-manga-api.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-manga-api.$$.tmp"
+    status=$(curl -sS -L --compressed --max-time 25 --retry 1 --retry-delay 1 \
+        -A "$MANGA_USER_AGENT" \
+        -c "$MANGA_COOKIE_JAR" -b "$MANGA_COOKIE_JAR" \
+        -H "accept: application/json, text/javascript, */*; q=0.01" \
+        -H "accept-language: vi,en;q=0.8" \
+        -H "X-Requested-With: XMLHttpRequest" \
+        -H "content-type: application/x-www-form-urlencoded; charset=UTF-8" \
+        "${opts[@]}" \
+        --data "$body" \
+        -o "$tmp" -w '%{http_code}' \
+        "$target" 2>/dev/null)
+    MANGA_HTTP_STATUS="${status:-000}"
+    printf '%s' "$MANGA_HTTP_STATUS" > "$ANISUB_STATUS_FILE" 2>/dev/null || true
+    case "$MANGA_HTTP_STATUS" in
+        2??)
+            if [ -s "$tmp" ]; then
+                cat "$tmp"; rm -f "$tmp"
+                return 0
+            fi
+            ;;
+    esac
+    rm -f "$tmp"
+    return 1
+}
+
+# story_id nhúng trong trang truyện (`"story_id": 12189`) - API bắt buộc cần id này
+manga_story_id() {
+    perl -0777 -ne '
+        print $1 and exit if /"story_id"\s*:\s*"?([0-9]+)/;
+        print $1 and exit if /\bstory_id\s*=\s*["\x27]?([0-9]+)/;
+    ' 2>/dev/null
+}
+
+# CSRF token trong <meta name="csrf-token" content="..."> (thiếu -> API trả HTTP 419)
+manga_csrf_token() {
+    perl -0777 -ne '
+        while (/<meta\b[^>]*>/gi) {
+            my $t = $&;
+            next unless $t =~ /name\s*=\s*["\x27]csrf-token["\x27]/i;
+            print $1 and exit if $t =~ /content\s*=\s*["\x27]([^"\x27]+)/i;
+        }
+        print $1 and exit if /"csrf[-_]?token"\s*:\s*"([^"]+)"/i;
+        print $1 and exit if /name\s*=\s*["\x27]_token["\x27][^>]*content\s*=\s*["\x27]([^"\x27]+)/i;
+    ' 2>/dev/null
+}
+
+# Rút "data":{"html":"..."} từ JSON của API rồi giải escape (\", \/, \n, \uXXXX)
+manga_json_html() {
+    perl -CS -Mutf8 -0777 -ne '
+        my $j = $_;
+        if ($j =~ /"html"\s*:\s*"((?:[^"\\]|\\.)*)"/s) {
+            my $h = $1;
+            $h =~ s/\\u([0-9a-fA-F]{4})/chr(hex($1))/ge;
+            $h =~ s/\\n/\n/g;
+            $h =~ s/\\r//g;
+            $h =~ s/\\t/ /g;
+            $h =~ s/\\\//\//g;
+            $h =~ s/\\"/"/g;
+            $h =~ s/\\\\/\\/g;
+            print $h;
+        }
+    ' 2>/dev/null
+}
+
+# Trang truyện KHÔNG render danh sách chapter: HTML chỉ có 2 link "Đọc từ đầu"
+# (chapter-0) và "Chap mới nhất" (chapter cuối). Danh sách thật do JS của web lấy từ
+#   POST /webapi/stories/list-chapter   body: story_id=<id>&routeName=story.detail
+#   header: X-CSRF-TOKEN + X-Requested-With + Referer  ->  {"data":{"html":"..."}}
+# Hàm này in HTML đầy đủ để fetch_chapter_list parse; API lỗi thì fallback về trang
+# truyện (chỉ còn chapter đầu/cuối) và nói rõ lý do ra stderr.
+# Cửa sổ phiên của web chỉ 60 giây nên gặp HTTP 419 thì tải lại trang lấy token mới.
+manga_chapter_list_html() {
+    local page_url="$1"
+    local html
+    if ! html=$(manga_http_fetch "$page_url"); then
+        return 1
+    fi
+    MANGA_STORY_COVER=$(printf '%s' "$html" | manga_page_cover)
+    [ -n "$MANGA_STORY_COVER" ] && manga_cover_cache_put "${page_url##*/}" "$MANGA_STORY_COVER"
+    local story_id token
+    story_id=$(printf '%s' "$html" | manga_story_id)
+    token=$(printf '%s' "$html" | manga_csrf_token)
+    if [ -n "$story_id" ]; then
+        local body="story_id=$story_id&routeName=story.detail"
+        local attempt=1 resp frag
+        while [ "$attempt" -le 2 ]; do
+            if resp=$(manga_http_post "/webapi/stories/list-chapter" "$body" "$token" "$page_url"); then
+                frag=$(printf '%s' "$resp" | manga_json_html)
+                if [ -n "$frag" ]; then
+                    printf '%s' "$frag"
+                    return 0
+                fi
+            fi
+            if [ "$(anisub_last_http)" != "419" ]; then
+                break
+            fi
+            # Hết phiên 60s -> tải lại trang để lấy CSRF token mới rồi thử lại
+            html=$(manga_http_fetch "$page_url") || break
+            token=$(printf '%s' "$html" | manga_csrf_token)
+            [ -z "$token" ] && break
+            attempt=$((attempt + 1))
+        done
+        echo "⚠️ Không lấy được danh sách chapter đầy đủ từ API (HTTP $(anisub_last_http)) - chỉ còn chapter đầu/cuối" >&2
+    else
+        echo "⚠️ Không tìm thấy story_id/CSRF trong trang truyện - danh sách chapter có thể thiếu" >&2
+    fi
+    printf '%s' "$html"
+    return 0
+}
+
+# Nhớ ảnh bìa theo slug (ghi ra file vì fetch_chapter_list chạy trong subshell $(...))
+manga_cover_cache_put() {
+    local slug="${1:-}" cover="${2:-}"
+    [ -z "$slug" ] || [ -z "$cover" ] && return 0
+    mkdir -p "$CACHE_DIR" 2>/dev/null
+    local tmp="${CACHE_DIR}/manga-covers.txt"
+    { grep -v "^${slug}|" "$tmp" 2>/dev/null; printf '%s|%s\n' "$slug" "$cover"; } > "${tmp}.new" 2>/dev/null &&
+        mv "${tmp}.new" "$tmp" 2>/dev/null
+    return 0
+}
+
+manga_cover_cache_get() {
+    local slug="${1:-}"
+    [ -z "$slug" ] && return 0
+    sed -n "s/^${slug}|//p" "${CACHE_DIR}/manga-covers.txt" 2>/dev/null | tail -1
+}
+
+# Ảnh bìa của truyện, lấy từ og:image (hoặc <img> bìa đầu tiên) trong trang truyện
+manga_page_cover() {
+    MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
+        my $base = $ENV{MANGA_BASE_URL} // ""; $base =~ s{/$}{};
+        my $u = "";
+        if (/(?:og:image|twitter:image)["\x27]?\s*(?:property|name)?[^>]*content\s*=\s*["\x27]([^"\x27]+)/i) {
+            $u = $1;
+        } elsif (/<img\b[^>]*\b(?:class|src)\s*=\s*["\x27][^"\x27]*(?:cover|summary_image|book)[^"\x27]*["\x27][^>]*>/i) {
+            my $tag = $&;
+            ($u) = $tag =~ /(?:data-(?:lazy-)?src|src)\s*=\s*["\x27]([^"\x27]+)/i;
+        }
+        $u = "" unless defined $u;
+        $u =~ s/&amp;/&/g; $u =~ s/^\s+|\s+$//g;
+        $u = "https:$u" if $u =~ m{^//};
+        $u = "$base$u" if $u =~ m{^/};
+        print $u;
+    ' 2>/dev/null
 }
 
 # URL trang truyện từ slug (hoặc trả nguyên URL nếu đã là URL tuyệt đối)
@@ -1648,6 +1823,161 @@ manga_match_items() {
         for my $n (@need) { $all = 0 if index($hay, $n) < 0 }
         print "$_\n" if $all;
     '
+}
+
+# ═══ ẢNH: tải & vẽ trong terminal ═══════════════════════════════════════════
+# Lưu ý quan trọng: CDN ảnh của TruyenVN (imggo.net) trả 403 với MỌI request có
+# header Referer (web của họ cũng dùng <img referrerpolicy="no-referrer">). Vì vậy
+# khi tải ảnh bìa / ảnh trang truyện TUYỆT ĐỐI không gửi Referer.
+MANGA_COVER_CACHE="${CACHE_DIR}/manga-covers"
+
+# Giao thức vẽ ảnh cho chafa: kitty | sixel | iterm | symbols
+# auto: chỉ chọn kitty/sixel/iterm khi terminal chắc chắn hỗ trợ, còn lại dùng
+# symbols (vẽ bằng ký tự) để ảnh LUÔN hiện - trước đây ép sixels nên terminal
+# không hỗ trợ thì không thấy gì cả.
+manga_image_protocol() {
+    local want="${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL}"
+    case "$want" in
+        kitty|sixel|iterm|symbols) printf '%s' "$want"; return 0 ;;
+    esac
+    case "${TERM:-}" in
+        *kitty*) printf 'kitty'; return 0 ;;
+        *sixel*) printf 'sixel'; return 0 ;;
+        foot*|xterm-foot*) printf 'sixel'; return 0 ;;
+    esac
+    case "${TERM_PROGRAM:-}" in
+        iTerm.app|WezTerm|mintty|contour|mlterm|ghostty) printf 'iterm'; return 0 ;;
+        Apple_Terminal) printf 'symbols'; return 0 ;;
+    esac
+    [ -n "${KITTY_WINDOW_ID:-}" ] && { printf 'kitty'; return 0; }
+    [ -n "${WEZTERM_PANE:-}" ]    && { printf 'iterm'; return 0; }
+    [ "${LC_TERMINAL:-}" = "iTerm2" ] && { printf 'iterm'; return 0; }
+    printf 'symbols'
+}
+
+# Tham số chafa cho từng giao thức (dùng chung cho preview fzf & script sinh ra)
+manga_chafa_args() {
+    case "$(manga_image_protocol)" in
+        kitty)   printf '%s' '-f kitty' ;;
+        sixel)   printf '%s' '-f sixels' ;;
+        iterm)   printf '%s' '-f iterm' ;;
+        *)       printf '%s' '-f symbols --symbols=block --colors=256' ;;
+    esac
+}
+
+# 1 nếu file là ảnh thật (đọc magic bytes) - tránh trường hợp CDN trả trang HTML
+# lỗi (403) mà vẫn lưu thành .jpg rồi chafa không vẽ được gì.
+manga_file_is_image() {
+    local f="${1:-}"
+    [ -s "$f" ] || { printf '0'; return 1; }
+    local magic
+    magic=$(head -c 16 "$f" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')
+    if [ -n "$magic" ]; then
+        case "$magic" in
+            ffd8ff*|89504e47*|47494638*|52494646*|424d*|*66747970*)
+                printf '1'; return 0 ;;
+        esac
+        if command -v file >/dev/null 2>&1; then
+            case "$(file -b "$f" 2>/dev/null)" in
+                *image*|*JPEG*|*PNG*|*Web/P*|*GIF*) printf '1'; return 0 ;;
+            esac
+        fi
+        printf '0'; return 1     # đọc được magic mà không khớp ảnh -> không phải ảnh
+    fi
+    if command -v file >/dev/null 2>&1; then
+        case "$(file -b "$f" 2>/dev/null)" in
+            *image*|*JPEG*|*PNG*|*Web/P*|*GIF*) printf '1'; return 0 ;;
+            *) printf '0'; return 1 ;;
+        esac
+    fi
+    # Máy thiếu cả `od` lẫn `file` thì đừng chặn oan (curl -f đã lo phần HTTP lỗi)
+    printf '1'; return 0
+}
+
+# Tải 1 ảnh (KHÔNG Referer) -> $2. return 0 nếu file tải về đúng là ảnh.
+manga_download_image() {
+    local url="${1:-}" dest="${2:-}"
+    [ -z "$url" ] || [ -z "$dest" ] && return 1
+    local tmp="${dest}.part"
+    rm -f "$tmp" 2>/dev/null
+    curl -fsSL --compressed --max-time 30 --retry 2 --retry-delay 1 \
+        -A "$MANGA_USER_AGENT" \
+        -o "$tmp" "$url" >/dev/null 2>&1
+    if [ "$(manga_file_is_image "$tmp")" = "1" ]; then
+        mv "$tmp" "$dest" 2>/dev/null && return 0
+    fi
+    rm -f "$tmp" 2>/dev/null
+    return 1
+}
+
+# Sinh (1 lần) script preview ảnh bìa cho fzf, in ra đường dẫn script.
+# Dùng: fzf --preview "$(manga_cover_preview_script) {}"
+# Script nhận dòng "Tên|URL|slug|ảnh-bìa" (hoặc --info-file để chỉ preview 1 bìa).
+manga_cover_preview_script() {
+    local script="${CACHE_DIR}/manga-cover-preview.sh"
+    local chafa_args
+    chafa_args=$(manga_chafa_args)
+    mkdir -p "$MANGA_COVER_CACHE" 2>/dev/null
+    cat > "$script" <<EOF
+#!/bin/bash
+# (anisub tự sinh - đừng sửa tay) preview ảnh bìa truyện tranh trong fzf
+info_file=""
+args=()
+for a in "\$@"; do
+    case "\$a" in
+        --info-file) info_pending=1 ;;
+        *) if [ -n "\${info_pending:-}" ]; then info_file="\$a"; info_pending=""; else args+=("\$a"); fi ;;
+    esac
+done
+line="\${args[0]:-}"
+if [ -n "\$info_file" ] && [ -s "\$info_file" ]; then
+    name=\$(cut -d'|' -f1 "\$info_file")
+    cover=\$(cut -d'|' -f2 "\$info_file")
+else
+    name=\$(printf '%s' "\$line" | awk -F'|' '{print \$1}')
+    cover=\$(printf '%s' "\$line" | awk -F'|' '{print \$4}')
+fi
+cache="$MANGA_COVER_CACHE"
+mkdir -p "\$cache" 2>/dev/null
+if [ -z "\$cover" ]; then
+    printf '\n  🖼️  Mục này không có ảnh bìa\n\n  %s\n' "\$name"
+    exit 0
+fi
+key=\$(printf '%s' "\$cover" | cksum | cut -d' ' -f1)
+file="\$cache/\$key.img"
+if [ ! -s "\$file" ]; then
+    # không gửi Referer: CDN ảnh trả 403 nếu có Referer
+    curl -fsSL --compressed --max-time 20 -A "$MANGA_USER_AGENT" -o "\$file.part" "\$cover" >/dev/null 2>&1
+    if [ -s "\$file.part" ]; then mv "\$file.part" "\$file"; else rm -f "\$file.part"; fi
+fi
+printf '\n  📖 %s\n\n' "\$name"
+if [ ! -s "\$file" ]; then
+    printf '  ❌ Không tải được ảnh bìa\n  %s\n' "\$cover"
+    exit 0
+fi
+if command -v chafa >/dev/null 2>&1; then
+    cols=\$(( \${FZF_PREVIEW_COLUMNS:-60} - 2 ))
+    lines=\$(( \${FZF_PREVIEW_LINES:-30} - 5 ))
+    [ "\$cols" -lt 10 ] && cols=10
+    [ "\$lines" -lt 6 ] && lines=6
+    chafa $chafa_args --size="\${cols}x\${lines}" --animate=off "\$file" 2>/dev/null
+else
+    printf '  (chưa cài chafa nên không vẽ được ảnh)\n  %s\n' "\$cover"
+fi
+EOF
+    chmod +x "$script" 2>/dev/null
+    printf '%s' "$script"
+}
+
+# Ghi thông tin truyện ra file tạm để script preview đọc (tránh lỗi quote tên truyện)
+# $1 = tên, $2 = ảnh bìa -> in ra đường dẫn file
+manga_preview_info_file() {
+    local name="${1:-}" cover="${2:-}"
+    mkdir -p "$CACHE_DIR" 2>/dev/null
+    local file="${CACHE_DIR}/manga-preview-info.txt"
+    : > "$file"
+    printf '%s|%s\n' "$name" "$cover" > "$file"
+    printf '%s' "$file"
 }
 
 # --- MANGA HISTORY ---
@@ -1762,7 +2092,7 @@ manga_parse_items() {
         }
         my $base = $ENV{MANGA_BASE_URL} // "";
         $base =~ s{/$}{};
-        my (%score, %name, @order);
+        my (%score, %name, %cover, @order);
         while ($_ =~ /<a\b([^>]*)>(.*?)<\/a>/gs) {
             my ($attrs, $inner) = ($1, $2);
             my ($href) = $attrs =~ /href\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27|([^\s">]+))/;
@@ -1787,12 +2117,31 @@ manga_parse_items() {
                 if (length($alt) >= 2) { $nm = $alt; $sc = 2; }
             }
             if (!length $nm) { $nm = prettify($slug); $sc = 1; }
+            # ảnh bìa: <img> nằm ngay trong thẻ <a> (class của web hay đổi nên đọc
+            # mọi thuộc tính ảnh: data-src/data-original > src)
+            my $cv = "";
+            if ($inner =~ /<img\b([^>]*)>/i) {
+                my $ia = $1;
+                if ($ia =~ /data-(?:lazy-)?(?:src|original|echo)\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27)/i) {
+                    $cv = defined $1 ? $1 : $2;
+                } elsif ($ia =~ /\ssrc\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27)/i) {
+                    $cv = defined $1 ? $1 : $2;
+                }
+                $cv = "" unless defined $cv;
+                $cv =~ s/&amp;/&/g;
+                $cv =~ s/^\s+|\s+$//g;
+                $cv = "" if $cv =~ m{^data:}i;
+                $cv = "https:$cv" if $cv =~ m{^//};
+                $cv = "$base$cv" if $cv =~ m{^/};
+            }
             if (!exists $name{$slug}) { push @order, $slug; $name{$slug} = $nm; $score{$slug} = $sc; }
             elsif ($score{$slug} < $sc) { $name{$slug} = $nm; $score{$slug} = $sc; }
+            $cover{$slug} = $cv if length $cv && !length($cover{$slug} // "");
         }
         for my $slug (@order) {
             my $u = "$base/truyen-tranh/$slug";
-            print "$name{$slug}|$u|$slug\n";
+            my $cv = $cover{$slug} // "";
+            print "$name{$slug}|$u|$slug|$cv\n";
         }
     '
 }
@@ -1830,7 +2179,7 @@ manga_search_items() {
 
     for p in $(seq 1 "$pages"); do
         tries=$((tries + 1))
-        if html=$(manga_http_fetch "/tim-kiem" "q=$kw" "page=$p"); then
+        if html=$(manga_http_fetch "/tim-kiem" "search=$kw" "page=$p"); then
             ok=$((ok + 1))
             found=$(printf '%s' "$html" | manga_parse_items | manga_match_items "$kw")
             if [ -n "$found" ]; then
@@ -1887,7 +2236,9 @@ fetch_chapter_list() {
     fi
     local slug="${page_url##*/}"
     local html=""
-    if ! html=$(manga_http_fetch "$page_url"); then
+    # Trang truyện chỉ có 2 link chapter -> phải lấy danh sách thật qua API web
+    # (/webapi/stories/list-chapter); API lỗi thì vẫn dùng trang truyện làm fallback.
+    if ! html=$(manga_chapter_list_html "$page_url"); then
         echo "⚠️ Không tải được trang truyện ($slug) - HTTP $(anisub_last_http)" >&2
         return 1
     fi
@@ -2010,194 +2361,175 @@ fetch_chapter_images() {
 }
 
 # --- PREFETCH IMAGES ---
+# Tải song song các trang của chapter vào cache. KHÔNG gửi Referer: CDN ảnh của
+# TruyenVN (imggo.net) trả 403 với mọi request có Referer -> đây chính là lý do
+# trước đây mở chapter mà không thấy ảnh nào.
 prefetch_chapter_images() {
     local cache_dir="$1"
     shift
-    local images=("$@")
-    
+    local -a images=("$@")
+    local total=${#images[@]}
+    [ "$total" -eq 0 ] && return 0
     mkdir -p "$cache_dir"
-    
-    # Download in parallel (background jobs)
-    local max_jobs=5
-    local job_count=0
-    
-    local idx=0
-    for url in "${images[@]}"; do
-        local filename=$(printf "%03d.jpg" $((idx + 1))) # 001.jpg, 002.jpg...
-        local filepath="$cache_dir/$filename"
-        
-        # Skip if exists
-        if [ ! -f "$filepath" ]; then
-            (
-                curl -sL "$url" \
-                     -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
-                     -H "Referer: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}/" \
-                     -o "$filepath.tmp" && mv "$filepath.tmp" "$filepath"
-            ) &
-            
-            ((job_count++))
-            if [ $job_count -ge $max_jobs ]; then
-                wait -n
-                ((job_count--))
-            fi
+
+    local max_jobs=5 job_count=0 idx filepath
+    for ((idx = 0; idx < total; idx++)); do
+        filepath=$(printf '%s/%03d.img' "$cache_dir" $((idx + 1)))
+        [ -s "$filepath" ] && continue
+        ( manga_download_image "${images[$idx]}" "$filepath" ) &
+        job_count=$((job_count + 1))
+        if [ "$job_count" -ge "$max_jobs" ]; then
+            wait -n 2>/dev/null || wait
+            job_count=$((job_count - 1))
         fi
-        ((idx++))
     done
-    wait # Wait for all remaining jobs
+    wait 2>/dev/null
+    return 0
 }
 
-# --- DISPLAY FULL CHAPTER (FZF "Smart Mode") ---
-# --- DISPLAY FULL CHAPTER (FZF "Smart Mode" + Fallback) ---
+# --- DISPLAY FULL CHAPTER (fzf + preview ảnh) --------------------------------
+# Giao thức vẽ ảnh do manga_image_protocol quyết định (kitty/sixel/iterm/symbols)
+# nên ảnh luôn hiện, không còn cảnh "ép sixels" rồi terminal không vẽ được gì.
 display_full_chapter() {
     local manga_name="$1"
     local chapter_name="$2"
     shift 2
-    local images=("$@")
+    local -a images=("$@")
     local total_pages=${#images[@]}
-    
-    # Cache Directory Setup
-    local session_id=$(date +%s)
-    local cache_dir="/tmp/anisub_cache_$session_id"
-    mkdir -p "$cache_dir"
-    
-    # 1. Create URL Map for Fallback (lines 1..N)
+    [ "$total_pages" -eq 0 ] && return 1
+
+    local cache_dir
+    cache_dir=$(mktemp -d "${TMPDIR:-/tmp}/anisub_manga_ch.XXXXXX" 2>/dev/null) \
+        || cache_dir="${TMPDIR:-/tmp}/anisub_manga_ch.$$"
+    mkdir -p "$cache_dir" 2>/dev/null
+
+    # Danh sách URL (1 dòng / trang) để script preview tự tải khi cần
     local url_file="$cache_dir/urls.txt"
-    printf "%s\n" "${images[@]}" > "$url_file"
-    
-    # 2. Create Open Helper
+    printf '%s\n' "${images[@]}" > "$url_file"
+
+    local chafa_args scale="$MANGA_IMAGE_SCALE"
+    chafa_args=$(manga_chafa_args)
+    [[ "$scale" =~ ^[0-9]+$ ]] || scale="$DEFAULT_MANGA_IMAGE_SCALE"
+
+    # 1. Script mở ảnh bằng ứng dụng ngoài (Enter)
     cat <<EOF > "$cache_dir/open.sh"
 #!/bin/bash
-current_line="\$1"
-page_num=\$(echo "\$current_line" | awk '{print \$2}' | cut -d'/' -f1)
-target_file="$cache_dir/\${page_num}.jpg"
-# Try downloading if missing (using curl line from url file)
-if [ ! -f "\$target_file" ]; then
-    idx=\$(echo "\$page_num" | sed 's/^0*//')
-    url=\$(sed -n "\${idx}p" "$url_file")
-    curl -sL "\$url" \
-         -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36" \
-         -H "Referer: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}/" \
-         -o "\$target_file.tmp" && mv "\$target_file.tmp" "\$target_file"
+# (anisub tự sinh) tải 1 trang rồi mở bằng ứng dụng xem ảnh của hệ thống
+line="\$1"
+page_num=\$(printf '%s' "\$line" | awk '{print \$2}' | cut -d'/' -f1)
+[ -z "\$page_num" ] && exit 0
+target_file="$cache_dir/\${page_num}.img"
+url_file="$url_file"
+if [ ! -s "\$target_file" ]; then
+    idx=\$(printf '%s' "\$page_num" | sed 's/^0*//'); [ -z "\$idx" ] && idx=1
+    url=\$(sed -n "\${idx}p" "\$url_file")
+    if [ -n "\$url" ]; then
+        curl -fsSL --compressed --max-time 30 -A "$MANGA_USER_AGENT" -o "\$target_file.part" "\$url" >/dev/null 2>&1 &&
+            mv "\$target_file.part" "\$target_file" 2>/dev/null
+        rm -f "\$target_file.part" 2>/dev/null
+    fi
 fi
-if [ -f "\$target_file" ]; then
+if [ ! -s "\$target_file" ]; then
+    echo "❌ Không tải được trang \${page_num} (mạng/CDN chặn)"
+    sleep 1.5
+    exit 0
+fi
+if command -v xdg-open >/dev/null 2>&1; then
     xdg-open "\$target_file" >/dev/null 2>&1 &
+elif command -v open >/dev/null 2>&1; then
+    open "\$target_file" >/dev/null 2>&1 &
+else
+    echo "📁 Ảnh đã lưu: \$target_file"
+    sleep 2
 fi
 EOF
-    chmod +x "$cache_dir/open.sh"
+    chmod +x "$cache_dir/open.sh" 2>/dev/null
 
-    # Create Preview Script Helper
+    # 2. Script preview trong fzf
     cat <<EOF > "$cache_dir/preview.sh"
 #!/bin/bash
-current_line="\$1"
-page_num=\$(echo "\$current_line" | awk '{print \$2}' | cut -d'/' -f1)
-target_file="$cache_dir/\${page_num}.jpg"
+# (anisub tự sinh) xem trước 1 trang truyện trong fzf
+line="\$1"
+page_num=\$(printf '%s' "\$line" | awk '{print \$2}' | cut -d'/' -f1)
+[ -z "\$page_num" ] && exit 0
+target_file="$cache_dir/\${page_num}.img"
+url_file="$url_file"
 
-# DEBOUNCE
-sleep 0.15
+sleep 0.08
 
-# [ CLEANUP ] Force clear previous graphics (Crucial for Kitty)
-if [[ "\$TERM" == "xterm-kitty" ]]; then
-    printf '\x1b_Ga=d,d=A\x1b\\'
-fi
-
-# [ FALLBACK ] Check Cache or Download
+# Lấy từ cache, thiếu thì tải ngay (KHÔNG gửi Referer - CDN trả 403 nếu có)
 if [ ! -s "\$target_file" ]; then
-    idx=\$(echo "\$page_num" | sed 's/^0*//'); [ -z "\$idx" ] && idx=0 
-    url=\$(sed -n "\${idx}p" "$url_file")
-    
+    idx=\$(printf '%s' "\$page_num" | sed 's/^0*//'); [ -z "\$idx" ] && idx=1
+    url=\$(sed -n "\${idx}p" "\$url_file")
     if [ -n "\$url" ]; then
-        # Try download silently
-        curl -fsL "\$url" -H "Referer: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}/" -H "User-Agent: $MANGA_USER_AGENT" -o "\$target_file.tmp" >/dev/null 2>&1
-        
-        if [ -s "\$target_file.tmp" ]; then
-            mv "\$target_file.tmp" "\$target_file" >/dev/null 2>&1
-        else
-            rm -f "\$target_file.tmp" >/dev/null 2>&1
-        fi
+        curl -fsSL --compressed --max-time 30 -A "$MANGA_USER_AGENT" -o "\$target_file.part" "\$url" >/dev/null 2>&1
+        if [ -s "\$target_file.part" ]; then mv "\$target_file.part" "\$target_file"; else rm -f "\$target_file.part"; fi
     fi
 fi
 
 if [ ! -s "\$target_file" ]; then
-    echo "❌ Tải lỗi. (Mạng kém?)"
-    exit 1
+    echo "❌ Không tải được trang \${page_num}"
+    echo "   (kiểm tra mạng, hoặc ảnh đã bị xoá khỏi CDN)"
+    exit 0
 fi
 
-# [ INFO ]
-fsize=\$(du -h "\$target_file" | cut -f1)
-
-# [ DIMENSION CHECK ]
-width=0
-height=0
-
-if command -v identify &>/dev/null; then
+width=0; height=0
+if command -v identify >/dev/null 2>&1; then
     dims=\$(identify -format "%w %h" "\$target_file" 2>/dev/null)
-    width=\$(echo "\$dims" | awk '{print \$1}')
-    height=\$(echo "\$dims" | awk '{print \$2}')
-elif command -v file &>/dev/null; then
-    res=\$(file "\$target_file")
-    if [[ \$res =~ ([0-9]+)x([0-9]+) ]]; then
-        width=\${BASH_REMATCH[1]}
-        height=\${BASH_REMATCH[2]}
-    fi
+    width=\$(printf '%s' "\$dims" | awk '{print \$1}')
+    height=\$(printf '%s' "\$dims" | awk '{print \$2}')
+elif command -v file >/dev/null 2>&1; then
+    res=\$(file -b "\$target_file" 2>/dev/null)
+    dims=\$(printf '%s' "\$res" | sed -n 's/.* \([0-9][0-9]*\) *x *\([0-9][0-9]*\).*/\1 \2/p')
+    width=\$(printf '%s' "\$dims" | awk '{print \$1}')
+    height=\$(printf '%s' "\$dims" | awk '{print \$2}')
 fi
+[[ "\$width" =~ ^[0-9]+$ ]] || width=0
+[[ "\$height" =~ ^[0-9]+$ ]] || height=0
 
-if [ -z "\$width" ] || [ "\$width" -eq 0 ]; then width=1; height=1; fi
-ratio=\$((height / width))
+cols=\$(( (FZF_PREVIEW_COLUMNS - 2) * $scale / 100 ))
+lines=\$(( (FZF_PREVIEW_LINES - 3) * $scale / 100 ))
+[ "\$cols" -lt 10 ] && cols=10
+[ "\$lines" -lt 6 ] && lines=6
+[ "\$cols" -gt \$((FZF_PREVIEW_COLUMNS - 1)) ] && cols=\$((FZF_PREVIEW_COLUMNS - 1))
+[ "\$lines" -gt \$((FZF_PREVIEW_LINES - 1)) ] && lines=\$((FZF_PREVIEW_LINES - 1))
 
-echo "📁 \${page_num} [\$fsize]"
-
-# [ RENDER ] Logic
-# 1. Webtoon Strip (Ratio >= 3) -> Text Mode for Scrolling
-if [ \$ratio -ge 3 ]; then
-     safe_cols=\$((FZF_PREVIEW_COLUMNS - 4))
-     if [ \$safe_cols -lt 10 ]; then safe_cols=10; fi
-     chafa -f symbols --symbols=all --size="\${safe_cols}x" --animate=off "\$target_file"
-
-# 2. Normal Page -> Graphic Mode (Kitty/Sixel)
+if command -v chafa >/dev/null 2>&1; then
+    chafa $chafa_args --size="\${cols}x\${lines}" --animate=off "\$target_file" 2>/dev/null
 else
-    safe_cols=\$((FZF_PREVIEW_COLUMNS - 4))
-    safe_lines=\$((FZF_PREVIEW_LINES - 3))
-    if [ \$safe_cols -lt 10 ]; then safe_cols=10; fi
-
-    if [[ "\$TERM" == "xterm-kitty" ]]; then
-        # Force Kitty Protocol
-        chafa -f kitty --size="\${safe_cols}x\${safe_lines}" --animate=off "\$target_file"
-    else
-        # Force Sixel Protocol (Assuming terminal supports it if not Kitty)
-        # We REMOVE the fallback to symbols to force HD or nothing.
-        # If chafa fails (exit code), FZF will just show nothing or error, better than blurry symbols.
-        chafa -f sixels --size="\${safe_cols}x\${safe_lines}" --animate=off "\$target_file"
-    fi
+    echo "⚠️ Chưa cài chafa nên không vẽ được ảnh."
+    echo "   Cài: sudo apt install chafa   (hoặc dùng Enter để mở ảnh ngoài)"
 fi
+echo
+echo "📄 Trang \${page_num} / $total_pages · \${width}x\${height}"
 EOF
-    chmod +x "$cache_dir/preview.sh"
+    chmod +x "$cache_dir/preview.sh" 2>/dev/null
 
-    # Start Prefetching in Background
+    # 3. Tải trước vài trang đầu để preview hiện ngay
     prefetch_chapter_images "$cache_dir" "${images[@]}" >/dev/null 2>&1 &
     local prefetch_pid=$!
-    
-    # Cleanup Trap (ensure cache is deleted on exit)
     trap "rm -rf '$cache_dir'; kill $prefetch_pid 2>/dev/null" EXIT
-    
-    # Prepare Input list for FZF
-    list_input=""
-    for ((i=1; i<=total_pages; i++)); do
-        p_str=$(printf "%03d" $i)
+
+    # 4. Danh sách trang cho fzf
+    local list_input="" i p_str
+    for ((i = 1; i <= total_pages; i++)); do
+        p_str=$(printf "%03d" "$i")
         list_input+="Trang ${p_str}/${total_pages}"$'\n'
     done
-    
-    # FZF Execution
-    echo -n "$list_input" | fzf \
+
+    printf '%s' "$list_input" | fzf \
         --layout=reverse \
         --ansi \
-        --header="📖 $manga_name - $chapter_name" \
-        --prompt="Xem ảnh HD | Enter: Mở ngoài > " \
+        --header="📖 $manga_name - $chapter_name · $total_pages trang" \
+        --prompt="Xem ảnh · Enter: mở ngoài · Esc: quay lại > " \
         --preview "$cache_dir/preview.sh {}" \
-        --preview-window="right:75%" \
+        --preview-window="right:70%" \
         --bind "enter:execute-silent($cache_dir/open.sh {})" \
-        --bind "ctrl-c:abort"
-        
-    # Clean up at end of chapter
+        --bind "ctrl-c:abort" \
+        --bind "esc:abort"
+
+    # 5. Dọn cache
+    kill "$prefetch_pid" 2>/dev/null
     rm -rf "$cache_dir"
 }
 
@@ -2240,6 +2572,8 @@ read_manga_chapter() {
         display_full_chapter "$manga_name" "$chapter_name" "${images[@]}"
         
         # Input Loop to prevent re-rendering on invalid key
+        echo ""
+        echo "⌨️  n: chap sau · p: chap trước · c: chọn chap khác · r: tải lại · f: ⭐ yêu thích · q: thoát"
         while true; do
             read -rsn1 key < /dev/tty
             case "$key" in
@@ -2370,10 +2704,20 @@ manga_read_manga() {
             sleep 1.5
         fi
     fi
+    # Preview ảnh bìa + thông tin truyện khi chọn chapter (MANGA_STORY_COVER do
+    # fetch_chapter_list lấy được từ og:image của trang truyện)
+    local -a preview_opts=()
+    if [ -n "$name" ]; then
+        local info_file cover
+        cover=$(manga_cover_cache_get "$slug")
+        [ -z "$cover" ] && cover="${MANGA_STORY_COVER:-}"
+        info_file=$(manga_preview_info_file "$name" "$cover")
+        preview_opts=(--preview "'$(manga_cover_preview_script)' --info-file '$info_file' {}" --preview-window='right:40%')
+    fi
     if [ -z "$sel" ]; then
         sel=$(printf '%s\n' "$chapters" | fzf --prompt="📑 Chọn chapter > " \
             --header="📖 $name · $count chapter · mới nhất ở đầu, Enter để đọc" \
-            --delimiter='|' --with-nth=1 --tac)
+            --delimiter='|' --with-nth=1 --tac "${preview_opts[@]}")
     fi
     [ -z "$sel" ] && return 1
     local chap_name chap_url rc
@@ -2384,7 +2728,7 @@ manga_read_manga() {
         rc=$?
         if [ "$rc" -eq 1 ]; then return 0; fi
         sel=$(printf '%s\n' "$chapters" | fzf --prompt="📑 Chọn chapter khác > " \
-            --header="📖 $name · $count chapter" --delimiter='|' --with-nth=1 --tac)
+            --header="📖 $name · $count chapter" --delimiter='|' --with-nth=1 --tac "${preview_opts[@]}")
     done
     return 0
 }
@@ -2411,12 +2755,14 @@ manga_browse_menu() {
             sleep 2
             return 1
         fi
-        local n sel
+        local n sel preview_script
         n=$(printf '%s\n' "$items" | grep -c '.')
-        sel=$(printf '%s\n⏭  Trang sau (trang %s · %s truyện)|__next__|__next__\n' \
+        preview_script=$(manga_cover_preview_script)
+        sel=$(printf '%s\n⏭  Trang sau (trang %s · %s truyện)|__next__|__next__|\n' \
             "$items" "$((page + 1))" "$n" | fzf --prompt="📖 $title · trang $page > " \
-                --header="📚 ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL} · chọn truyện để đọc (Esc để quay lại)" \
-                --delimiter='|' --with-nth=1)
+                --header="📚 ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL} · $n truyện · xem bìa bên phải (Esc để quay lại)" \
+                --delimiter='|' --with-nth=1 \
+                --preview "'$preview_script' {}" --preview-window='right:45%')
         case "$sel" in
             "")                       return 1 ;;
             *"__next__"*)  page=$((page + 1)); continue ;;
@@ -2482,6 +2828,48 @@ manga_diagnose() {
         echo "  ❌ không tải được $base/tim-kiem (HTTP $(anisub_last_http))"
         echo "     Kiểm tra mạng/proxy hoặc đổi MANGA_BASE_URL sang domain mới của TruyenVN."
     fi
+
+    echo
+    echo "  ── Đọc thử 1 truyện ──────────────────────────────────"
+    local sample
+    sample=$(printf '%s' "${html:-}" | manga_parse_items 2>/dev/null | head -1)
+    if [ -z "$sample" ]; then
+        echo "  (bỏ qua: chưa lấy được danh sách truyện)"
+    else
+        local s_name s_url s_slug chap_list chap_count chap_url
+        s_name=$(printf '%s' "$sample" | cut -d'|' -f1)
+        s_url=$(printf '%s' "$sample" | cut -d'|' -f2)
+        s_slug=$(printf '%s' "$sample" | cut -d'|' -f3)
+        echo "  Truyện mẫu: $s_name"
+        chap_list=$(fetch_chapter_list "$s_url" 2>/dev/null)
+        chap_count=$(printf '%s\n' "$chap_list" | grep -c '.')
+        if [ "$chap_count" -ge 3 ]; then
+            echo "  ✅ danh sách chapter: $chap_count chapter (API list-chapter OK)"
+        elif [ "$chap_count" -gt 0 ]; then
+            echo "  ⚠️ danh sách chapter chỉ có $chap_count mục - API list-chapter có thể đã đổi"
+            echo "     (web chỉ còn link \"Đọc từ đầu\" + \"Chap mới nhất\")"
+        else
+            echo "  ❌ không lấy được chapter nào (HTTP $(anisub_last_http))"
+        fi
+        chap_url=$(printf '%s\n' "$chap_list" | head -1 | cut -d'|' -f2)
+        if [ -n "$chap_url" ]; then
+            local imgs img_count first_img tmp_img
+            imgs=$(fetch_chapter_images "$chap_url" "$s_slug" 2>/dev/null)
+            img_count=$(printf '%s\n' "$imgs" | grep -c '.')
+            echo "  → chapter đầu ( $(printf '%s\n' "$chap_list" | head -1 | cut -d'|' -f1) ): $img_count ảnh"
+            first_img=$(printf '%s\n' "$imgs" | head -1)
+            if [ -n "$first_img" ]; then
+                tmp_img=$(mktemp "${TMPDIR:-/tmp}/anisub-diag.XXXXXX" 2>/dev/null) || tmp_img=""
+                if [ -n "$tmp_img" ] && manga_download_image "$first_img" "$tmp_img"; then
+                    echo "  ✅ tải thử ảnh đầu tiên: OK ($(du -h "$tmp_img" 2>/dev/null | cut -f1))"
+                else
+                    echo "  ❌ tải thử ảnh đầu tiên thất bại (CDN chặn hoặc mạng lỗi)"
+                fi
+                [ -n "$tmp_img" ] && rm -f "$tmp_img"
+            fi
+        fi
+    fi
+    echo "  Giao thức vẽ ảnh: $(manga_image_protocol) (đổi trong 📚 Nguồn truyện → Kiểu hiển thị ảnh)"
     echo "──────────────────────────────────────────────────────────"
     printf 'Nhấn Enter để quay lại... '
     read -r _
@@ -2492,7 +2880,7 @@ manga_diagnose() {
 show_manga_settings() {
     local opt inp
     while true; do
-        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🔙 Quay lại" \
+        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
             | fzf --prompt="📚 Nguồn truyện (TruyenVN) > " --header="TruyenVN: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}")
         case "$opt" in
             *"Kiểm tra nguồn truyện"*)
@@ -2526,6 +2914,30 @@ show_manga_settings() {
                 save_config
                 echo "✅ Đã lưu: $MANGA_SEARCH_PAGES trang"
                 sleep 1.2
+                ;;
+            *"Kiểu hiển thị ảnh"*)
+                clear
+                echo "╔═══════════════════════════════════════════════════════════╗"
+                echo "║  🖼️ KIỂU HIỂN THỊ ẢNH TRUYỆN                              ║"
+                echo "╚═══════════════════════════════════════════════════════════╝"
+                echo "  auto    : tự nhận terminal (khuyên dùng)"
+                echo "  symbols : vẽ bằng ký tự - hiện hình ở MỌI terminal"
+                echo "  kitty   : ảnh nét (kitty, ghostty...)"
+                echo "  sixel   : ảnh nét (xterm/wezterm/foot có sixel)"
+                echo "  iterm   : ảnh nét (iTerm2, WezTerm, mintty)"
+                echo "  Hiện tại: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} → đang dùng: $(manga_image_protocol)"
+                echo
+                read -r -p "Chọn (auto/symbols/kitty/sixel/iterm, Enter = auto): " inp
+                inp="${inp:-auto}"
+                case "$inp" in
+                    auto|symbols|kitty|sixel|iterm)
+                        MANGA_IMAGE_PROTOCOL="$inp"
+                        save_config
+                        echo "✅ Đã lưu: $MANGA_IMAGE_PROTOCOL (đang dùng: $(manga_image_protocol))"
+                        ;;
+                    *) echo "⚠️ Bỏ qua (chỉ nhận auto/symbols/kitty/sixel/iterm)" ;;
+                esac
+                sleep 1.4
                 ;;
             *"Quay lại"*) return 0 ;;
             *)              return 0 ;;
@@ -2576,7 +2988,8 @@ manga_main_menu() {
                 n=$(printf '%s\n' "$items" | grep -c '.')
                 sel=$(printf '%s\n' "$items" | fzf --prompt="📚 $n kết quả cho \\"$kw\\" > " \
                     --header="📚 Gõ để lọc lại trong $n kết quả · Enter để mở danh sách chapter" \
-                    --delimiter='|' --with-nth=1)
+                    --delimiter='|' --with-nth=1 \
+                    --preview "'$(manga_cover_preview_script)' {}" --preview-window='right:45%')
                 [ -n "$sel" ] && manga_open_item "$sel"
                 ;;
             "📖 Truyện mới cập nhật")  manga_browse_menu "/tim-kiem" "Truyện mới cập nhật" "m_orderby=latest" ;;
@@ -2624,7 +3037,7 @@ manga_main_menu() {
 
 # --- MAIN LOGIC ---
 main() {
-    trap 'rm -f "$ANISUB_STATUS_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
+    trap 'rm -f "$ANISUB_STATUS_FILE" "$MANGA_COOKIE_JAR"; kill $(jobs -p) 2>/dev/null' EXIT
     check_dependencies
     load_config
 

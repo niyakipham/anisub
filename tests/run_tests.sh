@@ -14,7 +14,10 @@ export MOCK_FIXTURES="$HERE/fixtures"
 export MOCK_CURL_LOG="$WORK/curl.log"
 export MOCK_FZF_LOG="$WORK/fzf.log"
 export MOCK_READ_LOG="$WORK/read.log"
+export MOCK_CURL_HEADER_LOG="$WORK/curl-headers.log"
+export MOCK_CHAFA_LOG="$WORK/chafa.log"
 : > "$MOCK_CURL_LOG"; : > "$MOCK_FZF_LOG"; : > "$MOCK_READ_LOG"
+: > "$MOCK_CURL_HEADER_LOG"; : > "$MOCK_CHAFA_LOG"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 export PATH="$HERE/mockbin:$PATH"
@@ -184,6 +187,102 @@ check "chỉ dùng slug đã kiểm chứng trên site" "0" "$(manga_genres | gr
 ( KK_MOCK_PICK="__nomatch__" manga_browse_menu "tim-kiem" "📖 Test" "m_orderby=latest" < /dev/null > /dev/null 2>&1 ); rc=$?
 check "browse menu: không chọn gì -> quay lại (rc=1)" "1" "$rc"
 has "browse menu gọi đúng feed của site" "m_orderby=latest" "$(cat "$MOCK_CURL_LOG")"
+
+echo "== 14. ảnh bìa trong danh sách (lỗi: không preview bìa) =="
+export MANGA_BASE_URL="https://truyenvn.my"
+items=$(cat "$MOCK_FIXTURES/manga-home.html" | manga_parse_items)
+check "mỗi dòng có 4 trường (thêm ảnh bìa)" "4" "$(printf '%s\n' "$items" | head -1 | awk -F'|' '{print NF}')"
+check "ảnh bìa tuyệt đối từ src" "https://dmd-image-content-sng-static-0.imggo.net/books/12189/cover_1719216107.jpg" \
+    "$(printf '%s\n' "$items" | sed -n 1p | cut -d'|' -f4)"
+check "ảnh bìa data-src tương đối -> tuyệt đối" "https://truyenvn.my/uploads/quan-he-doi-khat.jpg" \
+    "$(printf '%s\n' "$items" | sed -n 2p | cut -d'|' -f4)"
+check "lọc theo từ khóa vẫn giữ ảnh bìa" "1" "$(printf '%s\n' "$items" | manga_match_items "bocchi" | grep -c 'cover_1719216107')"
+check "tên/URL/slug không đổi vì thêm cột bìa" "bocchi-the-rock" "$(printf '%s\n' "$items" | sed -n 1p | cut -d'|' -f3)"
+
+echo "== 15. danh sách chapter qua API /webapi/stories/list-chapter (lỗi: chỉ có chap đầu/cuối) =="
+check "trang truyện chỉ có 2 link chapter (đúng lỗi cũ)" "2" \
+    "$(grep -o '/bocchi-the-rock/chapter-[0-9]*' "$MOCK_FIXTURES/manga-detail.html" | sort -u | wc -l | tr -d ' ')"
+check "đọc được story_id" "12189" "$(cat "$MOCK_FIXTURES/manga-detail.html" | manga_story_id)"
+check "đọc được CSRF token" "csrf-test-123" "$(cat "$MOCK_FIXTURES/manga-detail.html" | manga_csrf_token)"
+check "giải JSON data.html thành HTML" "1" \
+    "$(cat "$MOCK_FIXTURES/manga-chapters-api.json" | manga_json_html | grep -c 'wp-manga-chapter')"
+check "giải \\uXXXX trong JSON" "0" "$(cat "$MOCK_FIXTURES/manga-chapters-api.json" | manga_json_html | grep -c '\\u')"
+check "HTML giải ra vẫn là tiếng Việt có dấu" "1" \
+    "$(cat "$MOCK_FIXTURES/manga-chapters-api.json" | manga_json_html | grep -c 'giờ trước')"
+
+: > "$MOCK_CURL_HEADER_LOG"
+api_chaps=$(fetch_chapter_list "bocchi-the-rock")
+check "lấy đủ chapter qua API (6, đã gỡ trùng)" "6" "$(printf '%s\n' "$api_chaps" | grep -c '.')"
+check "chapter đầu = Chapter 0" "Chapter 0" "$(printf '%s\n' "$api_chaps" | head -1 | cut -d'|' -f1)"
+check "chapter cuối = Chapter 242" "Chapter 242" "$(printf '%s\n' "$api_chaps" | tail -1 | cut -d'|' -f1)"
+check "gửi story_id trong body" "1" "$(grep -c 'story_id=12189' "$MOCK_CURL_LOG")"
+check "gửi X-CSRF-TOKEN" "1" "$(grep -c 'X-CSRF-TOKEN: csrf-test-123' "$MOCK_CURL_HEADER_LOG")"
+check "gửi X-Requested-With" "1" "$(grep -c 'X-Requested-With: XMLHttpRequest' "$MOCK_CURL_HEADER_LOG")"
+check "gửi Referer đúng trang truyện" "1" \
+    "$(grep 'webapi' "$MOCK_CURL_HEADER_LOG" | grep -c 'referer=https://truyenvn.my/truyen-tranh/bocchi-the-rock')"
+check "POST API dùng chung cookie phiên với trang truyện" "1" \
+    "$(grep 'webapi' "$MOCK_CURL_HEADER_LOG" | grep -c 'anisub-manga-cookies')"
+check "tải trang truyện cũng lưu cookie phiên" "1" \
+    "$(grep '^https://truyenvn.my/truyen-tranh/bocchi-the-rock|' "$MOCK_CURL_HEADER_LOG" | grep -c 'anisub-manga-cookies')"
+check "nhớ ảnh bìa của truyện để preview khi chọn chapter" "1" \
+    "$(manga_cover_cache_get bocchi-the-rock | grep -c 'cover_1719216107')"
+
+rm -f "$WORK/api419"
+chaps419=$(MOCK_API_419="$WORK/api419" fetch_chapter_list "bocchi-the-rock" 2>/dev/null)
+check "HTTP 419 -> tải lại trang lấy token mới rồi thử lại" "6" "$(printf '%s\n' "$chaps419" | grep -c '.')"
+
+out500=$(MOCK_API_FAIL=1 fetch_chapter_list "bocchi-the-rock" 2>"$WORK/err500.log")
+check "API lỗi -> fallback trang truyện (2 chapter)" "2" "$(printf '%s\n' "$out500" | grep -c '.')"
+has "API lỗi -> cảnh báo rõ lý do" "chỉ còn chapter đầu/cuối" "$(cat "$WORK/err500.log")"
+has "cảnh báo kèm mã HTTP" "HTTP 500" "$(cat "$WORK/err500.log")"
+
+echo "== 16. tải & hiển thị ảnh trong chapter (lỗi: không hiện ảnh) =="
+: > "$MOCK_CURL_HEADER_LOG"; : > "$MOCK_CHAFA_LOG"
+chapter_imgs=$(fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-242" "bocchi-the-rock")
+img_cache="$WORK/chapter-cache"
+prefetch_chapter_images "$img_cache" $chapter_imgs   # shellcheck disable=SC2086
+check "tải đủ 5 trang vào cache" "5" "$(ls "$img_cache" 2>/dev/null | grep -c '\.img$')"
+check "tải ảnh KHÔNG gửi Referer (CDN trả 403 nếu có)" "0" \
+    "$(grep 'imggo.net' "$MOCK_CURL_HEADER_LOG" | grep -c 'referer=[^n]')"
+check "không còn Referer trong lệnh tải ảnh" "0" "$(grep 'imggo.net' "$MOCK_CURL_HEADER_LOG" | grep -c 'referer=https')"
+printf '<html><body>403 Forbidden</body></html>' > "$WORK/html-as.jpg"
+check "trang HTML lỗi không bị coi là ảnh" "0" "$(manga_file_is_image "$WORK/html-as.jpg")"
+printf '\xff\xd8\xff\xe0abc' > "$WORK/real.jpg"
+check "JPEG nhận đúng" "1" "$(manga_file_is_image "$WORK/real.jpg")"
+MOCK_IMG_FORBIDDEN=1 manga_download_image "https://dmd-image-content-sng-1.imggo.net/x/1.jpg" "$WORK/blocked.img"
+check "CDN chặn -> không lưu file rác" "0" "$([ -s "$WORK/blocked.img" ] && echo 1 || echo 0)"
+display_src=$(declare -f display_full_chapter)
+check "script preview trang không gửi Referer" "0" "$(printf '%s' "$display_src" | grep -c 'Referer:')"
+check "ảnh trang lưu đuôi .img (đọc theo magic bytes)" "1" \
+    "$([ "$(printf '%s' "$display_src" | grep -c 'page_num}\.img')" -ge 1 ] && echo 1 || echo 0)"
+check "dùng giao thức vẽ ảnh tự nhận" "1" "$(printf '%s' "$display_src" | grep -c 'manga_chafa_args')"
+
+echo "== 17. chọn giao thức vẽ ảnh (terminal lạ vẫn phải thấy ảnh) =="
+check "auto + terminal lạ -> symbols" "symbols" "$(TERM=dumb TERM_PROGRAM='' MANGA_IMAGE_PROTOCOL=auto manga_image_protocol)"
+check "auto + kitty -> kitty" "kitty" "$(TERM=xterm-kitty TERM_PROGRAM='' MANGA_IMAGE_PROTOCOL=auto manga_image_protocol)"
+check "auto + iTerm2 -> iterm" "iterm" "$(TERM=xterm-256color TERM_PROGRAM=iTerm.app MANGA_IMAGE_PROTOCOL=auto manga_image_protocol)"
+check "auto + foot -> sixel" "sixel" "$(TERM=foot TERM_PROGRAM='' MANGA_IMAGE_PROTOCOL=auto manga_image_protocol)"
+check "ép bằng config" "kitty" "$(TERM=dumb MANGA_IMAGE_PROTOCOL=kitty manga_image_protocol)"
+check "giá trị lạ -> tự nhận" "symbols" "$(TERM=dumb TERM_PROGRAM='' MANGA_IMAGE_PROTOCOL=xyz manga_image_protocol)"
+check "symbols không dùng sixel/kitty" "-f symbols --symbols=block --colors=256" "$(MANGA_IMAGE_PROTOCOL=symbols manga_chafa_args)"
+check "lưu vào config.cfg" "1" "$(MANGA_IMAGE_PROTOCOL=iterm bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_IMAGE_PROTOCOL=iterm; save_config >/dev/null 2>&1; grep -c 'MANGA_IMAGE_PROTOCOL=\"iterm\"' \"\$CONFIG_FILE\"")"
+
+echo "== 18. script preview ảnh bìa =="
+: > "$MOCK_CURL_HEADER_LOG"; : > "$MOCK_CHAFA_LOG"
+rm -rf "$MANGA_COVER_CACHE"
+preview_script=$(manga_cover_preview_script)
+check "script sinh ra và có quyền chạy" "1" "$([ -x "$preview_script" ] && echo 1 || echo 0)"
+line="Bocchi The Rock!|https://truyenvn.my/truyen-tranh/bocchi-the-rock|bocchi-the-rock|https://dmd-image-content-sng-static-0.imggo.net/books/12189/cover_1719216107.jpg"
+out=$("$preview_script" "$line" 2>&1); rc=$?
+check "chạy được, exit 0" "0" "$rc"
+has "in tên truyện" "Bocchi The Rock!" "$out"
+check "ảnh bìa được cache lại" "1" "$(ls "$MANGA_COVER_CACHE" 2>/dev/null | grep -c '\.img$')"
+check "có gọi chafa để vẽ ảnh" "1" "$(grep -c 'size=' "$MOCK_CHAFA_LOG")"
+check "tải bìa cũng không gửi Referer" "1" "$(grep 'imggo.net' "$MOCK_CURL_HEADER_LOG" | grep -c 'referer=none')"
+out2=$("$preview_script" "Không có bìa|https://truyenvn.my/truyen-tranh/x|x|" 2>&1)
+has "thiếu bìa -> báo rõ, không lỗi" "không có ảnh bìa" "$out2"
+info=$(manga_preview_info_file "Truyện Có Bìa" "https://dmd-image-content-sng-static-0.imggo.net/books/1/cover_1.jpg")
+check "info-file dùng cho màn chọn chapter" "1" "$(grep -c 'Truyện Có Bìa' "$info")"
 
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"
