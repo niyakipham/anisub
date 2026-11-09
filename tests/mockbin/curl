@@ -4,7 +4,7 @@
 # - API POST /webapi/stories/list-chapter: trả JSON fixture (giả lập được 419/500)
 # - Ảnh (imggo.net / /uploads/): ghi vài byte giả, không có -w
 # - Host chứa "manga-offline": mô phỏng mất mạng (HTTP 000, không body)
-url=""; out=""; data=""; post=""; wmode=""; referer=""; ua=""; has_cookie=0
+url=""; out=""; data=""; post=""; wmode=""; referer=""; ua=""; has_cookie=0; headmode=0
 args=("$@")
 skip_next=0
 for i in "${!args[@]}"; do
@@ -20,13 +20,14 @@ for i in "${!args[@]}"; do
         -e|--referer) referer="$nxt"; skip_next=1 ;;
         -A|--user-agent) ua="$nxt"; skip_next=1 ;;
         -H|--header|-X|--request) skip_next=1 ;;
+        -I|--head) headmode=1 ;;
         --max-time|--retry|--retry-delay|--connect-timeout) skip_next=1 ;;
         -c|--cookie-jar|-b|--cookie) has_cookie=1; skip_next=1 ;;
         --data|--data-raw|--data-binary) post="$nxt"; skip_next=1 ;;
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*"/uploads/"*|*"manga-offline"*)
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*"/uploads/"*|*"manga-offline"*)
                     url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
@@ -54,6 +55,12 @@ case "$eff" in
             body="${MOCK_FIXTURES}/manga-chapters-api.json"
         fi ;;
     *r.jina.ai*)             body="${MOCK_FIXTURES}/manga-chapter-jina.md" ;;
+    *nettruyen.info/tim-kiem*)       body="${MOCK_FIXTURES}/nt-search.html" ;;
+    *nettruyen.info/the-loai/*)      body="${MOCK_FIXTURES}/nt-search.html" ;;
+    *nettruyen.info/truyen-tranh-hot*) body="${MOCK_FIXTURES}/nt-search.html" ;;
+    *nettruyen.info/*chuong-*)       body="${MOCK_FIXTURES}/nt-chapter.html" ;;
+    *nettruyen.info/truyen-*)        body="${MOCK_FIXTURES}/nt-story.html" ;;
+    *nettruyen.info*)                body="${MOCK_FIXTURES}/nt-search.html" ;;
     *cloudflare*)            body="${MOCK_FIXTURES}/manga-challenge.html" ;;
     *modern*)                body="${MOCK_FIXTURES}/manga-chapter-modern.html" ;;
     *"/chapter-"*js*)       body="${MOCK_FIXTURES}/manga-chapter-js.html" ;;
@@ -72,10 +79,26 @@ case "$eff" in
     *"/chapter-"*)           body="${MOCK_FIXTURES}/manga-chapter.html" ;;
     *"/truyen-tranh/"*)      body="${MOCK_FIXTURES}/manga-detail.html" ;;
     *"/tim-kiem"*|*"/the-loai/"*|*"/danh-sach"*) body="${MOCK_FIXTURES}/manga-home.html" ;;
-    *imggo.net*|*"/uploads/"*) body="" ;;          # ảnh: chỉ ghi file giả
+    *imggo.net*|*imgchapter*|*"/uploads/"*) body="" ;;   # ảnh: chỉ ghi file giả
     "")                     code="404" ;;
     *)                      body="${MOCK_FIXTURES}/manga-home.html" ;;
 esac
+
+# HEAD (chỉ lấy status): trang ảnh trả 200 (giả lập 3 trang đầu), còn lại 404
+if [ "$headmode" = "1" ]; then
+    case "$url" in
+        *imgchapter*)
+            idx=$(printf '%s' "$url" | sed -n 's/.*page_\([0-9]*\)\..*/\1/p')
+            if [ -n "${MOCK_IMG_MAX_PAGE:-}" ] && [ -n "$idx" ] && [ "$idx" -ge "$MOCK_IMG_MAX_PAGE" ]; then
+                printf '%s' 404
+            else
+                printf '%s' 200
+            fi ;;
+        *imggo.net*|*"/uploads/"*) printf '%s' 200 ;;
+        *) printf '%s' 404 ;;
+    esac
+    exit 0
+fi
 
 # Tải ảnh (không có -w): ghi file giả rồi thoát
 if [ -z "$wmode" ]; then

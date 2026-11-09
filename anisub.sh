@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.09b"
+ANISUB_VERSION="2026.11.09c"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -46,10 +46,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF_SCRIPT="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 
-# --- NGUỒN TRUYỆN TRANH: TRUYENVN (https://truyenvn.my) ----------------------
-# Site đã đổi domain từ truyenvn.shop -> truyenvn.my và không còn dùng WordPress
-# (?s=&post_type=wp-manga không còn trả kết quả). Ongoing: cào HTML trực tiếp.
-DEFAULT_MANGA_BASE_URL="https://truyenvn.my"
+# --- NGUỒN TRUYỆN TRANH ------------------------------------------------------
+# nettruyen : https://nettruyen.info - CMS kiểu NetTruyen, danh sách chương nằm
+#             sẵn trong HTML (không cần API/CSRF).  URL truyện: /truyen-<slug>
+#             URL chương:      /truyen-<slug>/chuong-<n>
+#             Ảnh trang:       https://net.imgchapter.store/<slug>/<chap>/page_<i>.jpg
+# truyenvn  : https://truyenvn.my  - cần API /webapi/stories/list-chapter,
+#             URL truyện /truyen-tranh/<slug>, chương /chapter-<n> (giữ để đổi lại).
+DEFAULT_MANGA_SOURCE="nettruyen"
+DEFAULT_MANGA_BASE_URL="https://nettruyen.info"
 DEFAULT_MANGA_SEARCH_FEEDS="latest,trending,views"   # danh sách dùng để lọc khi search
 DEFAULT_MANGA_SEARCH_PAGES=1                          # số trang tải cho mỗi danh sách
 # Giao thức vẽ ảnh trong fzf: auto | kitty | sixel | iterm | symbols
@@ -61,6 +66,7 @@ DEFAULT_MANGA_IMAGE_PROTOCOL="auto"
 # qua dịch vụ đọc hộ này (nó tải trang bằng trình duyệt thật rồi trả markdown).
 # Đặt "" hoặc "off" để tắt (khi tắt, anisub không gửi URL truyện ra bên thứ ba).
 DEFAULT_MANGA_READER_PROXY="https://r.jina.ai"
+MANGA_SOURCE=""
 MANGA_BASE_URL=""
 MANGA_SEARCH_FEEDS=""
 MANGA_SEARCH_PAGES=""
@@ -102,7 +108,8 @@ load_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "PLAYER=\"$DEFAULT_PLAYER\"" > "$CONFIG_FILE"
         echo "DOWNLOAD_DIR=\"$DEFAULT_DOWNLOAD_DIR\"" >> "$CONFIG_FILE"
-        echo "# --- NGUỒN TRUYỆN TRANH (sửa nếu TruyenVN đổi domain) ---" >> "$CONFIG_FILE"
+        echo "# --- NGUỒN TRUYỆN TRANH (nettruyen | truyenvn) ---" >> "$CONFIG_FILE"
+        echo "MANGA_SOURCE=\"$DEFAULT_MANGA_SOURCE\"" >> "$CONFIG_FILE"
         echo "MANGA_BASE_URL=\"$DEFAULT_MANGA_BASE_URL\"" >> "$CONFIG_FILE"
         echo "MANGA_SEARCH_FEEDS=\"$DEFAULT_MANGA_SEARCH_FEEDS\"" >> "$CONFIG_FILE"
         echo "MANGA_SEARCH_PAGES=\"$DEFAULT_MANGA_SEARCH_PAGES\"" >> "$CONFIG_FILE"
@@ -117,11 +124,20 @@ load_config() {
         echo "KKPHIM_DETAIL_TTL=\"$DEFAULT_KKPHIM_DETAIL_TTL\"" >> "$CONFIG_FILE"
         echo "KKPHIM_SERVER_PREF=\"$DEFAULT_KKPHIM_SERVER_PREF\"" >> "$CONFIG_FILE"
     fi
+    ANISUB_CONFIG_HAS_SOURCE=0
+    grep -q '^MANGA_SOURCE=' "$CONFIG_FILE" 2>/dev/null && ANISUB_CONFIG_HAS_SOURCE=1
     source "$CONFIG_FILE"
     PLAYER=${PLAYER:-$DEFAULT_PLAYER}
     DOWNLOAD_DIR=${DOWNLOAD_DIR:-$DEFAULT_DOWNLOAD_DIR}
     MANGA_IMAGE_SCALE=${MANGA_IMAGE_SCALE:-$DEFAULT_MANGA_IMAGE_SCALE}
+    MANGA_SOURCE=${MANGA_SOURCE:-$DEFAULT_MANGA_SOURCE}
     MANGA_BASE_URL=${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}
+    # Máy đang dùng config cũ (chưa có MANGA_SOURCE) -> chuyển sang nguồn mặc định mới
+    if [ "${ANISUB_CONFIG_HAS_SOURCE:-0}" != "1" ]; then
+        MANGA_SOURCE="$DEFAULT_MANGA_SOURCE"
+        MANGA_BASE_URL="$DEFAULT_MANGA_BASE_URL"
+        { echo "MANGA_SOURCE=\"$MANGA_SOURCE\""; echo "MANGA_BASE_URL=\"$MANGA_BASE_URL\""; } >> "$CONFIG_FILE" 2>/dev/null
+    fi
     MANGA_SEARCH_FEEDS=${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}
     MANGA_SEARCH_PAGES=${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}
     MANGA_IMAGE_PROTOCOL=${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL}
@@ -150,6 +166,7 @@ save_config() {
         echo "PLAYER=\"$PLAYER\""
         echo "DOWNLOAD_DIR=\"$DOWNLOAD_DIR\""
         echo "MANGA_IMAGE_SCALE=\"$MANGA_IMAGE_SCALE\""
+        echo "MANGA_SOURCE=\"$MANGA_SOURCE\""
         echo "MANGA_BASE_URL=\"$MANGA_BASE_URL\""
         echo "MANGA_SEARCH_FEEDS=\"$MANGA_SEARCH_FEEDS\""
         echo "MANGA_SEARCH_PAGES=\"$MANGA_SEARCH_PAGES\""
@@ -1518,7 +1535,7 @@ show_source_settings() {
 
 show_settings() {
     while true; do
-        opt=$(echo -e "🎬 Đổi trình phát (Hiện tại: $PLAYER)\n📁 Đổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\n🎞 Nguồn phim: $SOURCE_NAME ($KKPHIM_SITE_URL)\n📚 Nguồn truyện: TruyenVN (${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL})\n🖼️ Kích thước ảnh manga (Hiện tại: ${MANGA_IMAGE_SCALE}%)\n🔙 Quay lại" | fzf --prompt="⚙️ Cài đặt > ")
+        opt=$(echo -e "🎬 Đổi trình phát (Hiện tại: $PLAYER)\n📁 Đổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\n🎞 Nguồn phim: $SOURCE_NAME ($KKPHIM_SITE_URL)\n📚 Nguồn truyện: $(manga_source_label) (${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL})\n🖼️ Kích thước ảnh manga (Hiện tại: ${MANGA_IMAGE_SCALE}%)\n🔙 Quay lại" | fzf --prompt="⚙️ Cài đặt > ")
         case "$opt" in
             *"Đổi trình phát"*)
                 read -r -p "Nhập lệnh trình phát (vd vlc): " inp
@@ -1831,12 +1848,292 @@ manga_page_cover() {
     ' 2>/dev/null
 }
 
+# ═══ NGUỒN NETTRUYEN (nettruyen.info) ═══════════════════════════════════════
+# CMS kiểu NetTruyen: danh sách chương nằm sẵn trong HTML trang truyện (không cần
+# API/CSRF), ảnh trang đọc có dạng https://net.imgchapter.store/<slug>/<chap>/page_<i>.jpg
+# Nhãn hiển thị của nguồn đang dùng
+manga_source_label() {
+    if manga_is_nettruyen; then printf 'nettruyen'; else printf 'TruyenVN'; fi
+}
+
+manga_is_nettruyen() {
+    case "${MANGA_SOURCE:-$DEFAULT_MANGA_SOURCE}" in
+        nettruyen|nt|nettruyen.info) return 0 ;;
+        *)                           return 1 ;;
+    esac
+}
+
+# slug hoặc URL -> "truyen-<slug>" (route trên nettruyen)
+nt_route_of() {
+    local v="${1:-}"
+    case "$v" in
+        http://*|https://*)
+            # URL chương .../truyen-<slug>/chuong-N -> lấy đoạn truyen-<slug>
+            local r
+            r=$(printf '%s' "$v" | sed -n 's#.*/\(truyen-[A-Za-z0-9_.-]*\)/.*#\1#p')
+            if [ -n "$r" ]; then
+                printf '%s' "$r"
+                return 0
+            fi
+            v="${v%%\?*}"; v="${v%/}"; v="${v##*/}" ;;
+    esac
+    v="${v#/}"
+    case "$v" in
+        "")       : ;;
+        truyen-*) printf '%s' "$v" ;;
+        *)        printf 'truyen-%s' "$v" ;;
+    esac
+}
+
+# Có phải URL chương của nettruyen (/truyen-.../chuong-N) -> in ra "route|chap"
+nt_chapter_parts() {
+    local u="${1:-}"
+    printf '%s' "$u" | sed -n 's#.*/\(truyen-[A-Za-z0-9_.-]*\)/chuong-\([0-9][0-9.-]*\).*#\1|\2#p'
+}
+
+# Số chapter -> URL chương của nguồn đang dùng
+manga_chapter_url() {
+    local page_url="$1" num="$2"
+    num="${num//[^0-9.]/}"
+    [ -z "$num" ] && return 1
+    if manga_is_nettruyen; then
+        printf '%s/chuong-%s' "${page_url%/}" "$num"
+    else
+        printf '%s/chapter-%s' "${page_url%/}" "${num//./-}"
+    fi
+}
+
+# HTML danh sách truyện (trang chủ / thể loại / tìm kiếm) -> name|url|slug|cover
+nt_parse_items() {
+    MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
+        my $base = $ENV{MANGA_BASE_URL} // ""; $base =~ s{/$}{};
+        sub clean {
+            my $t = shift // "";
+            $t =~ s/<[^>]*>/ /g;
+            $t =~ s/&nbsp;/ /g;
+            $t =~ s/&amp;/&/g;
+            $t =~ s/&quot;/"/g;
+            $t =~ s/&#0?39;|&apos;/chr(39)/ge;
+            $t =~ s/&lt;/</g;
+            $t =~ s/&gt;/>/g;
+            $t =~ s/\s+/ /g;
+            $t =~ s/^ |$//g;
+            return $t;
+        }
+        # ảnh bìa: /images/<slug>.jpg hoặc /storage/thumbnails/<slug>.jpg
+        my %cover;
+        while (/(?:images|storage\/thumbnails|storage\/covers)\/([A-Za-z0-9_.\-]+)\.(?:jpe?g|png|webp)/gi) {
+            my $k = $1;
+            $cover{$k} = "$base/$&" unless exists $cover{$k};
+        }
+        my (%name, %score, @order, %seen);
+        while (/<a\b([^>]*)>(.*?)<\/a>/gs) {
+            my ($attrs, $inner) = ($1, $2);
+            my ($href) = $attrs =~ /href\s*=\s*(?:"([^"]*)"|'\''([^'\'']*)'\''|([^\s">]+))/;
+            next unless defined $href && length $href;
+            next unless $href =~ m{(?:^|/)(truyen-[A-Za-z0-9_.\-]+)/?(?:[?#].*)?$};
+            my $route = $1;
+            next if $href =~ m{/chuong-};
+            my ($nm, $sc) = ("", 0);
+            if ($attrs =~ /title\s*=\s*(?:"([^"]*)"|'\''([^'\'']*)'\'')/) {
+                $nm = clean(defined $1 ? $1 : $2);
+                $nm =~ s/^Truy(?:en|ện) tranh\s+//i;
+                $sc = 4 if length $nm;
+            }
+            if ($sc < 4) {
+                my $txt = clean($inner);
+                if (length($txt) >= 2 && $txt !~ /^(chapter|chap|đọc|xem|theo dõi)\b/i) { $nm = $txt; $sc = 3 }
+            }
+            if ($sc < 3) {
+                my ($alt) = $inner =~ /alt\s*=\s*(?:"([^"]*)"|'\''([^'\'']*)'\'')/;
+                $alt = clean($alt);
+                if (length($alt) >= 2) { $nm = $alt; $sc = 2 }
+            }
+            if (!length $nm) {
+                (my $p = $route) =~ s/^truyen-//;
+                $p =~ s/[-_]+/ /g; $p =~ s/\b(\w)/\u$1/g;
+                $nm = $p; $sc = 1;
+            }
+            if (!exists $seen{$route}) { push @order, $route; $seen{$route} = 1; $name{$route} = $nm; $score{$route} = $sc }
+            elsif ($score{$route} < $sc) { $name{$route} = $nm; $score{$route} = $sc }
+            if ($inner =~ /<img\b([^>]*)>/i) {
+                my $ia = $1;
+                my $cv = "";
+                if ($ia =~ /data-(?:lazy-)?(?:src|original|echo)\s*=\s*(?:"([^"]*)"|'\''([^'\'']*)'\'')/i) {
+                    $cv = defined $1 ? $1 : $2;
+                } elsif ($ia =~ /\ssrc\s*=\s*(?:"([^"]*)"|'\''([^'\'']*)'\'')/i) {
+                    $cv = defined $1 ? $1 : $2;
+                }
+                $cv = "" unless defined $cv;
+                $cv =~ s/&amp;/&/g; $cv =~ s/^\s+|\s+$//g;
+                $cv = "" if $cv =~ m{^data:}i;
+                $cv = "https:$cv" if $cv =~ m{^//};
+                $cv = "$base$cv" if $cv =~ m{^/};
+                if (length $cv && !exists $cover{"__$route"}) { $cover{"__$route"} = $cv }
+            }
+        }
+        for my $route (@order) {
+            my $key = $route; $key =~ s/^truyen-//;
+            my $cv = $cover{"__$route"} // $cover{$key} // "";
+            print "$name{$route}|$base/$route|$route|$cv\n";
+        }
+    '
+}
+
+# Tìm kiếm trên nettruyen: /tim-kiem?keyword=<kw>
+nt_search_items() {
+    local kw="${1:-}"
+    local html items filtered
+    if ! html=$(manga_http_fetch "/tim-kiem" "keyword=$kw"); then
+        echo "⚠️ Không tìm được (HTTP $(anisub_last_http)) - kiểm tra mạng hoặc ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" >&2
+        return 1
+    fi
+    items=$(printf '%s' "$html" | nt_parse_items)
+    if [ -z "$items" ]; then
+        echo "⚠️ Trang tìm kiếm không trả về truyện nào (web đổi cấu trúc hoặc từ khoá quá lạ)." >&2
+        return 1
+    fi
+    # Web có thể trả cả danh sách chung -> lọc lại theo từ khoá; không khớp thì giữ nguyên
+    filtered=$(printf '%s\n' "$items" | manga_match_items "$kw")
+    if [ -n "$filtered" ]; then
+        printf '%s\n' "$filtered"
+    else
+        printf '%s\n' "$items"
+    fi
+}
+
+# Danh sách chương từ trang truyện (server render): name|url|chuong-N (cũ ->mới)
+nt_fetch_chapter_list() {
+    local target="$1"
+    local page_url
+    page_url=$(manga_manga_url "$target")
+    [ -z "$page_url" ] && return 1
+    local route="${page_url##*/}"
+    local html
+    if ! html=$(manga_http_fetch "$page_url"); then
+        echo "⚠️ Không tải được trang truyện ($route) - HTTP $(anisub_last_http)" >&2
+        return 1
+    fi
+    MANGA_STORY_COVER=$(printf '%s' "$html" | manga_page_cover)
+    [ -n "$MANGA_STORY_COVER" ] && manga_cover_cache_put "$route" "$MANGA_STORY_COVER"
+    printf '%s' "$html" | MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" NT_ROUTE="$route" \
+        perl -CS -Mutf8 -0777 -ne '
+        my $base = $ENV{MANGA_BASE_URL} // ""; $base =~ s{/$}{};
+        my $route = $ENV{NT_ROUTE} // "";
+        my (%seen, @out);
+        while (/<a\b([^>]*)>(.*?)<\/a>/gs) {
+            my ($attrs, $inner) = ($1, $2);
+            my ($href) = $attrs =~ /href\s*=\s*(?:"([^"]*)"|'\''([^'\'']*)'\''|([^\s">]+))/;
+            next unless defined $href && length $href;
+            next unless $href =~ m{/(truyen-[A-Za-z0-9_.\-]+)/chuong-([0-9][0-9.\-]*)/?(?:[?#].*)?$};
+            my ($r, $num) = ($1, $2);
+            next if length($route) && $r ne $route;
+            my $u = $href;
+            $u = "$base$u" if $u =~ m{^/};
+            next if $seen{$u}++;
+            my $txt = $inner; $txt =~ s/<[^>]*>/ /g; $txt =~ s/\s+/ /g; $txt =~ s/^ |$//g;
+            my $name = ($txt =~ /^chapter\b/i && length $txt <= 40) ? $txt : "Chapter $num";
+            printf "%s|%s|chuong-%s\n", $name, $u, $num;
+        }
+    ' | sort -s -t'|' -k3,3V
+}
+
+# Ảnh trang đọc của nettruyen: ưu tiên URL dạng .../page_<i>.jpg
+nt_parse_image_urls() {
+    MANGA_NT_IMAGE_HOST="${MANGA_NT_IMAGE_HOST:-https://net.imgchapter.store}" \
+    perl -CS -Mutf8 -0777 -ne '
+        my $host = $ENV{MANGA_NT_IMAGE_HOST} // "https://net.imgchapter.store";
+        $host =~ s{/$}{};
+        my %page; my @other;
+        while (m{(?:(?:https?:)?//|/)[^"\x27\s<>()]*?/page[_-]?([0-9]+)\.(?:jpe?g|png|webp|avif)}gi) {
+            my ($i, $u) = ($1, $&);
+            $u = "https:$u" if $u =~ m{^//};
+            $u = "$host$u" if $u =~ m{^/};
+            $page{$i + 0} = $u unless exists $page{$i + 0};
+        }
+        while (m{((?:https?:)?//[^"\x27\s<>()]*imgchapter[^"\x27\s<>()]*\.(?:jpe?g|png|webp|avif))}gi) {
+            push @other, $1;
+        }
+        print "$page{$_}\n" for sort { $a <=> $b } keys %page;
+        if (!%page) { my %s; print "$_\n" for grep { !$s{$_}++ } @other; }
+    '
+}
+
+# Dự phòng: tự dò trang ảnh theo mẫu URL (HEAD từng trang, dừng khi trượt 3 lần)
+nt_probe_page_urls() {
+    local chapter_url="$1"
+    local parts slug chap
+    parts=$(nt_chapter_parts "$chapter_url")
+    [ -z "$parts" ] && return 1
+    slug="${parts%%|*}"
+    chap="${parts##*|}"
+    slug="${slug#truyen-}"
+    case "$chap" in *[!0-9]*|"") return 1 ;; esac
+    local host="${MANGA_NT_IMAGE_HOST:-https://net.imgchapter.store}"
+    local i code misses=0 found=0
+    for i in $(seq 0 299); do
+        code=$(curl -s -I --max-time 10 -A "$MANGA_USER_AGENT" -o /dev/null -w '%{http_code}' \
+            "$host/$slug/$chap/page_$i.jpg" 2>/dev/null)
+        if [ "$code" = "200" ]; then
+            printf '%s/%s/%s/page_%s.jpg\n' "$host" "$slug" "$chap" "$i"
+            misses=0; found=1
+        else
+            misses=$((misses + 1))
+            [ "$misses" -ge 3 ] && break
+        fi
+    done
+    [ "$found" = "1" ]
+}
+
+# Lấy ảnh trang đọc của nettruyen (thử trực tiếp -> reader-proxy -> tự dò mẫu URL)
+nt_fetch_chapter_images() {
+    local chapter_url="$1"
+    [ -z "$chapter_url" ] && return 1
+    rm -f "$ANISUB_MANGA_NAV_FILE" 2>/dev/null   # không dùng link chuyển chap của chapter cũ
+    local html="" found=""
+    html=$(MANGA_FETCH_VARIANT=normal manga_http_fetch "$chapter_url" 2>/dev/null) || html=""
+    [ -n "$html" ] && found=$(printf '%s' "$html" | nt_parse_image_urls)
+    if [ -z "$found" ]; then
+        html=$(manga_proxy_fetch "$chapter_url" 2>/dev/null) || html=""
+        [ -n "$html" ] && found=$(printf '%s' "$html" | nt_parse_image_urls)
+        [ -n "$found" ] && echo "ℹ️ Đã lấy danh sách ảnh qua ${MANGA_READER_PROXY:-reader-proxy}." >&2
+    fi
+    if [ -z "$found" ]; then
+        found=$(nt_probe_page_urls "$chapter_url" 2>/dev/null)
+        [ -n "$found" ] && echo "ℹ️ Trang đọc không trả ảnh - đã tự dò theo mẫu URL." >&2
+    fi
+    if [ -z "$html" ] && [ -z "$found" ]; then
+        echo "⚠️ Không tải được chapter (HTTP $(anisub_last_http))" >&2
+        return 1
+    fi
+    # Nhớ "Chap trước/Chap sau" để reader chuyển chap được kể cả khi thiếu danh sách
+    if [ -n "$html" ]; then
+        local nav nav_prev nav_next
+        nav=$(printf '%s' "$html" | manga_parse_nav)
+        if [ -n "$nav" ]; then
+            nav_prev="${nav%%|*}"
+            nav_next="${nav##*|}"
+            [ -n "$nav_prev" ] && nav_prev=$(manga_abs_url "$nav_prev")
+            [ -n "$nav_next" ] && nav_next=$(manga_abs_url "$nav_next")
+            printf '%s|%s\n' "$nav_prev" "$nav_next" > "$ANISUB_MANGA_NAV_FILE" 2>/dev/null
+        fi
+    fi
+    [ -z "$found" ] && manga_debug_dump "$chapter_url" "$html"
+    printf '%s\n' "$found"
+}
+
 # URL trang truyện từ slug (hoặc trả nguyên URL nếu đã là URL tuyệt đối)
 manga_manga_url() {
+    local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     case "${1:-}" in
         http://*|https://*) printf '%s' "${1%/}" ;;
         "")                 printf '' ;;
-        *)                  printf '%s/truyen-tranh/%s' "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" "${1#/}" | sed 's#/$##' ;;
+        truyen-*)           printf '%s/%s' "$base" "${1#/}" | sed 's#/$##' ;;   # route nettruyen
+        *)                  if manga_is_nettruyen; then
+                                printf '%s/truyen-%s' "$base" "${1#/}" | sed 's#/$##'
+                            else
+                                printf '%s/truyen-tranh/%s' "$base" "${1#/}" | sed 's#/$##'
+                            fi ;;
     esac
 }
 
@@ -2174,7 +2471,13 @@ show_manga_favorites() {
 # ═══ PARSE HTML của TruyenVN ════════════════════════════════════════════════
 # Mọi link truyện có dạng /truyen-tranh/<slug> (link chương là /truyen-tranh/<slug>/<chap>
 # nên bị loại đúng). Tên lấy theo độ tin cậy: title="" > text trong thẻ > alt="".
+# Parser danh sách truyện: chọn theo nguồn đang dùng
 manga_parse_items() {
+    if manga_is_nettruyen; then nt_parse_items; else manga_parse_items_pp; fi
+}
+
+# TruyenVN (Madara): /truyen-tranh/<slug>
+manga_parse_items_pp() {
     MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
         my %ENA = (acute => 0x301, grave => 0x300, tilde => 0x303, circ => 0x302,
                    uml => 0x308, ring => 0x30A, cedil => 0x327, dot => 0x307,
@@ -2280,7 +2583,14 @@ manga_list_items() {
         echo "⚠️ Không tải được $path (HTTP ${MANGA_HTTP_STATUS:-000}) - kiểm tra mạng hoặc MANGA_BASE_URL" >&2
         return 1
     fi
-    printf '%s' "$html" | manga_parse_items
+    local items
+    items=$(printf '%s' "$html" | manga_parse_items)
+    [ -z "$items" ] && return 0
+    # nhớ ảnh bìa để bước chọn chapter preview được (chạy trong subshell -> chỉ ghi file)
+    printf '%s\n' "$items" | while IFS='|' read -r _n _u _s _c; do
+        [ -n "${_c:-}" ] && [ -n "${_s:-}" ] && manga_cover_cache_put "$_s" "$_c"
+    done
+    printf '%s\n' "$items"
 }
 
 # Tìm truyện: thử /tim-kiem?q= trước, nếu web không lọc server-side thì lọc trong
@@ -2290,8 +2600,12 @@ manga_search_items() {
     kw="${kw#"${kw%%[![:space:]]*}"}"
     kw="${kw%"${kw##*[![:space:]]}"}"
     if [ "${#kw}" -lt 2 ]; then
-        echo "💡 Gõ tối thiểu 2 ký tự để tìm truyện trên TruyenVN..." >&2
+        echo "💡 Gõ tối thiểu 2 ký tự để tìm truyện ($(manga_source_label))..." >&2
         return 1
+    fi
+    if manga_is_nettruyen; then
+        nt_search_items "$kw"
+        return $?
     fi
     local pages="${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}"
     [[ "$pages" =~ ^[0-9]+$ ]] || pages="$DEFAULT_MANGA_SEARCH_PAGES"
@@ -2352,6 +2666,10 @@ manga_search_items() {
 # --- FETCH CHAPTER LIST ---
 fetch_chapter_list() {
     local target="$1"
+    if manga_is_nettruyen; then
+        nt_fetch_chapter_list "$target"
+        return $?
+    fi
     local page_url
     page_url=$(manga_manga_url "$target")
     if [ -z "$page_url" ]; then
@@ -2460,6 +2778,10 @@ fetch_chapter_images() {
     local chapter_url="$1"
     local prefer_slug="${2:-}"
     [ -z "$chapter_url" ] && return 1
+    if [ -n "$(nt_chapter_parts "$chapter_url")" ]; then
+        nt_fetch_chapter_images "$chapter_url"
+        return $?
+    fi
     rm -f "$ANISUB_MANGA_NAV_FILE" 2>/dev/null   # không dùng link chuyển chap của chapter cũ
     local variant html="" last_html="" found="" used_variant=""
     for variant in normal minimal bot proxy; do
@@ -2912,10 +3234,12 @@ read_manga_chapter() {
 # In từng bước kèm HTTP để biết chính xác hỏng ở đâu (trang truyện / API danh sách
 # chapter / trang chapter / tải ảnh / chafa).
 manga_selftest() {
-    local target="${1:-bocchi-the-rock}"
+    local default_target="bocchi-the-rock"
+    manga_is_nettruyen && default_target="one-piece-dao-hai-tac"
+    local target="${1:-$default_target}"
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🧪 KIỂM TRA ĐỌC TRUYỆN"
-    echo "   anisub: $ANISUB_VERSION · nguồn: $base · ảnh: ${MANGA_IMAGE_PROTOCOL:-auto}"
+    echo "   anisub: $ANISUB_VERSION · nguồn: ${MANGA_SOURCE:-$DEFAULT_MANGA_SOURCE} ($base) · ảnh: ${MANGA_IMAGE_PROTOCOL:-auto}"
     echo ""
 
     local page_url
@@ -2931,14 +3255,16 @@ manga_selftest() {
         echo "       → Kiểm tra mạng, hoặc MANGA_BASE_URL đã đổi tên miền."
         return 1
     fi
-    local sid tok
-    sid=$(printf '%s' "$html" | manga_story_id)
-    tok=$(printf '%s' "$html" | manga_csrf_token)
-    echo "    story_id: ${sid:-(không thấy)}"
-    if [ -n "$tok" ]; then echo "    csrf-token: có"; else echo "    csrf-token: KHÔNG thấy"; fi
+    if ! manga_is_nettruyen; then
+        local sid tok
+        sid=$(printf '%s' "$html" | manga_story_id)
+        tok=$(printf '%s' "$html" | manga_csrf_token)
+        echo "    story_id: ${sid:-(không thấy)}"
+        if [ -n "$tok" ]; then echo "    csrf-token: có"; else echo "    csrf-token: KHÔNG thấy"; fi
+    fi
     echo ""
 
-    echo "2️⃣  API danh sách chapter"
+    echo "2️⃣  Danh sách chapter"
     local chapters count
     chapters=$(fetch_chapter_list "$target")
     count=$(printf '%s\n' "$chapters" | grep -c '.')
@@ -2954,12 +3280,26 @@ manga_selftest() {
 
     local chap_url
     chap_url=$(printf '%s\n' "$chapters" | tail -1 | cut -d'|' -f2)
-    [ -z "$chap_url" ] && chap_url="$page_url/chapter-1"
+    [ -z "$chap_url" ] && chap_url=$(manga_chapter_url "$page_url" 1)
     echo "3️⃣  Trang chapter: $chap_url"
     local imgs nimg nav
     imgs=$(fetch_chapter_images "$chap_url" "$slug")
     nimg=$(printf '%s\n' "$imgs" | grep -c '.')
     nav=$(manga_saved_nav)
+    # bỏ qua nav còn sót lại từ nguồn khác (đổi nguồn thì link kiểu cũ vô nghĩa)
+    if manga_is_nettruyen; then
+        case "$nav" in *chuong-*) : ;; *) nav="" ;; esac
+    else
+        case "$nav" in *"/chapter-"*) : ;; *) nav="" ;; esac
+    fi
+    if [ -z "$nav" ] || [ "$nav" = "|" ]; then   # chưa đọc lần nào -> đọc thẳng từ trang
+        local chtml=""
+        chtml=$(manga_http_fetch "$chap_url" 2>/dev/null) || chtml=""
+        if [ -n "$chtml" ]; then
+            nav=$(printf '%s' "$chtml" | manga_parse_nav)
+        fi
+        case "$nav" in ""|"|") nav="" ;; esac
+    fi
     echo "    HTTP $(anisub_last_http) · $nimg ảnh"
     echo "    chap trước|sau: ${nav:-(không thấy link)}"
     if [ "$nimg" -eq 0 ]; then
@@ -3040,12 +3380,13 @@ manga_chapter_name_from_url() {
     local cslug="${url##*/}"
     cslug="${cslug%.html}"
     local name
-    name=$(printf '%s' "$cslug" | sed 's/^chapter-//; s/^chap-//; s/-/./g')
+    name=$(printf '%s' "$cslug" | sed 's/^chapter-//; s/^chuong-//; s/^chap-//; s/-/./g')
     if [ -z "$name" ] || [ "$name" = "$cslug" ]; then
         printf '%s' "$cslug"
     else
         case "$cslug" in
-            chap-*) printf 'Chap %s' "$name" ;;
+            chuong-*) printf 'Chapter %s' "$name" ;;
+            chap-*)   printf 'Chap %s' "$name" ;;
             *)      printf 'Chapter %s' "$name" ;;
         esac
     fi
@@ -3161,7 +3502,11 @@ manga_read_manga() {
                 sel=$(manga_pick_chapter_line "$header" "$first_prompt" "$chapters" "${preview_opts[@]}")
                 continue
             fi
-            chap_url="$page_url/chapter-${chap_no//./-}"
+            chap_url=$(manga_chapter_url "$page_url" "$chap_no")
+            if [ -z "$chap_url" ]; then
+                sel=$(manga_pick_chapter_line "$header" "$first_prompt" "$chapters" "${preview_opts[@]}")
+                continue
+            fi
             chap_name=$(manga_chapter_name_from_url "$chap_url")
         else
             chap_name=$(printf '%s' "$sel" | cut -d'|' -f1)
@@ -3214,7 +3559,66 @@ manga_browse_menu() {
     done
 }
 
+# Danh sách mặc định (mới cập nhật / hot / đọc nhiều) theo nguồn
+manga_browse_latest() {
+    if manga_is_nettruyen; then
+        manga_browse_menu "/" "Truyện mới cập nhật"
+    else
+        manga_browse_menu "/tim-kiem" "Truyện mới cập nhật" "m_orderby=latest"
+    fi
+}
+
+manga_browse_hot() {
+    if manga_is_nettruyen; then
+        manga_browse_menu "/truyen-tranh-hot" "Truyện hot"
+    else
+        manga_browse_menu "/tim-kiem" "Truyện hot" "m_orderby=trending"
+    fi
+}
+
+manga_browse_views() {
+    if manga_is_nettruyen; then
+        manga_browse_menu "/the-loai/hot" "Truyện đọc nhiều"
+    else
+        manga_browse_menu "/tim-kiem" "Truyện đọc nhiều" "m_orderby=views"
+    fi
+}
+
 manga_genres() {
+    if manga_is_nettruyen; then
+        printf '%s\n' \
+            "🀄 Manga / Nhật Bản|manga" \
+            "🇰🇷 Manhwa / Hàn Quốc|manhwa" \
+            "🇨🇳 Manhua / Trung Quốc|manhua" \
+            "💥 Hành động (Action)|action" \
+            "❤️ Lãng mạn (Romance)|romance" \
+            "😂 Hài hước (Comedy)|comedy" \
+            "🧚 Fantasy|fantasy" \
+            "🎭 Chính kịch (Drama)|drama" \
+            "👻 Kinh dị (Horror)|kinh-di" \
+            "🏫 Học đường (School Life)|school-life" \
+            "⚔️ Shounen|shounen" \
+            "🌈 Webtoon|webtoon" \
+            "🎨 Truyện màu|truyen-mau" \
+            "🌸 Ngôn tình|ngon-tinh" \
+            "🀄 Huyền huyễn|huyen-huyen" \
+            "⏳ Xuyên không|xuyen-khong" \
+            "🔁 Chuyển sinh|chuyen-sinh" \
+            "🏯 Cổ đại|co-dai" \
+            "🥋 Võ thuật (Martial Arts)|martial-arts" \
+            "🍃 Đời thường (Slice of Life)|slice-of-life" \
+            "🔍 Bí ẩn (Mystery)|mystery" \
+            "👁 Siêu nhiên (Supernatural)|sieu-nang-luc" \
+            "💔 Bi kịch (Tragedy)|tragedy" \
+            "⚽ Thể thao (Sports)|sports" \
+            "🕵️ Seinen|seinen" \
+            "👧 Shoujo|shoujo" \
+            "🔞 Mature|mature" \
+            "💗 Đam mỹ|dam-my" \
+            "🌺 Yuri|yuri" \
+            "📖 One Shot|one-shot"
+        return 0
+    fi
     printf '%s\n' \
         "🀄 Manga / Nhật Bản|manga" \
         "🇨🇳 Manhwa / Hàn Quốc|manhwa" \
@@ -3247,20 +3651,31 @@ manga_diagnose() {
     echo "💡 Chẩn đoán nhanh từ dòng lệnh: ./anisub.sh --manga-selftest <slug|URL> (anisub $ANISUB_VERSION)"
     echo ""
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
-    echo "🩺 Chẩn đoán nguồn truyện tranh (TruyenVN)"
+    echo "🩺 Chẩn đoán nguồn truyện tranh ($(manga_source_label))"
     echo "──────────────────────────────────────────────────────────"
     printf '  %s %-7s %s\n' "$(command -v curl > /dev/null 2>&1 && echo ✅ || echo ❌)" "curl" "$(command -v curl > /dev/null 2>&1 && curl --version 2>&1 | head -1 || echo 'không tìm thấy lệnh')"
     printf '  %s %-7s %s\n' "$(command -v perl > /dev/null 2>&1 && echo ✅ || echo ❌)" "perl" "$(command -v perl > /dev/null 2>&1 && perl -v 2>&1 | sed -n '3p' | sed 's/^ *//')"
     printf '  %s %-7s %s\n' "$(command -v fzf > /dev/null 2>&1 && echo ✅ || echo ❌)" "fzf" "$(command -v fzf > /dev/null 2>&1 && fzf --version 2>&1 | head -1 || echo 'không tìm thấy lệnh')"
     printf '  %s %-7s %s\n' "$(command -v chafa > /dev/null 2>&1 && echo ✅ || echo ⚠️)" "chafa" "$(command -v chafa > /dev/null 2>&1 && chafa --version 2>&1 | head -1 || echo 'chưa cài - xem ảnh trong fzf sẽ không có')"
     echo "  Nguồn  : $base"
-    echo "  Tìm kiếm: feeds=${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS} · pages=${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}"
+    if manga_is_nettruyen; then
+        echo "  Trang chủ + thể loại: /, /the-loai/<slug> · ảnh: net.imgchapter.store"
+    else
+        echo "  Tìm kiếm: feeds=${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS} · pages=${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}"
+    fi
     echo
     local html
-    if html=$(manga_http_fetch "/tim-kiem" "m_orderby=latest" "page=1"); then
+    local list_path="/tim-kiem" list_desc="/tim-kiem?m_orderby=latest"
+    if manga_is_nettruyen; then
+        list_path="/"; list_desc="/"
+        html=$(manga_http_fetch "$list_path")
+    else
+        html=$(manga_http_fetch "$list_path" "m_orderby=latest" "page=1")
+    fi
+    if [ -n "$html" ]; then
         local n
         n=$(printf '%s' "$html" | manga_parse_items | grep -c '.')
-        echo "  → ${base}/tim-kiem?m_orderby=latest : HTTP $(anisub_last_http) · parse được $n truyện"
+        echo "  → ${base}${list_desc} : HTTP $(anisub_last_http) · parse được $n truyện"
         if [ "$n" -gt 0 ]; then
             echo "     ✅ còn dùng được (đổi domain khác thì sửa MANGA_BASE_URL)"
             printf '%s\n' "$(printf '%s' "$html" | manga_parse_items | head -3 | cut -d'|' -f1)" | sed 's/^/        · /'
@@ -3269,8 +3684,8 @@ manga_diagnose() {
             echo "       (báo cáo lên repo để cập nhật bộ lọc)"
         fi
     else
-        echo "  ❌ không tải được $base/tim-kiem (HTTP $(anisub_last_http))"
-        echo "     Kiểm tra mạng/proxy hoặc đổi MANGA_BASE_URL sang domain mới của TruyenVN."
+        echo "  ❌ không tải được $base$list_path (HTTP $(anisub_last_http))"
+        echo "     Kiểm tra mạng/proxy, hoặc đổi nguồn/domain trong 📚 Nguồn truyện."
     fi
 
     echo
@@ -3288,10 +3703,10 @@ manga_diagnose() {
         chap_list=$(fetch_chapter_list "$s_url" 2>/dev/null)
         chap_count=$(printf '%s\n' "$chap_list" | grep -c '.')
         if [ "$chap_count" -ge 3 ]; then
-            echo "  ✅ danh sách chapter: $chap_count chapter (API list-chapter OK)"
+            echo "  ✅ danh sách chapter: $chap_count chapter"
         elif [ "$chap_count" -gt 0 ]; then
-            echo "  ⚠️ danh sách chapter chỉ có $chap_count mục - API list-chapter có thể đã đổi"
-            echo "     (web chỉ còn link \"Đọc từ đầu\" + \"Chap mới nhất\")"
+            echo "  ⚠️ danh sách chapter chỉ có $chap_count mục - web có thể đã đổi cấu trúc"
+            echo "     (dùng n/p hoặc Ctrl-G để chuyển chapter nếu thiếu)"
         else
             echo "  ❌ không lấy được chapter nào (HTTP $(anisub_last_http))"
         fi
@@ -3324,9 +3739,27 @@ manga_diagnose() {
 show_manga_settings() {
     local opt inp
     while true; do
-        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
-            | fzf --prompt="📚 Nguồn truyện (TruyenVN) > " --header="TruyenVN: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}")
+        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔁 Đổi nguồn truyện (nettruyen ⇄ truyenvn)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
+            | fzf --prompt="📚 Nguồn truyện ($(manga_source_label)) > " --header="$(manga_source_label): ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}")
         case "$opt" in
+            *"Đổi nguồn truyện"*)
+                clear
+                echo "🔁 ĐỔI NGUỒN TRUYỆN TRANH"
+                echo "  Đang dùng: $(manga_source_label) - ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+                echo ""
+                echo "  1) nettruyen  (https://nettruyen.info)  - mặc định, ảnh nhanh, đủ truyện"
+                echo "  2) truyenvn   (https://truyenvn.my)     - nguồn cũ (cần API chapter)"
+                echo ""
+                read -r -p "Chọn nguồn (1/2, Enter = giữ nguyên): " inp
+                case "${inp:-}" in
+                    1) MANGA_SOURCE="nettruyen"; MANGA_BASE_URL="https://nettruyen.info" ;;
+                    2) MANGA_SOURCE="truyenvn";  MANGA_BASE_URL="https://truyenvn.my" ;;
+                    *) : ;;
+                esac
+                save_config
+                echo "✅ Nguồn: $(manga_source_label) - ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+                sleep 1.2
+                ;;
             *"Kiểm tra nguồn truyện"*)
                 clear
                 manga_diagnose
@@ -3334,9 +3767,11 @@ show_manga_settings() {
             *"Kiểm tra đọc truyện"*)
                 clear
                 local st_target=""
-                printf '🧪 Nhập slug hoặc link truyện (Enter = bocchi-the-rock): '
+                local st_def="bocchi-the-rock"
+                manga_is_nettruyen && st_def="one-piece-dao-hai-tac"
+                printf '🧪 Nhập slug hoặc link truyện (Enter = %s): ' "$st_def"
                 read -r st_target
-                [ -z "$st_target" ] && st_target="bocchi-the-rock"
+                [ -z "$st_target" ] && st_target="$st_def"
                 mkdir -p "$CACHE_DIR" 2>/dev/null
                 manga_selftest "$st_target" 2>&1 | tee "$CACHE_DIR/manga-selftest.txt"
                 echo ""
@@ -3464,13 +3899,15 @@ manga_main_menu() {
                     --preview "'$(manga_cover_preview_script)' {}" --preview-window='right:45%')
                 [ -n "$sel" ] && manga_open_item "$sel"
                 ;;
-            "📖 Truyện mới cập nhật")  manga_browse_menu "/tim-kiem" "Truyện mới cập nhật" "m_orderby=latest" ;;
-            "🔥 Truyện hot")          manga_browse_menu "/tim-kiem" "Truyện hot" "m_orderby=trending" ;;
-            "👀 Truyện đọc nhiều")     manga_browse_menu "/tim-kiem" "Truyện đọc nhiều" "m_orderby=views" ;;
+            "📖 Truyện mới cập nhật")  manga_browse_latest ;;
+            "🔥 Truyện hot")          manga_browse_hot ;;
+            "👀 Truyện đọc nhiều")     manga_browse_views ;;
             "🗂 Theo thể loại")        manga_genre_menu ;;
             "🔗 Mở bằng link / slug")
                 local inp="" slug="" chap=""
-                printf '🔗 Dán link trang truyện (vd %s/truyen-tranh/bocchi-the-rock) hoặc slug: ' "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+                local ex_route="truyen-tranh/bocchi-the-rock"
+                manga_is_nettruyen && ex_route="truyen-one-piece-dao-hai-tac"
+                printf '🔗 Dán link trang truyện (vd %s/%s) hoặc slug: ' "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" "$ex_route"
                 read -r inp
                 inp="${inp#"${inp%%[![:space:]]*}"}"
                 inp="${inp%"${inp##*[![:space:]]}"}"
@@ -3502,9 +3939,11 @@ manga_main_menu() {
                 ;;
             "🧪 Kiểm tra đọc truyện"*)
                 local st_target=""
-                printf '🧪 Nhập slug hoặc link truyện (Enter = bocchi-the-rock): '
+                local st_def="bocchi-the-rock"
+                manga_is_nettruyen && st_def="one-piece-dao-hai-tac"
+                printf '🧪 Nhập slug hoặc link truyện (Enter = %s): ' "$st_def"
                 read -r st_target
-                [ -z "$st_target" ] && st_target="bocchi-the-rock"
+                [ -z "$st_target" ] && st_target="$st_def"
                 mkdir -p "$CACHE_DIR" 2>/dev/null
                 local st_out="$CACHE_DIR/manga-selftest.txt"
                 manga_selftest "$st_target" 2>&1 | tee "$st_out"
@@ -3539,7 +3978,7 @@ main() {
         echo "║                   🎬 Anime & 📚 Manga All-in-One CLI 🎬                      ║"
         echo "╚══════════════════════════════════════════════════════════════════════════════╝"
         echo ""
-        main_opt=$(echo -e "🎬 Xem Anime/Phim (KKPhim)\n🍿 Phim mới cập nhật (KKPhim)\n📚 Đọc Truyện Tranh (TruyenVN)\n📂 Xem từ Local Anidata\n📜 Lịch sử xem Anime\n⭐ Anime yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="🎯 Menu > " --height=50% --reverse --header="🎬 Nguồn phim: $SOURCE_NAME ($KKPHIM_SITE_URL) · API: $KKPHIM_API_URL")
+        main_opt=$(echo -e "🎬 Xem Anime/Phim (KKPhim)\n🍿 Phim mới cập nhật (KKPhim)\n📚 Đọc Truyện Tranh ($(manga_source_label))\n📂 Xem từ Local Anidata\n📜 Lịch sử xem Anime\n⭐ Anime yêu thích\n⚙️ Cài đặt\n🔄 Cập nhật\n🚪 Thoát" | fzf --prompt="🎯 Menu > " --height=50% --reverse --header="🎬 Nguồn phim: $SOURCE_NAME ($KKPHIM_SITE_URL) · API: $KKPHIM_API_URL")
 
         case "$main_opt" in
             "🎬 Xem Anime/Phim (KKPhim)")
@@ -3593,7 +4032,7 @@ fi
 
 if [ "${1:-}" = "--manga-selftest" ]; then
     load_config
-    manga_selftest "${2:-bocchi-the-rock}"
+    manga_selftest "${2:-}"
     exit $?
 fi
 
