@@ -57,6 +57,7 @@ case "$eff" in
     *r.jina.ai*)             body="${MOCK_FIXTURES}/manga-chapter-jina.md" ;;
     *phim.test*master.m3u8*)         body="${MOCK_FIXTURES}/kkphim-master.m3u8" ;;
     *phim.test*live.m3u8*)           body="${MOCK_FIXTURES}/kkphim-live-playlist.m3u8" ;;
+    *phim.test*aesnoiv.m3u8*)        body="${MOCK_FIXTURES}/kkphim-aes-noiv.m3u8" ;;
     *phim.test*index.m3u8*)          body="${MOCK_FIXTURES}/kkphim-ad-playlist.m3u8" ;;
     *nettruyen.info/tim-kiem*)       body="${MOCK_FIXTURES}/nt-search.html" ;;
     *nettruyen.info/the-loai/*)      body="${MOCK_FIXTURES}/nt-search.html" ;;
