@@ -1,5 +1,7 @@
 #!/bin/bash
 
+ANISUB_VERSION="2026.11.09"
+
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
 CONFIG_FILE="$CONFIG_DIR/config.cfg"
@@ -1590,19 +1592,43 @@ manga_http_fetch() {
     for kv in "$@"; do
         [ -n "$kv" ] && opts+=(--data-urlencode "$kv")
     done
+    # Trang chapter của TruyenVN có thể trả bản rút gọn (không có <img>) tùy request.
+    # Vì vậy hỗ trợ nhiều "kiểu request": normal | minimal | bot (xem fetch_chapter_images).
+    local variant="${MANGA_FETCH_VARIANT:-normal}"
+    local ua="$MANGA_USER_AGENT"
+    local referer="${base%/}/"
+    local -a cookie_opts=(-c "$MANGA_COOKIE_JAR" -b "$MANGA_COOKIE_JAR")
+    local -a hdr_opts=(
+        -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+        -H "accept-language: vi,en;q=0.8"
+        -H "sec-fetch-dest: document"
+        -H "sec-fetch-mode: navigate"
+        -H "sec-fetch-site: none"
+        -H "sec-fetch-user: ?1"
+        "${MANGA_BROWSER_HEADERS[@]}"
+    )
+    case "$variant" in
+        minimal)
+            cookie_opts=()
+            referer=""
+            hdr_opts=(-H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            ;;
+        bot)
+            cookie_opts=()
+            referer=""
+            ua="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+            hdr_opts=(-H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            ;;
+    esac
     local tmp status
     tmp=$(mktemp "${TMPDIR:-/tmp}/anisub-manga.XXXXXX" 2>/dev/null) || tmp="${TMPDIR:-/tmp}/anisub-manga.$$.tmp"
+    local -a referer_opt=()
+    [ -n "$referer" ] && referer_opt=(-e "$referer")
     status=$(curl -sS -G -L --compressed --max-time 25 --retry 2 --retry-delay 1 \
-        -A "$MANGA_USER_AGENT" \
-        -c "$MANGA_COOKIE_JAR" -b "$MANGA_COOKIE_JAR" \
-        -H "accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
-        -H "accept-language: vi,en;q=0.8" \
-        -H "sec-fetch-dest: document" \
-        -H "sec-fetch-mode: navigate" \
-        -H "sec-fetch-site: none" \
-        -H "sec-fetch-user: ?1" \
-        "${MANGA_BROWSER_HEADERS[@]}" \
-        -e "${base%/}/" \
+        -A "$ua" \
+        "${cookie_opts[@]}" \
+        "${hdr_opts[@]}" \
+        "${referer_opt[@]}" \
         -o "$tmp" -w '%{http_code}' \
         "${opts[@]}" \
         "${target}" 2>/dev/null)
@@ -2410,25 +2436,13 @@ fetch_chapter_images() {
     local prefer_slug="${2:-}"
     [ -z "$chapter_url" ] && return 1
     rm -f "$ANISUB_MANGA_NAV_FILE" 2>/dev/null   # không dùng link chuyển chap của chapter cũ
-    local html=""
-    if ! html=$(manga_http_fetch "$chapter_url"); then
-        echo "⚠️ Không tải được chapter (HTTP $(anisub_last_http))" >&2
-        return 1
-    fi
-    [ -z "$html" ] && return 1
-    # Nhớ "Chap trước/Chap sau" để reader chuyển chap được kể cả khi thiếu danh sách
-    local nav nav_prev nav_next
-    nav=$(printf '%s' "$html" | manga_parse_nav)
-    if [ -n "$nav" ]; then
-        nav_prev="${nav%%|*}"
-        nav_next="${nav##*|}"
-        [ -n "$nav_prev" ] && nav_prev=$(manga_abs_url "$nav_prev")
-        [ -n "$nav_next" ] && nav_next=$(manga_abs_url "$nav_next")
-        printf '%s|%s\n' "$nav_prev" "$nav_next" > "$ANISUB_MANGA_NAV_FILE" 2>/dev/null
-    fi
-    local found
-    found=$(printf '%s' "$html" | MANGA_PREFER="$prefer_slug" \
-        MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
+    local variant html="" last_html="" found=""
+    for variant in normal minimal bot; do
+        html=$(MANGA_FETCH_VARIANT="$variant" manga_http_fetch "$chapter_url" 2>/dev/null) || html=""
+        [ -z "$html" ] && continue
+        last_html="$html"
+        found=$(printf '%s' "$html" | MANGA_PREFER="$prefer_slug" \
+            MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
         my $doc = $_;
         $doc =~ s{\\+/}{/}g;                       # bỏ escape trong JSON: \/ (hoặc \\/) -> /
         my @cand;
@@ -2477,8 +2491,26 @@ fetch_chapter_images() {
         }
         print "$_\n" for @keep;
     ')
+        [ -n "$found" ] && break
+    done
+    if [ -z "$last_html" ]; then
+        echo "⚠️ Không tải được chapter (HTTP $(anisub_last_http))" >&2
+        return 1
+    fi
+    html="$last_html"
+    # Nhớ "Chap trước/Chap sau" để reader chuyển chap được kể cả khi thiếu danh sách
+    local nav nav_prev nav_next
+    nav=$(printf '%s' "$html" | manga_parse_nav)
+    if [ -n "$nav" ]; then
+        nav_prev="${nav%%|*}"
+        nav_next="${nav##*|}"
+        [ -n "$nav_prev" ] && nav_prev=$(manga_abs_url "$nav_prev")
+        [ -n "$nav_next" ] && nav_next=$(manga_abs_url "$nav_next")
+        printf '%s|%s\n' "$nav_prev" "$nav_next" > "$ANISUB_MANGA_NAV_FILE" 2>/dev/null
+    fi
     if [ -z "$found" ]; then
         manga_debug_dump "$chapter_url" "$html"
+        echo "⚠️ Đã thử 3 kiểu request (normal/minimal/bot) mà không thấy ảnh nào." >&2
     fi
     printf '%s\n' "$found"
 }
@@ -2819,7 +2851,7 @@ manga_selftest() {
     local target="${1:-bocchi-the-rock}"
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🧪 KIỂM TRA ĐỌC TRUYỆN"
-    echo "   nguồn: $base · ảnh: ${MANGA_IMAGE_PROTOCOL:-auto}"
+    echo "   anisub: $ANISUB_VERSION · nguồn: $base · ảnh: ${MANGA_IMAGE_PROTOCOL:-auto}"
     echo ""
 
     local page_url
@@ -3148,7 +3180,7 @@ manga_genre_menu() {
 
 # Kiểm tra nhanh nguồn truyện: kết nối + parse được bao nhiêu mục
 manga_diagnose() {
-    echo "💡 Chẩn đoán nhanh từ dòng lệnh: ./anisub.sh --manga-selftest <slug|URL>"
+    echo "💡 Chẩn đoán nhanh từ dòng lệnh: ./anisub.sh --manga-selftest <slug|URL> (anisub $ANISUB_VERSION)"
     echo ""
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🩺 Chẩn đoán nguồn truyện tranh (TruyenVN)"
@@ -3306,12 +3338,12 @@ manga_main_menu() {
         echo "║      ██║   ██║  ██║╚██████╔╝   ██║   ███████╗██║ ╚████║ ╚████╔╝ ██║ ╚████║   ║"
         echo "║      ╚═╝   ╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═══╝  ╚═══╝  ╚═╝  ╚═══╝   ║"
         echo "║                    📚 MANGA READER · TruyenVN 📚                             ║"
-        echo "║                  ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}                                        ║"
+        printf "║  v%-10s %-62s║\n" "$ANISUB_VERSION" "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
         echo "║                                                                              ║"
         echo "╚══════════════════════════════════════════════════════════════════════════════╝"
         echo ""
 
-        main_opt=$(echo -e "🔍 Tìm kiếm truyện tranh\n📖 Truyện mới cập nhật\n🔥 Truyện hot\n👀 Truyện đọc nhiều\n🗂 Theo thể loại\n🔗 Mở bằng link / slug\n📜 Lịch sử đọc\n⭐ Truyện yêu thích\n🔙 Quay lại Menu Chính" | \
+        main_opt=$(echo -e "🔍 Tìm kiếm truyện tranh\n📖 Truyện mới cập nhật\n🔥 Truyện hot\n👀 Truyện đọc nhiều\n🗂 Theo thể loại\n🔗 Mở bằng link / slug\n📜 Lịch sử đọc\n⭐ Truyện yêu thích\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔙 Quay lại Menu Chính" | \
             fzf --prompt="📚 Menu > " --height=45% --reverse \
                 --header="Nguồn truyện: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL} · tìm kiếm = tải danh sách rồi lọc theo từ khóa")
 
@@ -3375,6 +3407,20 @@ manga_main_menu() {
                 local fline
                 fline=$(show_manga_favorites) || continue
                 manga_read_manga "$(printf '%s' "$fline" | cut -d'|' -f1)" "$(printf '%s' "$fline" | cut -d'|' -f2)"
+                ;;
+            "🧪 Kiểm tra đọc truyện"*)
+                local st_target=""
+                printf '🧪 Nhập slug hoặc link truyện (Enter = bocchi-the-rock): '
+                read -r st_target
+                [ -z "$st_target" ] && st_target="bocchi-the-rock"
+                mkdir -p "$CACHE_DIR" 2>/dev/null
+                local st_out="$CACHE_DIR/manga-selftest.txt"
+                manga_selftest "$st_target" 2>&1 | tee "$st_out"
+                echo ""
+                echo "📄 Đã lưu kết quả vào: $st_out"
+                echo "   (gửi nội dung file này khi báo lỗi để được hỗ trợ nhanh)"
+                echo "Nhấn Enter để quay lại menu truyện..."
+                read -r _
                 ;;
             "🔙 Quay lại"*) return 0 ;;
             *)              return 0 ;;
@@ -3448,6 +3494,11 @@ if [ -n "${ANISUB_HELPER:-}" ]; then
 fi
 
 # Chẩn đoán luồng đọc từ dòng lệnh: ./anisub.sh --manga-selftest [slug|URL]
+if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+    echo "anisub $ANISUB_VERSION"
+    exit 0
+fi
+
 if [ "${1:-}" = "--manga-selftest" ]; then
     load_config
     manga_selftest "${2:-bocchi-the-rock}"
