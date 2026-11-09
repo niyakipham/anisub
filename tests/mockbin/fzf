@@ -3,6 +3,7 @@
 # KK_MOCK_FZF_MODE: new (mặc định, có reload:) | old (không có reload:) | err (lỗi tham số)
 mode="${KK_MOCK_FZF_MODE:-new}"
 prompt=""
+expect=""
 for a in "$@"; do
     case "$a" in
         --help)
@@ -16,6 +17,7 @@ for a in "$@"; do
             if [ "$mode" = "old" ]; then printf '0.17.5 (1)\n'; else printf '0.48.1 (1)\n'; fi
             exit 0 ;;
         --prompt=*) prompt="${a#--prompt=}" ;;
+        --expect=*) expect=1 ;;
     esac
 done
 if [ "$mode" = "old" ]; then
@@ -37,4 +39,5 @@ case "$prompt" in
     *"thể loại"*)         pick="${KK_MOCK_PICK_CAT:-1}" ;;
     *"Menu >"*)            pick="${KK_MOCK_PICK_MENU:-1}" ;;
 esac
+[ -n "$expect" ] && [ "${KK_MOCK_FZF_NO_KEYLINE:-0}" != "1" ] && printf '%s\n' "${KK_MOCK_FZF_KEY:-}"   # --expect: phím bấm ở dòng đầu (Enter = rỗng)
 printf '%s\n' "$input" | sed -n "${pick}p"
