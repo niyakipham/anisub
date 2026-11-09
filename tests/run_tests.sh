@@ -731,7 +731,7 @@ cp "$ROOT/anisub.sh" "$WORK/solo2/"
 ( cd "$WORK/solo2" && ANISUB_SRC_DIR="" HOME="$WORK/home-solo2" PATH="$HERE/mockbin:$PATH" \
   timeout 30 bash ./anisub.sh --doctor > "$WORK/solo2.txt" 2>&1 )
 check "thiếu src + không tải được -> mã thoát 1" "1" "$?"
-has "nói rõ cần thư mục src/" "cần thư mục src/" "$(cat "$WORK/solo2.txt")"
+has "nói rõ cần bộ nguồn src/" "Không có bộ file nguồn src/ dùng được" "$(cat "$WORK/solo2.txt")"
 has "có hướng dẫn git clone" "git clone https://github.com/NiyakiPham/anisub.git" "$(cat "$WORK/solo2.txt")"
 check "không tạo src/ rỗng khi tải thất bại" "0" "$([ -d "$WORK/solo2/src" ] && echo 1 || echo 0)"
 
@@ -770,7 +770,9 @@ mkdir -p "$WORK/badsrc/movie" "$WORK/badsrc/comic" "$WORK/goodsrc/movie" "$WORK/
 printf '#!/bin/bash\necho phim\n' > "$WORK/badsrc/movie/kkphim.sh"
 printf 'this is not ( valid bash\n' > "$WORK/badsrc/comic/core.sh"
 printf '#!/bin/bash\necho phim\n' > "$WORK/goodsrc/movie/kkphim.sh"
-printf 'manga_main_menu() { echo ok; }\n' > "$WORK/goodsrc/comic/core.sh"
+{ for fn in manga_source_label manga_main_menu fetch_chapter_list kkphim_search_menu kkphim_browse_menu; do
+      printf '%s() { :; }\n' "$fn"
+  done; } > "$WORK/goodsrc/comic/core.sh"
 ( ANISUB_SRC_DIR="$WORK/badsrc" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; ANISUB_SOURCES_OK=0
     ANISUB_SRC_DIR='$WORK/badsrc'; SCRIPT_DIR='$WORK/goodroot'; mkdir -p '$WORK/goodroot'; cp -R '$WORK/goodsrc' '$WORK/goodroot/src'
     anisub_ensure_sources >/dev/null 2>&1; echo \"rc=\$? src=\$ANISUB_SRC_DIR ok=\$ANISUB_SOURCES_OK\"" ) > "$WORK/ens-a.txt" 2>&1
@@ -818,6 +820,93 @@ has "log có ghi fzf trả rỗng" "fzf trả về [<rỗng>]" "$(cat "$WORK/hom
 has "doctor in môi trường (bash/fzf/TERM)" "🐚 Môi trường: bash" "$(cat "$WORK/cm/doctor.txt")"
 has "doctor kiểm tra hàm chính" "🧭 Hàm chính" "$(cat "$WORK/cm/doctor.txt")"
 has "doctor in log gần nhất" "log gần nhất" "$(cat "$WORK/cm/doctor.txt")"
+
+echo "== 37. lỗi 'manga_source_label: command not found' (src/ thiếu comic/) =="
+# (a) src/ chỉ có movie/ + không mạng -> KHÔNG lộ "command not found", báo rõ
+mkdir -p "$WORK/movieonly/src/movie" "$WORK/home-mo"
+cp "$ROOT/anisub.sh" "$WORK/movieonly/"
+cp "$ROOT/src/movie/"*.sh "$WORK/movieonly/src/movie/"
+( cd "$WORK/movieonly" && ANISUB_SRC_DIR="" HOME="$WORK/home-mo" PATH="$HERE/mockbin:$PATH" \
+  timeout 30 bash ./anisub.sh > "$WORK/mo.txt" 2>&1 )
+check "không in 'command not found' khi thiếu comic/" "0" "$(grep -c 'command not found' "$WORK/mo.txt")"
+has "báo rõ thiếu bộ nguồn" "Không có bộ file nguồn src/ dùng được" "$(cat "$WORK/mo.txt")"
+has "vẫn chỉ cách sửa" "git clone https://github.com/NiyakiPham/anisub.git" "$(cat "$WORK/mo.txt")"
+
+# (b) src/ chỉ có movie/ + có mạng -> tự tải về đủ comic/ rồi chạy được
+( cd "$WORK/movieonly" && ANISUB_SRC_DIR="" HOME="$WORK/home-mo" MOCK_UPDATE_TARBALL="$WORK/anisub-main.tar.gz" \
+  PATH="$HERE/mockbin:$PATH" timeout 40 bash ./anisub.sh --doctor > "$WORK/mo2.txt" 2>&1 )
+has "tự tải lại bộ nguồn đầy đủ" "Đã tải bộ file nguồn" "$(cat "$WORK/mo2.txt")"
+check "có lại core.sh" "1" "$([ -f "$WORK/movieonly/src/comic/core.sh" ] && echo 1 || echo 0)"
+has "doctor xác nhận đủ hàm chính" "✅ đủ (main, manga_main_menu, fetch_chapter_list, kkphim_search_menu)" "$(cat "$WORK/mo2.txt")"
+check "không còn 'command not found'" "0" "$(grep -c 'command not found' "$WORK/mo2.txt")"
+
+# (c) comic/ có file nhưng nạp thiếu hàm -> nói rõ thiếu hàm nào, không ghi đè
+mkdir -p "$WORK/partial/src/movie" "$WORK/partial/src/comic" "$WORK/home-pa"
+cp "$ROOT/src/movie/"*.sh "$WORK/partial/src/movie/"
+printf 'manga_main_menu() { :; }\n' > "$WORK/partial/src/comic/core.sh"
+( ANISUB_SRC_DIR=/khong/co bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; ANISUB_SRC_DIR='$WORK/partial/src'
+   anisub_load_sources '$WORK/partial/src'; echo rc=\$?" ) > "$WORK/pa.txt" 2>&1
+has "nói rõ nạp thiếu hàm nào" "nạp thiếu:" "$(cat "$WORK/pa.txt")"
+has "liệt kê hàm thiếu" "fetch_chapter_list" "$(cat "$WORK/pa.txt")"
+has "chỉ đúng thư mục comic/" "comic/" "$(cat "$WORK/pa.txt")"
+check "load_sources trả lỗi" "rc=1" "$(grep '^rc=' "$WORK/pa.txt")"
+has "không ghi đè file comic/ hỏng" "manga_main_menu() { :; }" "$(cat "$WORK/partial/src/comic/core.sh")"
+
+# (d) nhãn nguồn truyện luôn gọi được (menu chính không vỡ khi chưa nạp module)
+( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; unset -f manga_source_label; \
+   manga_source_label() { printf '%s' \"\${MANGA_SOURCE:-\${DEFAULT_MANGA_SOURCE:-nettruyen}}\"; }; \
+   echo \$(manga_source_label)" ) > "$WORK/label.txt" 2>&1
+has "có hàm nhãn nguồn dự phòng" "nettruyen" "$(cat "$WORK/label.txt")"
+check "file thật có khai báo hàm nhãn dự phòng" "1" "$(grep -c '^manga_source_label() {' "$ROOT/anisub.sh")"
+
+echo "== 38. e-hentai HTTP 000: nói đúng nguyên nhân + cho đổi nguồn ngay =="
+# (a) URL in ra phải đầy đủ (không còn '/?f_search=...' trơ trọi)
+( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=ehentai; MANGA_BASE_URL=https://e-hentai.org
+    eh_full_url '/?f_search=language:vietnamese&f_srdd=4'" ) > "$WORK/eh38a.txt" 2>&1
+check "in URL e-hentai đầy đủ" "https://e-hentai.org/?f_search=language:vietnamese&f_srdd=4" "$(tail -1 "$WORK/eh38a.txt")"
+
+# (b) không kết nối được -> nêu nguyên nhân theo mã lỗi curl
+( CACHE_DIR="$WORK/c38" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    echo '--6--';   manga_net_hint 'https://nettruyen.info' 6
+    echo '--28--';  manga_net_hint 'https://nettruyen.info' 28
+    echo '--35--';  manga_net_hint 'https://nettruyen.info' 35
+    echo '--eh--';  manga_net_hint 'https://e-hentai.org' 7" ) > "$WORK/eh38b.txt" 2>&1
+has "mã 6 -> gợi ý DNS/VPN" "Không phân giải được tên miền" "$(cat "$WORK/eh38b.txt")"
+has "mã 28 -> gợi ý timeout" "Quá thời gian chờ" "$(cat "$WORK/eh38b.txt")"
+has "mã 35 -> gợi ý TLS" "Lỗi TLS/SSL" "$(cat "$WORK/eh38b.txt")"
+has "e-hentai -> cảnh báo nhà mạng VN chặn" "nhà mạng Việt Nam chặn" "$(cat "$WORK/eh38b.txt")"
+
+# (c) eh_browse_menu: in URL đầy đủ + HTTP 000 + gợi ý, Enter thì quay lại (giữ nguồn)
+mkdir -p "$WORK/home-eh38"
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-eh38" MOCK_FIXTURES="$HERE/fixtures" PHYS="$PATH" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=ehentai; MANGA_BASE_URL='https://manga-offline.test'
+    eh_browse_menu '/?f_search=language:vietnamese&f_srdd=4' 'test' <<< ''
+    echo \"rc=\$? src=\$MANGA_SOURCE\"" ) > "$WORK/eh38c.txt" 2>&1
+has "báo đúng URL đang tải" "Đang tải: https://manga-offline.test/?f_search=language:vietnamese&f_srdd=4" "$(cat "$WORK/eh38c.txt")"
+has "báo HTTP 000" "(HTTP 000)" "$(cat "$WORK/eh38c.txt")"
+has "gợi ý theo mã lỗi curl" "Không phân giải được tên miền" "$(cat "$WORK/eh38c.txt")"
+has "Enter -> quay lại, giữ nguyên nguồn" "rc=1 src=ehentai" "$(cat "$WORK/eh38c.txt")"
+
+# (d) bấm 1 -> chuyển sang nettruyen ngay tại chỗ (lưu cấu hình luôn)
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-eh38" MOCK_FIXTURES="$HERE/fixtures" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=ehentai; MANGA_BASE_URL='https://manga-offline.test'
+    eh_browse_menu '/?f_search=language:vietnamese&f_srdd=4' 'test' <<< '1'
+    echo \"rc=\$? src=\$MANGA_SOURCE base=\$MANGA_BASE_URL\"" ) > "$WORK/eh38d.txt" 2>&1
+has "bấm 1 -> đổi sang nettruyen" "rc=2 src=nettruyen base=https://nettruyen.info" "$(cat "$WORK/eh38d.txt")"
+has "gợi ý đổi nguồn được in ra" "chuyển sang nettruyen" "$(cat "$WORK/eh38d.txt")"
+has "đã lưu cấu hình mới" 'MANGA_SOURCE="nettruyen"'  "$(cat "$WORK/home-eh38/.config/anisub_cli/config.cfg" 2>/dev/null)"
+
+# (e) mã lỗi curl được ghi lại để chẩn đoán đọc được
+( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=ehentai; MANGA_BASE_URL='https://manga-offline.test'
+    eh_fetch '/' >/dev/null 2>&1; echo \"http=\$(anisub_last_http) curl=\$(anisub_last_curl_err)\"" ) > "$WORK/eh38e.txt" 2>&1
+check "ghi lại mã lỗi curl" "http=000 curl=6" "$(tail -1 "$WORK/eh38e.txt")"
+
+# (f) lưu cấu hình phải tự tạo thư mục (trước đây mất im lặng nếu ~/.config/anisub_cli chưa có)
+( HOME="$WORK/home-sc38" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=nettruyen; save_config >/dev/null 2>&1; \
+    echo \"exists=\$([ -f '$WORK/home-sc38/.config/anisub_cli/config.cfg' ] && echo 1 || echo 0)\"" ) > "$WORK/eh38f.txt" 2>&1
+check "save_config tự tạo thư mục cấu hình" "exists=1" "$(tail -1 "$WORK/eh38f.txt")"
 
 
 echo

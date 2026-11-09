@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.10d"
+ANISUB_VERSION="2026.11.10e"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -183,6 +183,11 @@ load_config() {
     touch "$HISTORY_FILE" "$FAVORITES_FILE" "$MANGA_HISTORY_FILE" "$MANGA_FAVORITES_FILE"
 }
 save_config() {
+    # Bảo đảm có thư mục cấu hình (lần đầu chạy / người dùng vừa xoá ~/.config/anisub_cli)
+    if ! mkdir -p "$CONFIG_DIR" 2>/dev/null; then
+        echo "⚠️ Không tạo được thư mục cấu hình: $CONFIG_DIR" >&2
+        return 1
+    fi
     # Ghi có dấu ngoặc kép để đường dẫn có khoảng trắng vẫn source lại được
     {
         echo "PLAYER=\"$PLAYER\""
@@ -205,7 +210,10 @@ save_config() {
         echo "KKPHIM_SEARCH_LIMIT=\"$KKPHIM_SEARCH_LIMIT\""
         echo "KKPHIM_DETAIL_TTL=\"$KKPHIM_DETAIL_TTL\""
         echo "KKPHIM_SERVER_PREF=\"$KKPHIM_SERVER_PREF\""
-    } > "$CONFIG_FILE"
+    } > "$CONFIG_FILE" 2>/dev/null || {
+        echo "⚠️ Không ghi được cấu hình: $CONFIG_FILE" >&2
+        return 1
+    }
     echo "Cấu hình đã được lưu."
     sleep 1
 }
@@ -317,6 +325,9 @@ show_favorites() {
 # lặng). Ghi ra file tạm nữa vì hàm API thường được gọi trong $(...) - biến toàn
 # cục thay đổi trong subshell sẽ mất ở shell cha, còn file thì vẫn đọc được.
 ANISUB_STATUS_FILE="${TMPDIR:-/tmp}/anisub-kkhttp.$$"
+# Mã thoát của curl ở lần tải HTML gần nhất (6 DNS, 7 không kết nối, 28 timeout,
+# 35/60 TLS...) -> để báo đúng nguyên nhân thay vì chỉ "HTTP 000" chung chung.
+ANISUB_CURL_ERR_FILE="${ANISUB_STATUS_FILE}.curl"
 KKPHIM_HTTP_STATUS="000"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -359,6 +370,16 @@ anisub_find_src() {
     return 1
 }
 
+# Hàm bắt buộc phải có SAU khi nạp module. Thiếu = bộ nguồn thiếu/hỏng file
+# (lỗi kinh điển: src/ chỉ có movie/ nên menu in "manga_source_label: command not found").
+ANISUB_REQUIRED_FUNCS="manga_source_label manga_main_menu fetch_chapter_list kkphim_search_menu kkphim_browse_menu"
+
+# Dự phòng: nếu module truyện chưa nạp được, menu chính vẫn hiển thị được bình
+# thường và bấm vào sẽ báo lỗi rõ ràng (không lộ "command not found" ra màn hình).
+manga_source_label() {
+    printf '%s' "${MANGA_SOURCE:-${DEFAULT_MANGA_SOURCE:-nettruyen}}"
+}
+
 # Nạp mọi module nguồn trong 1 thư mục src/ (movie/ trước, comic/ sau).
 anisub_load_sources() {
     local root="${1:-${ANISUB_SRC_DIR:-$SCRIPT_DIR/src}}"
@@ -372,7 +393,19 @@ anisub_load_sources() {
             found=$((found + 1))
         done
     done
-    [ "$found" -gt 0 ]
+    [ "$found" -gt 0 ] || return 1
+
+    local fn miss=""
+    for fn in $ANISUB_REQUIRED_FUNCS; do
+        declare -F "$fn" > /dev/null 2>&1 || miss="$miss $fn"
+    done
+    if [ -n "$miss" ]; then
+        echo "❌ Bộ nguồn trong $root nạp thiếu:$miss" >&2
+        echo "   Thường do thiếu/hỏng file trong $root/comic/ (cần core.sh, nettruyen.sh, truyenvn.sh, ehentai.sh)" >&2
+        echo "   Đang có: $(ls "$root"/comic/*.sh 2>/dev/null | xargs -r -n1 basename 2>/dev/null | tr '\n' ' ')" >&2
+        return 1
+    fi
+    return 0
 }
 
 # Tải bộ file nguồn (src/) từ GitHub về $1 (mặc định: cạnh script).
@@ -382,8 +415,8 @@ anisub_fetch_sources() {
     [ -z "$dest" ] && return 1
     tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/anisub-src.XXXXXX" 2>/dev/null) || return 1
     archive="$tmpdir/anisub.tar.gz"
-    echo "⏳ Chưa có thư mục src/ — đang tải bộ file nguồn từ GitHub..."
-    if ! curl -fsSL --max-time 60 -o "$archive" "$UPDATE_REPO_URL" 2>/dev/null; then
+    echo "⏳ Chưa có thư mục src/ — đang tải bộ file nguồn từ GitHub (~28MB, chờ chút)..."
+    if ! curl -fsSL --max-time 180 -o "$archive" "$UPDATE_REPO_URL" 2>/dev/null; then
         rm -rf "$tmpdir"
         return 1
     fi
@@ -457,7 +490,7 @@ anisub_ensure_sources() {
         fi
     done
 
-    echo "❌ anisub cần thư mục src/ (movie/ + comic/) nhưng không tìm thấy và cũng không tải được."
+    echo "❌ Không có bộ file nguồn src/ dùng được (cần cả movie/ và comic/)."
     echo ""
     echo "   Đã tìm ở : ${SCRIPT_DIR}/src"
     echo "              ${CONFIG_DIR}/src"
@@ -545,8 +578,8 @@ update_script() {
         return 1
     fi
     archive="$tmpdir/anisub.tar.gz"
-    echo "⏳ Đang tải bản mới từ GitHub..."
-    if ! curl -fsSL --max-time 90 -o "$archive" "$UPDATE_REPO_URL"; then
+    echo "⏳ Đang tải bản mới từ GitHub (~28MB)..."
+    if ! curl -fsSL --max-time 180 -o "$archive" "$UPDATE_REPO_URL"; then
         echo "❌ Không tải được bản mới (mạng lỗi hoặc GitHub chặn). Thử lại sau."
         rm -rf "$tmpdir"
         sleep 2
@@ -685,7 +718,7 @@ anisub_need_module() {
 
 # --- MAIN LOGIC ---
 main() {
-    trap 'rm -f "$ANISUB_STATUS_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
+    trap 'rm -f "$ANISUB_STATUS_FILE" "$ANISUB_CURL_ERR_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
     check_dependencies
     load_config
 

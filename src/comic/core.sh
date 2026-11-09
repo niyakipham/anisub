@@ -20,6 +20,32 @@ anisub_last_http() {
     printf '%s' "${s:-000}"
 }
 
+# Mã lỗi curl của lần tải gần nhất (đọc xuyên subshell qua file)
+anisub_last_curl_err() {
+    if [ -r "${ANISUB_CURL_ERR_FILE:-}" ]; then
+        head -c 3 "$ANISUB_CURL_ERR_FILE" 2>/dev/null
+    fi
+}
+
+# Gợi ý sửa cụ thể khi KHÔNG kết nối được (HTTP 000). $1 = URL/host, $2 = mã lỗi curl
+manga_net_hint() {
+    local target="${1:-}" err="${2:-}"
+    case "$err" in
+        6)     echo "   → Không phân giải được tên miền (DNS). Thử DNS 1.1.1.1 / 8.8.8.8, hoặc bật VPN." ;;
+        7)     echo "   → Không mở được kết nối tới máy chủ (mạng chặn / site chết). Thử VPN hoặc mạng khác." ;;
+        28)    echo "   → Quá thời gian chờ (mạng chậm, hoặc bị chặn ngầm). Thử VPN hoặc mạng khác." ;;
+        35|60) echo "   → Lỗi TLS/SSL (thường do nhà mạng/proxy can thiệp chứng chỉ). Bật VPN rồi thử lại." ;;
+        5|56)  echo "   → Lỗi qua proxy (kiểm tra biến https_proxy/http_proxy) hoặc kết nối bị cắt giữa đường." ;;
+        "")    ;;
+        *)     echo "   → curl lỗi mã $err khi kết nối tới $target." ;;
+    esac
+    case "$target" in
+        *e-hentai.org*|*exhentai.org*)
+            echo "   → e-hentai/exhentai hay bị nhà mạng Việt Nam chặn: bật VPN hoặc đổi DNS,"
+            echo "     hoặc đọc truyện tranh thường bằng nguồn nettruyen/truyenvn." ;;
+    esac
+}
+
 # Gọi 1 URL của TruyenVN, in nội dung ra stdout (lỗi -> return 1).
 # Tham số 2+ dạng key=value được curl -G --data-urlencode tự mã hoá.
 manga_http_fetch() {
@@ -72,7 +98,7 @@ manga_http_fetch() {
         retry_opt=(--retry 0)
         max_time=15
     fi
-    status=$(curl -sS -G -L --compressed --max-time "$max_time" "${retry_opt[@]}" \
+    status=$(curl -sS -G -L --compressed --connect-timeout 10 --max-time "$max_time" "${retry_opt[@]}" \
         -A "$ua" \
         "${cookie_opts[@]}" \
         "${hdr_opts[@]}" \
@@ -80,8 +106,10 @@ manga_http_fetch() {
         -o "$tmp" -w '%{http_code}' \
         "${opts[@]}" \
         "${target}" 2>/dev/null)
+    local curl_rc=$?
     MANGA_HTTP_STATUS="${status:-000}"
     printf '%s' "$MANGA_HTTP_STATUS" > "$ANISUB_STATUS_FILE" 2>/dev/null || true
+    printf '%s' "$curl_rc" > "${ANISUB_CURL_ERR_FILE:-/dev/null}" 2>/dev/null || true
     case "$MANGA_HTTP_STATUS" in
         2??)
             if [ -s "$tmp" ]; then
@@ -124,8 +152,10 @@ manga_http_post() {
         --data "$body" \
         -o "$tmp" -w '%{http_code}' \
         "$target" 2>/dev/null)
+    local curl_rc=$?
     MANGA_HTTP_STATUS="${status:-000}"
     printf '%s' "$MANGA_HTTP_STATUS" > "$ANISUB_STATUS_FILE" 2>/dev/null || true
+    printf '%s' "$curl_rc" > "${ANISUB_CURL_ERR_FILE:-/dev/null}" 2>/dev/null || true
     case "$MANGA_HTTP_STATUS" in
         2??)
             if [ -s "$tmp" ]; then
@@ -1686,6 +1716,9 @@ manga_diagnose() {
         fi
     else
         echo "  ❌ không tải được $base$list_path (HTTP $(anisub_last_http))"
+        if [ "$(anisub_last_http)" = "000" ]; then
+            manga_net_hint "$base" "$(anisub_last_curl_err)" | sed 's/^/  /'
+        fi
         echo "     Kiểm tra mạng/proxy, hoặc đổi nguồn/domain trong 📚 Nguồn truyện."
     fi
 
