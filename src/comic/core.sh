@@ -1031,6 +1031,10 @@ EOF
     # 3. Tải trước vài trang đầu để preview hiện ngay
     prefetch_chapter_images "$cache_dir" "${images[@]}" >/dev/null 2>&1 &
     local prefetch_pid=$!
+    # Dọn dẹp khi thoát, nhưng phải KHÔI PHỤC trap cũ ngay sau đó: trap EXIT toàn cục
+    # giữ PID/cache cũ, lần xem sau có thể kill nhầm tiến trình khác hoặc xoá nhầm cache.
+    local old_exit_trap
+    old_exit_trap=$(trap -p EXIT)
     trap "rm -rf '$cache_dir'; kill $prefetch_pid 2>/dev/null" EXIT
 
     # 4. Danh sách trang cho fzf
@@ -1051,9 +1055,14 @@ EOF
         --bind "ctrl-c:abort" \
         --bind "esc:abort"
 
-    # 5. Dọn cache
+    # 5. Dọn cache + trả lại trap cũ
     kill "$prefetch_pid" 2>/dev/null
     rm -rf "$cache_dir"
+    if [ -n "$old_exit_trap" ]; then
+        eval "$old_exit_trap"
+    else
+        trap - EXIT
+    fi
 }
 
 # --- READ MANGA CHAPTER (Continuous Scroll) ---
@@ -1633,9 +1642,11 @@ manga_genre_menu() {
 }
 
 # Kiểm tra nhanh nguồn truyện: kết nối + parse được bao nhiêu mục
+# $1 = "--no-pause" nếu gọi từ --doctor (không chờ Enter)
 manga_diagnose() {
+    local pause="${1:-}"
     if manga_is_ehentai; then
-        eh_diagnose
+        eh_diagnose "$pause"
         return $?
     fi
     echo "💡 Chẩn đoán nhanh từ dòng lệnh: ./anisub.sh --manga-selftest <slug|URL> (anisub $ANISUB_VERSION)"
@@ -1720,8 +1731,10 @@ manga_diagnose() {
     fi
     echo "  Giao thức vẽ ảnh: $(manga_image_protocol) (đổi trong 📚 Nguồn truyện → Kiểu hiển thị ảnh)"
     echo "──────────────────────────────────────────────────────────"
-    printf 'Nhấn Enter để quay lại... '
-    read -r _
+    if [ "$pause" != "--no-pause" ]; then
+        printf 'Nhấn Enter để quay lại... '
+        read -r _ || true
+    fi
     return 0
 }
 
