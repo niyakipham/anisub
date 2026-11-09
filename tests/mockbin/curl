@@ -65,7 +65,9 @@ esac
 # Tải ảnh (không có -w): ghi file giả rồi thoát
 if [ -z "$wmode" ]; then
     if [ -n "$out" ]; then
-        if [ "${MOCK_IMG_FORBIDDEN:-0}" = "1" ]; then
+        if [ "${MOCK_IMG_NEED_REFERER:-0}" = "1" ] && [ -z "$referer" ]; then
+            printf '<html><body>403 Forbidden (cần Referer)</body></html>' > "$out"
+        elif [ "${MOCK_IMG_FORBIDDEN:-0}" = "1" ]; then
             printf '<html><body>403 Forbidden</body></html>' > "$out"   # CDN chặn
         else
             printf '\xff\xd8\xff\xe0fake-jpg-bytes' > "$out"

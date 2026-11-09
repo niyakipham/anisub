@@ -65,6 +65,9 @@ MANGA_STORY_COVER=""      # ảnh bìa lấy được từ trang truyện gần 
 # API chặn nếu thiếu phiên: CSRF token chỉ đúng khi gửi kèm cookie của chính trang
 # vừa tải (laravel_session), nên mọi request tới web phải dùng chung 1 cookie jar.
 MANGA_COOKIE_JAR="${TMPDIR:-/tmp}/anisub-manga-cookies.$$"
+# "Chap trước|Chap sau" của chapter đang đọc (fetch_chapter_images ghi ra) - dùng khi
+# danh sách chapter bị thiếu để vẫn chuyển chap được.
+ANISUB_MANGA_NAV_FILE="${TMPDIR:-/tmp}/anisub-manga-nav.$$"
 
 # --- DEFAULTS ---
 DEFAULT_PLAYER="mpv"
@@ -1904,14 +1907,63 @@ manga_download_image() {
     [ -z "$url" ] || [ -z "$dest" ] && return 1
     local tmp="${dest}.part"
     rm -f "$tmp" 2>/dev/null
+    # Lần 1: KHÔNG Referer (CDN của TruyenVN - imggo.net - trả 403 nếu có Referer)
     curl -fsSL --compressed --max-time 30 --retry 2 --retry-delay 1 \
         -A "$MANGA_USER_AGENT" \
         -o "$tmp" "$url" >/dev/null 2>&1
     if [ "$(manga_file_is_image "$tmp")" = "1" ]; then
         mv "$tmp" "$dest" 2>/dev/null && return 0
     fi
+    # Lần 2: có Referer (một số mirror/CDN lại bắt buộc) - nhận cái nào ra ảnh thật
+    rm -f "$tmp" 2>/dev/null
+    curl -fsSL --compressed --max-time 30 --retry 1 --retry-delay 1 \
+        -A "$MANGA_USER_AGENT" \
+        -e "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}/" \
+        -o "$tmp" "$url" >/dev/null 2>&1
+    if [ "$(manga_file_is_image "$tmp")" = "1" ]; then
+        mv "$tmp" "$dest" 2>/dev/null && return 0
+    fi
     rm -f "$tmp" 2>/dev/null
     return 1
+}
+
+# HTML trang chapter (stdin) -> "prev|next": link "Chap trước" / "Chap sau".
+# Trang chapter được render ở server nên đây là đường dự phòng khi API danh sách
+# chapter hỏng: vẫn chuyển được chap mà không cần danh sách đầy đủ.
+manga_parse_nav() {
+    MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
+        my $base = $ENV{MANGA_BASE_URL} // ""; $base =~ s{/$}{};
+        my ($prev, $next) = ("", "");
+        while (/<a\b([^>]*)>(.*?)<\/a>/gs) {
+            my ($attrs, $inner) = ($1, $2);
+            my ($href) = $attrs =~ /href\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27|([^\s">]+))/;
+            next unless defined $href && length $href;
+            $href =~ s/&amp;/&/g;
+            $href = "https:$href" if $href =~ m{^//};
+            $href = "$base$href" if $href =~ m{^/};
+            my $txt = $inner;
+            $txt =~ s/<[^>]*>/ /g;
+            $txt =~ s/&nbsp;/ /g;
+            $txt =~ s/\s+/ /g;
+            $txt =~ s/^[^A-Za-zÀ-ỹ]+//;                 # bỏ « ‹ ← ở đầu
+            $txt =~ s/\s+$//;
+            my ($rel) = $attrs =~ /rel\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27)/ ? ($1 // $2) : "";
+            $rel = "" unless defined $rel;
+            if (!length $prev && ($rel =~ /\bprev\b/i || $txt =~ /^(chap\s*)?(tr(?:ư|u)(?:ớ|o)c|prev(?:ious)?|back)\b/i)) {
+                $prev = $href;
+            }
+            if (!length $next && ($rel =~ /\bnext\b/i || $txt =~ /^(chap\s*)?(sau|ti(?:ế|e)p|next)\b/i)) {
+                $next = $href;
+            }
+        }
+        print "$prev|$next";
+    ' 2>/dev/null
+}
+
+# Đọc "Chap trước|Chap sau" đã lưu của chapter vừa tải
+manga_saved_nav() {
+    [ -s "$ANISUB_MANGA_NAV_FILE" ] && cat "$ANISUB_MANGA_NAV_FILE"
+    return 0
 }
 
 # Sinh (1 lần) script preview ảnh bìa cho fzf, in ra đường dẫn script.
@@ -2340,12 +2392,23 @@ fetch_chapter_images() {
     local chapter_url="$1"
     local prefer_slug="${2:-}"
     [ -z "$chapter_url" ] && return 1
+    rm -f "$ANISUB_MANGA_NAV_FILE" 2>/dev/null   # không dùng link chuyển chap của chapter cũ
     local html=""
     if ! html=$(manga_http_fetch "$chapter_url"); then
         echo "⚠️ Không tải được chapter (HTTP $(anisub_last_http))" >&2
         return 1
     fi
     [ -z "$html" ] && return 1
+    # Nhớ "Chap trước/Chap sau" để reader chuyển chap được kể cả khi thiếu danh sách
+    local nav nav_prev nav_next
+    nav=$(printf '%s' "$html" | manga_parse_nav)
+    if [ -n "$nav" ]; then
+        nav_prev="${nav%%|*}"
+        nav_next="${nav##*|}"
+        [ -n "$nav_prev" ] && nav_prev=$(manga_abs_url "$nav_prev")
+        [ -n "$nav_next" ] && nav_next=$(manga_abs_url "$nav_next")
+        printf '%s|%s\n' "$nav_prev" "$nav_next" > "$ANISUB_MANGA_NAV_FILE" 2>/dev/null
+    fi
     printf '%s' "$html" | MANGA_PREFER="$prefer_slug" \
         MANGA_BASE_URL="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" perl -CS -Mutf8 -0777 -ne '
         my $doc = $_;
@@ -2566,7 +2629,8 @@ read_manga_chapter() {
     local chapter_name="$3"
     local chapter_url="$4"
     local chapter_list_raw="$5"
-    
+    local nav_prev="" nav_next=""
+
     while true; do
         clear
         echo "╔══════════════════════════════════════════════════════════════════════════════╗"
@@ -2581,11 +2645,13 @@ read_manga_chapter() {
         if [ ${#images[@]} -eq 0 ]; then
             echo ""
             echo "❌ Không tìm thấy hình ảnh trong chapter này!"
-            echo "Nhấn [r] để thử lại, [c] để chọn chapter khác, hoặc [q] để thoát."
+            echo "   HTTP $(anisub_last_http) · URL: $chapter_url"
+            echo "   Nhấn [r] để thử lại, [c] để chọn chapter khác, [o] mở trang chapter bằng trình duyệt, [q] để thoát."
             read -rsn1 key
             case "$key" in
                 'r') continue ;;
                 'c') return 0 ;;
+                'o') open_url "$chapter_url" ;;
                 'q') return 1 ;;
             esac
             continue
@@ -2601,31 +2667,45 @@ read_manga_chapter() {
         echo ""
         echo "⌨️  n: chap sau · p: chap trước · c: chọn chap khác · r: tải lại · f: ⭐ yêu thích · q: thoát"
         while true; do
-            read -rsn1 key < /dev/tty
+            if ! read -rsn1 key < /dev/tty 2>/dev/null; then
+                echo ""
+                echo "⚠️ Không đọc được bàn phím (/dev/tty) - nhấn Enter để quay lại."
+                read -r _ 2>/dev/null || true
+                return 0
+            fi
             case "$key" in
                 'n')  # Next chapter
-                    next_chap=$(echo "$chapter_list_raw" | grep -A1 "^${chapter_name}|" | tail -1)
-                    if [ -n "$next_chap" ] && [ "$next_chap" != "${chapter_name}|"* ]; then
-                        chapter_name=$(echo "$next_chap" | cut -d'|' -f1)
-                        chapter_url=$(echo "$next_chap" | cut -d'|' -f2)
+                    next_chap=$(manga_neighbor_chapter "$chapter_list_raw" "$chapter_name" next)
+                    if [ -n "$next_chap" ]; then
+                        chapter_name=$(printf '%s' "$next_chap" | cut -d'|' -f1)
+                        chapter_url=$(printf '%s' "$next_chap" | cut -d'|' -f2)
                         break 2 # Break inner loop, continue outer (reload new chap)
-                    else
-                        echo ""
-                        echo "📚 Đây là chapter mới nhất! (Phím bất kỳ để tiếp tục)"
-                        # Stay in inner loop
                     fi
+                    # Danh sách thiếu (API lỗi) -> dùng link "Chap sau" của chính trang
+                    nav_next=$(manga_saved_nav | cut -d'|' -f2)
+                    if [ -n "$nav_next" ]; then
+                        chapter_url="$nav_next"
+                        chapter_name=$(manga_chapter_name_from_url "$nav_next")
+                        break 2
+                    fi
+                    echo ""
+                    echo "📚 Đây là chapter mới nhất! (Phím bất kỳ để tiếp tục)"
                     ;;
                 'p')  # Previous chapter
-                    prev_chap=$(echo "$chapter_list_raw" | grep -B1 "^${chapter_name}|" | head -1)
-                    if [ -n "$prev_chap" ] && [ "$prev_chap" != "${chapter_name}|"* ]; then
-                        chapter_name=$(echo "$prev_chap" | cut -d'|' -f1)
-                        chapter_url=$(echo "$prev_chap" | cut -d'|' -f2)
+                    prev_chap=$(manga_neighbor_chapter "$chapter_list_raw" "$chapter_name" prev)
+                    if [ -n "$prev_chap" ]; then
+                        chapter_name=$(printf '%s' "$prev_chap" | cut -d'|' -f1)
+                        chapter_url=$(printf '%s' "$prev_chap" | cut -d'|' -f2)
                         break 2 # Break inner loop, continue outer (reload new chap)
-                    else
-                        echo ""
-                        echo "📚 Đây là chapter đầu tiên! (Phím bất kỳ để tiếp tục)"
-                        # Stay in inner loop
                     fi
+                    nav_prev=$(manga_saved_nav | cut -d'|' -f1)
+                    if [ -n "$nav_prev" ]; then
+                        chapter_url="$nav_prev"
+                        chapter_name=$(manga_chapter_name_from_url "$nav_prev")
+                        break 2
+                    fi
+                    echo ""
+                    echo "📚 Đây là chapter đầu tiên! (Phím bất kỳ để tiếp tục)"
                     ;;
                 'c')  # Change chapter
                     return 0
@@ -2664,7 +2744,158 @@ read_manga_chapter() {
     done
 }
 
+# Chẩn đoán nhanh toàn bộ luồng đọc: anisub.sh --manga-selftest <slug|URL>
+# In từng bước kèm HTTP để biết chính xác hỏng ở đâu (trang truyện / API danh sách
+# chapter / trang chapter / tải ảnh / chafa).
+manga_selftest() {
+    local target="${1:-bocchi-the-rock}"
+    local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+    echo "🧪 KIỂM TRA ĐỌC TRUYỆN"
+    echo "   nguồn: $base · ảnh: ${MANGA_IMAGE_PROTOCOL:-auto}"
+    echo ""
+
+    local page_url
+    page_url=$(manga_manga_url "$target")
+    local slug="${page_url##*/}"
+    echo "1️⃣  Trang truyện: $page_url"
+    local html http
+    html=$(manga_http_fetch "$page_url")
+    http=$(anisub_last_http)
+    echo "    HTTP $http · $(printf '%s' "$html" | wc -c | tr -d ' ') byte"
+    if [ -z "$html" ]; then
+        echo "    ❌ Không tải được trang truyện."
+        echo "       → Kiểm tra mạng, hoặc MANGA_BASE_URL đã đổi tên miền."
+        return 1
+    fi
+    local sid tok
+    sid=$(printf '%s' "$html" | manga_story_id)
+    tok=$(printf '%s' "$html" | manga_csrf_token)
+    echo "    story_id: ${sid:-(không thấy)}"
+    if [ -n "$tok" ]; then echo "    csrf-token: có"; else echo "    csrf-token: KHÔNG thấy"; fi
+    echo ""
+
+    echo "2️⃣  API danh sách chapter"
+    local chapters count
+    chapters=$(fetch_chapter_list "$target")
+    count=$(printf '%s\n' "$chapters" | grep -c '.')
+    echo "    HTTP $(anisub_last_http) · $count chapter"
+    if [ "$count" -le 2 ]; then
+        echo "    ⚠️  Ít chapter -> API có thể bị chặn. Không sao: vẫn đọc được,"
+        echo "        chuyển chap bằng n/p (dựa vào link \"Chap trước/sau\" của trang) hoặc Ctrl-G."
+    else
+        echo "    mới nhất: $(printf '%s\n' "$chapters" | tail -1 | cut -d'|' -f1)"
+        echo "    đầu tiên: $(printf '%s\n' "$chapters" | head -1 | cut -d'|' -f1)"
+    fi
+    echo ""
+
+    local chap_url
+    chap_url=$(printf '%s\n' "$chapters" | tail -1 | cut -d'|' -f2)
+    [ -z "$chap_url" ] && chap_url="$page_url/chapter-1"
+    echo "3️⃣  Trang chapter: $chap_url"
+    local imgs nimg nav
+    imgs=$(fetch_chapter_images "$chap_url" "$slug")
+    nimg=$(printf '%s\n' "$imgs" | grep -c '.')
+    nav=$(manga_saved_nav)
+    echo "    HTTP $(anisub_last_http) · $nimg ảnh"
+    echo "    chap trước|sau: ${nav:-(không thấy link)}"
+    if [ "$nimg" -eq 0 ]; then
+        echo "    ❌ Không tìm thấy ảnh -> trang chapter đổi cấu trúc hoặc bị chặn."
+        echo "       Mở thử bằng trình duyệt: $chap_url"
+        return 1
+    fi
+    echo ""
+
+    echo "4️⃣  Tải thử 1 ảnh"
+    local first tmpd dest size magic
+    first=$(printf '%s\n' "$imgs" | head -1)
+    tmpd=$(mktemp -d "${TMPDIR:-/tmp}/anisub-selftest.XXXXXX" 2>/dev/null) || tmpd="${TMPDIR:-/tmp}/anisub-selftest.$$"
+    dest="$tmpd/001.img"
+    if manga_download_image "$first" "$dest"; then
+        size=$(wc -c < "$dest" | tr -d ' ')
+        magic=$(od -An -tx1 -N4 "$dest" 2>/dev/null | tr -d ' \n')
+        echo "    ✅ OK · $size byte · magic $magic"
+        echo "    URL: $first"
+    else
+        echo "    ❌ Tải ảnh thất bại (đã thử cả có và không Referer)."
+        echo "    URL: $first"
+        rm -rf "$tmpd"
+        return 1
+    fi
+    rm -rf "$tmpd"
+    echo ""
+
+    echo "5️⃣  Hiển thị ảnh trong terminal"
+    if command -v chafa &>/dev/null; then
+        echo "    ✅ chafa: $(command -v chafa)"
+    else
+        echo "    ❌ chưa cài chafa (apt install chafa / brew install chafa / pkg install chafa)"
+    fi
+    echo "    TERM=${TERM:-?} ${TERM_PROGRAM:-}"
+    echo ""
+    echo "✅ Luồng đọc hoạt động."
+    echo "   Nếu giao diện vẫn lỗi: anisub.sh → 📚 Truyện tranh → 🩺 Kiểm tra nguồn truyện"
+    return 0
+}
+
 # ═══ LUỒNG ĐỌC TRUYỆN ═══════════════════════════════════════════════════════
+# Chọn chapter bằng fzf. In ra "tên|url", hoặc "__goto__|" khi bấm Ctrl-G
+# (Ctrl-G = nhập số chapter bất kỳ, dùng khi danh sách chapter bị thiếu).
+manga_pick_chapter_line() {
+    local header="$1" prompt="$2" chapters="$3"
+    shift 3
+    local out key sel
+    out=$(printf '%s\n' "$chapters" | fzf --expect=ctrl-g \
+        --prompt="$prompt" \
+        --header="$header · Ctrl-G: nhập số chapter" \
+        --delimiter='|' --with-nth=1 --tac "$@")
+    [ -z "$out" ] && return 1
+    # fzf --expect in phím ở dòng đầu (Enter = dòng rỗng). Bản fzf cũ chỉ in phím khi
+    # thật sự bấm phím đó -> nếu chỉ có 1 dòng thì đó chính là chapter được chọn.
+    if [ "$(printf '%s\n' "$out" | wc -l)" -le 1 ]; then
+        key=""
+        sel="$out"
+    else
+        key=$(printf '%s\n' "$out" | head -1)
+        sel=$(printf '%s\n' "$out" | tail -n +2 | head -1)
+    fi
+    if [ "$key" = "ctrl-g" ]; then
+        printf '__goto__|\n'
+        return 0
+    fi
+    [ -z "$sel" ] && return 1
+    printf '%s\n' "$sel"
+}
+
+# Tên hiển thị suy từ URL chapter: .../chapter-9-5 -> "Chapter 9.5"
+manga_chapter_name_from_url() {
+    local url="${1:-}"
+    local cslug="${url##*/}"
+    cslug="${cslug%.html}"
+    local name
+    name=$(printf '%s' "$cslug" | sed 's/^chapter-//; s/^chap-//; s/-/./g')
+    if [ -z "$name" ] || [ "$name" = "$cslug" ]; then
+        printf '%s' "$cslug"
+    else
+        case "$cslug" in
+            chap-*) printf 'Chap %s' "$name" ;;
+            *)      printf 'Chapter %s' "$name" ;;
+        esac
+    fi
+}
+
+# Dòng chapter kế tiếp / trước đó trong danh sách: $1=list $2=tên hiện tại $3=next|prev
+manga_neighbor_chapter() {
+    local list="$1" cur="$2" dir="${3:-next}" line
+    [ -z "$list" ] || [ -z "$cur" ] && return 1
+    if [ "$dir" = "prev" ]; then
+        line=$(printf '%s\n' "$list" | grep -B1 -F -- "${cur}|" | head -1)
+    else
+        line=$(printf '%s\n' "$list" | grep -A1 -F -- "${cur}|" | tail -1)
+    fi
+    [ -z "$line" ] && return 1
+    [ "$(printf '%s' "$line" | cut -d'|' -f1)" = "$cur" ] && return 1
+    printf '%s\n' "$line"
+}
 # Tìm 1 dòng chapter theo tên hoặc slug đã lưu trong lịch sử ("chapter-242",
 # "Chapter 242", "242"...). In ra đúng dòng "Tên|URL|slug-chap" từ danh sách.
 manga_find_chapter() {
@@ -2713,7 +2944,7 @@ manga_read_manga() {
     local chapters
     chapters=$(fetch_chapter_list "$target")
     if [ -z "$chapters" ]; then
-        echo "❌ Không lấy được danh sách chapter cho \\"$name\\"."
+        echo "❌ Không lấy được danh sách chapter cho \"$name\"."
         echo "   HTTP $(anisub_last_http) · MANGA_BASE_URL=${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
         echo "   Nếu truyện đã đổi tên miền, cập nhật MANGA_BASE_URL trong ⚙️ Cài đặt → 📚 Nguồn truyện."
         sleep 3
@@ -2721,12 +2952,17 @@ manga_read_manga() {
     fi
     local count
     count=$(printf '%s\n' "$chapters" | grep -c '.')
+    if [ "$count" -le 2 ]; then
+        echo "⚠️ Chỉ lấy được $count chapter (API danh sách chapter có thể bị chặn)."
+        echo "   Vẫn đọc được bình thường: chọn 1 chapter rồi dùng n/p, hoặc Ctrl-G để nhảy tới số chapter."
+        sleep 2.5
+    fi
     local sel=""
     if [ -n "$start_chap" ]; then
         if sel=$(manga_find_chapter "$chapters" "$start_chap"); then
             :
         else
-            echo "⚠️ Không thấy chapter \\"$start_chap\\" trong $count chapter - chọn lại."
+            echo "⚠️ Không thấy chapter \"$start_chap\" trong $count chapter - chọn lại."
             sleep 1.5
         fi
     fi
@@ -2740,21 +2976,33 @@ manga_read_manga() {
         info_file=$(manga_preview_info_file "$name" "$cover")
         preview_opts=(--preview "'$(manga_cover_preview_script)' --info-file '$info_file' {}" --preview-window='right:40%')
     fi
+    local first_prompt="📑 Chọn chapter > "
+    local header="📖 $name · $count chapter · mới nhất ở đầu, Enter để đọc"
+    [ "$count" -le 2 ] && header="📖 $name · $count chapter · Ctrl-G: nhập số chapter để nhảy tới"
     if [ -z "$sel" ]; then
-        sel=$(printf '%s\n' "$chapters" | fzf --prompt="📑 Chọn chapter > " \
-            --header="📖 $name · $count chapter · mới nhất ở đầu, Enter để đọc" \
-            --delimiter='|' --with-nth=1 --tac "${preview_opts[@]}")
+        sel=$(manga_pick_chapter_line "$header" "$first_prompt" "$chapters" "${preview_opts[@]}")
     fi
     [ -z "$sel" ] && return 1
-    local chap_name chap_url rc
+    local chap_name chap_url rc chap_no
     while [ -n "$sel" ]; do
-        chap_name=$(printf '%s' "$sel" | cut -d'|' -f1)
-        chap_url=$(printf '%s' "$sel" | cut -d'|' -f2)
+        if [ "${sel%%|*}" = "__goto__" ]; then
+            printf '\n📥 Nhập số chapter muốn đọc (vd 120 hoặc 9.5): '
+            read -r chap_no || chap_no=""
+            chap_no=$(printf '%s' "${chap_no:-}" | tr -cd '0-9.')
+            if [ -z "$chap_no" ]; then
+                sel=$(manga_pick_chapter_line "$header" "$first_prompt" "$chapters" "${preview_opts[@]}")
+                continue
+            fi
+            chap_url="$page_url/chapter-${chap_no//./-}"
+            chap_name=$(manga_chapter_name_from_url "$chap_url")
+        else
+            chap_name=$(printf '%s' "$sel" | cut -d'|' -f1)
+            chap_url=$(printf '%s' "$sel" | cut -d'|' -f2)
+        fi
         read_manga_chapter "$name" "$slug" "$chap_name" "$chap_url" "$chapters"
         rc=$?
         if [ "$rc" -eq 1 ]; then return 0; fi
-        sel=$(printf '%s\n' "$chapters" | fzf --prompt="📑 Chọn chapter khác > " \
-            --header="📖 $name · $count chapter" --delimiter='|' --with-nth=1 --tac "${preview_opts[@]}")
+        sel=$(manga_pick_chapter_line "📖 $name · $count chapter" "📑 Chọn chapter khác > " "$chapters" "${preview_opts[@]}")
     done
     return 0
 }
@@ -2828,6 +3076,8 @@ manga_genre_menu() {
 
 # Kiểm tra nhanh nguồn truyện: kết nối + parse được bao nhiêu mục
 manga_diagnose() {
+    echo "💡 Chẩn đoán nhanh từ dòng lệnh: ./anisub.sh --manga-selftest <slug|URL>"
+    echo ""
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🩺 Chẩn đoán nguồn truyện tranh (TruyenVN)"
     echo "──────────────────────────────────────────────────────────"
@@ -3063,7 +3313,7 @@ manga_main_menu() {
 
 # --- MAIN LOGIC ---
 main() {
-    trap 'rm -f "$ANISUB_STATUS_FILE" "$MANGA_COOKIE_JAR"; kill $(jobs -p) 2>/dev/null' EXIT
+    trap 'rm -f "$ANISUB_STATUS_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
     check_dependencies
     load_config
 
@@ -3123,6 +3373,13 @@ if [ -n "${ANISUB_HELPER:-}" ]; then
         *) exit 1 ;;
     esac
     exit 0
+fi
+
+# Chẩn đoán luồng đọc từ dòng lệnh: ./anisub.sh --manga-selftest [slug|URL]
+if [ "${1:-}" = "--manga-selftest" ]; then
+    load_config
+    manga_selftest "${2:-bocchi-the-rock}"
+    exit $?
 fi
 
 main

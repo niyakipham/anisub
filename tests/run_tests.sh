@@ -299,6 +299,96 @@ has "thiếu bìa -> báo rõ, không lỗi" "không có ảnh bìa" "$out2"
 info=$(manga_preview_info_file "Truyện Có Bìa" "https://dmd-image-content-sng-static-0.imggo.net/books/1/cover_1.jpg")
 check "info-file dùng cho màn chọn chapter" "1" "$(grep -c 'Truyện Có Bìa' "$info")"
 
+echo "== 19. chuyển chapter khi API danh sách lỗi =="
+nav=$(manga_parse_nav < "$MOCK_FIXTURES/manga-chapter.html")
+check "đọc được link Chap trước (tương đối -> tuyệt đối)" \
+    "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-241" "${nav%%|*}"
+check "đọc được link Chap sau (qua rel=next)" \
+    "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" "${nav##*|}"
+nav2=$(printf '%s' '<html><a href="/x/chapter-9">&#171; Chap truoc</a><a href="/x/chapter-11">Chap sau &#187;</a></html>' | manga_parse_nav)
+check "nhận link khi không có rel (chỉ theo chữ)" \
+    "https://truyenvn.my/x/chapter-9|https://truyenvn.my/x/chapter-11" "$nav2"
+check "trang không có link chuyển chap -> rỗng" "|" "$(printf '<html>khong co</html>' | manga_parse_nav)"
+check "không nhầm link Chap mới nhất thành Chap sau" "|" \
+    "$(printf '<a href="/x/chapter-9">Chap mới nhất</a>' | manga_parse_nav)"
+
+fetch_chapter_images "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-242" bocchi-the-rock > /dev/null
+has "fetch_chapter_images lưu nav của chapter" "chapter-243" "$(manga_saved_nav)"
+check "tên chapter suy từ URL (chapter-244)" "Chapter 244" \
+    "$(manga_chapter_name_from_url https://truyenvn.my/truyen-tranh/x/chapter-244)"
+check "tên chapter suy từ URL (chapter-9-5)" "Chapter 9.5" \
+    "$(manga_chapter_name_from_url https://truyenvn.my/truyen-tranh/x/chapter-9-5)"
+check "chapter kế tiếp trong danh sách" "Chapter 3|u3" \
+    "$(manga_neighbor_chapter "Chapter 1|u1
+Chapter 2|u2
+Chapter 3|u3" "Chapter 2" next)"
+check "chapter trước trong danh sách" "Chapter 1|u1" \
+    "$(manga_neighbor_chapter "Chapter 1|u1
+Chapter 2|u2" "Chapter 2" prev)"
+manga_neighbor_chapter "Chapter 1|u1
+Chapter 2|u2" "Chapter 2" next >/dev/null 2>&1
+check "hết danh sách -> return 1 (để dùng link của trang)" "1" "$?"
+
+export KK_MOCK_FZF_KEY=ctrl-g
+check "Ctrl-G trong màn chọn chapter -> yêu cầu nhập số" "__goto__|" \
+    "$(manga_pick_chapter_line "header" "Chọn chapter > " "$chaps")"
+unset KK_MOCK_FZF_KEY
+check "Enter trong màn chọn chapter -> lấy chapter" "Chapter 0|https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-0|chapter-0" \
+    "$(manga_pick_chapter_line "header" "Chọn chapter > " "$chaps")"
+
+export KK_MOCK_FZF_NO_KEYLINE=1   # fzf cũ: không in dòng phím
+check "fzf cũ không in dòng phím -> vẫn chọn được chapter" \
+    "Chapter 0|https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-0|chapter-0" \
+    "$(manga_pick_chapter_line "header" "Chọn chapter > " "$chaps")"
+unset KK_MOCK_FZF_NO_KEYLINE
+( read_manga_chapter() { printf 'READ|%s\n' "$4" >> "$MOCK_READ_LOG"; return 1; }
+  : > "$MOCK_READ_LOG"
+  export KK_MOCK_FZF_KEY=ctrl-g
+  printf '120\n' | manga_read_manga "Bocchi The Rock!" "bocchi-the-rock" > /dev/null 2>&1
+  grep -q 'chapter-120$' "$MOCK_READ_LOG" ) \
+    && ok "Ctrl-G + nhập 120 -> đọc chapter-120" || bad "Ctrl-G + nhập số chapter" "READ|...chapter-120" "$(cat "$MOCK_READ_LOG")"
+
+echo "== 20. tải ảnh: thử cả 2 kiểu Referer =="
+: > "$MOCK_CURL_HEADER_LOG"
+tmpd=$(mktemp -d "$WORK/img.XXXXXX")
+manga_download_image "https://dmd-image-content-sng-1.imggo.net/books/x/1/1.jpg" "$tmpd/a.img"
+check "lần đầu tải ảnh KHÔNG Referer (imggo 403 nếu có)" "1" \
+    "$(grep 'imggo.net' "$MOCK_CURL_HEADER_LOG" | head -1 | grep -c 'referer=none')"
+: > "$MOCK_CURL_HEADER_LOG"
+( export MOCK_IMG_NEED_REFERER=1
+  manga_download_image "https://dmd-image-content-sng-1.imggo.net/books/x/1/2.jpg" "$tmpd/b.img" ) && rc=0 || rc=1
+check "CDN bắt buộc Referer -> vẫn tải được (thử lại lần 2)" "0" "$rc"
+check "thử lại 2 lần: 1 không Referer + 1 có Referer" "1" \
+    "$(grep 'imggo.net' "$MOCK_CURL_HEADER_LOG" | grep -c 'referer=none')"
+check "...và lần thử lại có Referer" "1" \
+    "$(grep 'imggo.net' "$MOCK_CURL_HEADER_LOG" | grep -c 'referer=https://truyenvn.my')"
+( export MOCK_IMG_FORBIDDEN=1
+  manga_download_image "https://dmd-image-content-sng-1.imggo.net/books/x/1/3.jpg" "$tmpd/c.img" ) \
+    && bad "ảnh là HTML 403 -> phải báo lỗi" "return 1" "return 0" || ok "ảnh là HTML 403 -> báo lỗi, không vẽ rác"
+rm -rf "$tmpd"
+
+echo "== 21. tự chẩn đoán luồng đọc (--manga-selftest) =="
+out=$(manga_selftest bocchi-the-rock 2>&1); rc=$?
+check "selftest nguồn tốt -> exit 0" "0" "$rc"
+has "báo HTTP + story_id" "story_id: 12189" "$out"
+has "báo số chapter" "6 chapter" "$out"
+has "báo số ảnh + link chuyển chap" "chapter-243" "$out"
+has "tải thử 1 ảnh thành công" "magic ffd8" "$out"
+has "kết luận rõ ràng" "Luồng đọc hoạt động" "$out"
+( export MOCK_API_FAIL=1
+  out=$(manga_selftest bocchi-the-rock 2>&1); rc=$?
+  [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'Ít chapter' ) \
+    && ok "API danh sách chết -> cảnh báo nhưng vẫn đọc được" \
+    || bad "API chết -> vẫn đọc được" "rc=0 + cảnh báo 'Ít chapter'" "$out"
+( export MOCK_IMG_FORBIDDEN=1
+  out=$(manga_selftest bocchi-the-rock 2>&1); rc=$?
+  [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'Tải ảnh thất bại' ) \
+    && ok "ảnh chết -> selftest exit!=0 và chỉ đúng bước hỏng" \
+    || bad "ảnh chết -> chỉ đúng bước hỏng" "rc!=0 + 'Tải ảnh thất bại'" "$out"
+( export MOCK_CURL_LOG="/dev/null"
+  MANGA_BASE_URL=https://manga-offline.example manga_selftest bocchi-the-rock >/dev/null 2>&1 ) \
+    && bad "mất mạng -> selftest phải fail" "rc!=0" "rc=0" || ok "mất mạng -> selftest fail (rc!=0)"
+
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"
 [ "$fail" -gt 0 ] && printf ', \033[31m%s fail\033[0m' "$fail"

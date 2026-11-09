@@ -138,13 +138,27 @@ bash tests/run_tests.sh     # parse danh sách + ảnh bìa, API chapter (419/50
 > Không thấy gì? vào `🔗 Mở bằng link / slug` và dán thẳng link truyện
 > (`https://truyenvn.my/truyen-tranh/bocchi-the-rock`) là đọc được ngay; hoặc duyệt theo
 > `🗂️ Thể loại`. Muốn tìm phủ nhiều truyện hơn thì tăng `MANGA_SEARCH_PAGES` lên `3`–`5`.
+>
+> Trong lúc đọc: `n` chap sau · `p` chap trước · `c` chọn chap khác · `r` tải lại ·
+> `f` ⭐ · `q` thoát. Việc chuyển chap dựa vào link "Chap trước/Chap sau" của chính
+> trang chapter, nên **không phụ thuộc** API danh sách chapter; `Ctrl-G` ở màn chọn
+> chapter cho phép nhập thẳng số chapter muốn đọc (vd `120`, `9.5`).
+
+Kiểm tra nhanh toàn bộ luồng đọc bằng **một lệnh** (không cần vào menu):
+
+```shell
+./anisub.sh --manga-selftest bocchi-the-rock
+# 1️⃣ trang truyện (HTTP + story_id)  2️⃣ API danh sách chapter (HTTP + số chapter)
+# 3️⃣ trang chapter (số ảnh + link chap trước/sau)  4️⃣ tải thử 1 ảnh  5️⃣ chafa
+```
 
 | Kết quả | Nguyên nhân | Cách xử lý |
 | --- | --- | --- |
 | `HTTP 000` | không với được `truyenvn.my` | kiểm tra mạng / DNS / VPN, hoặc `curl -I https://truyenvn.my` |
 | `HTTP 403` / Cloudflare challenge | trang chặn client không phải trình duyệt | anisub đã gửi User-Agent trình duyệt; thử lại sau, hoặc đổi `MANGA_BASE_URL` sang domain mirror của TruyenVN |
 | `❌ Không lấy được danh sách chapter` | slug sai hoặc trang đổi layout | dùng `🔗 Mở bằng link / slug` dán link thật từ trình duyệt |
-| Chỉ có ~2 chapter (đầu + cuối) | API `list-chapter` đổi đường dẫn / chặn | chạy `🩺 Kiểm tra nguồn truyện` để xem HTTP của API, rồi báo lên repo |
+| Chỉ có ~2 chapter (đầu + cuối) | API `list-chapter` đổi đường dẫn / chặn | vẫn đọc được: chọn 1 chapter rồi dùng `n`/`p`, hoặc `Ctrl-G` để nhảy tới số chapter bất kỳ; chạy `./anisub.sh --manga-selftest <slug>` để xem HTTP của API |
+| Không đọc được chapter / ảnh không hiện | chưa rõ bước hỏng | chạy `./anisub.sh --manga-selftest bocchi-the-rock`: in ra HTTP + số chapter + số ảnh + tải thử 1 ảnh, chỉ đúng bước lỗi |
 | Chọn truyện không thấy ảnh bìa | thiếu `chafa`, hoặc terminal không vẽ được ảnh | `sudo apt install chafa`; đổi `MANGA_IMAGE_PROTOCOL` sang `symbols` |
 | Danh sách rỗng khi tìm | từ khóa quá ngắn / nằm ngoài các bảng đang quét | gõ ≥ 2 ký tự, tăng `MANGA_SEARCH_PAGES`, hoặc lọc theo `🗂️ Thể loại` |
 | Ảnh đen / không hiện | thiếu `chafa`, hoặc giao thức vẽ ảnh không khớp terminal | `sudo apt install chafa` (hoặc `yay -S chafa`); đặt `MANGA_IMAGE_PROTOCOL=symbols` để chắc chắn thấy hình; `Enter` luôn mở ảnh bằng ứng dụng ngoài |
