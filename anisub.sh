@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.09f"
+ANISUB_VERSION="2026.11.09g"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -35,6 +35,9 @@ DEFAULT_KKPHIM_AD_BLOCK=1
 # Mẫu nhận diện quảng cáo: so khớp NGUYÊN một thành phần của host/đường dẫn
 # (tách theo / . - _ ? & =), nên "media"/"load"/"shadow" không bị coi là "ad".
 DEFAULT_KKPHIM_AD_PATTERNS="ad,ads,advert,adserver,adservice,adtag,preroll,pre-roll,quangcao,quang-cao,promo,sponsor,vast"
+# Chọn variant khi playlist là master: first (mặc định, giống trình phát trước đây)
+# | max (nét nhất) | số thứ tự (1..N). Variant quá nặng so với mạng sẽ bị khựng.
+DEFAULT_KKPHIM_AD_VARIANT="first"
 KKPHIM_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 KKPHIM_SITE_URL=""
 KKPHIM_API_URL=""
@@ -45,6 +48,7 @@ KKPHIM_DETAIL_TTL=""
 KKPHIM_SERVER_PREF=""
 KKPHIM_AD_BLOCK=""
 KKPHIM_AD_PATTERNS=""
+KKPHIM_AD_VARIANT=""
 KKPHIM_ADFREE_FILE=""
 KKPHIM_FFMPEG_HEADERS=""
 
@@ -134,6 +138,7 @@ load_config() {
         echo "KKPHIM_SERVER_PREF=\"$DEFAULT_KKPHIM_SERVER_PREF\"" >> "$CONFIG_FILE"
         echo "KKPHIM_AD_BLOCK=\"$DEFAULT_KKPHIM_AD_BLOCK\"" >> "$CONFIG_FILE"
         echo "KKPHIM_AD_PATTERNS=\"$DEFAULT_KKPHIM_AD_PATTERNS\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_VARIANT=\"$DEFAULT_KKPHIM_AD_VARIANT\"" >> "$CONFIG_FILE"
     fi
     ANISUB_CONFIG_HAS_SOURCE=0
     grep -q '^MANGA_SOURCE=' "$CONFIG_FILE" 2>/dev/null && ANISUB_CONFIG_HAS_SOURCE=1
@@ -164,6 +169,7 @@ load_config() {
     KKPHIM_SERVER_PREF=${KKPHIM_SERVER_PREF:-$DEFAULT_KKPHIM_SERVER_PREF}
     KKPHIM_AD_BLOCK=${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}
     KKPHIM_AD_PATTERNS=${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}
+    KKPHIM_AD_VARIANT=${KKPHIM_AD_VARIANT:-$DEFAULT_KKPHIM_AD_VARIANT}
     # Chuỗi header cho ffmpeg (mỗi header cách nhau bằng CRLF thật)
     KKPHIM_FFMPEG_HEADERS="Referer: ${KKPHIM_REFERER}"$'\r\n'"User-Agent: ${KKPHIM_USER_AGENT}"$'\r\n'
     mkdir -p "$DOWNLOAD_DIR"
@@ -191,6 +197,7 @@ save_config() {
         echo "KKPHIM_CDN_URL=\"$KKPHIM_CDN_URL\""
         echo "KKPHIM_REFERER=\"$KKPHIM_REFERER\""
         echo "KKPHIM_AD_BLOCK=\"${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}\""
+        echo "KKPHIM_AD_VARIANT=\"${KKPHIM_AD_VARIANT:-$DEFAULT_KKPHIM_AD_VARIANT}\""
         echo "KKPHIM_SEARCH_LIMIT=\"$KKPHIM_SEARCH_LIMIT\""
         echo "KKPHIM_DETAIL_TTL=\"$KKPHIM_DETAIL_TTL\""
         echo "KKPHIM_SERVER_PREF=\"$KKPHIM_SERVER_PREF\""
@@ -942,7 +949,7 @@ kkphim_playlist_filter() {
             }
             return 0;
         }
-        my @out; my @pending; my ($kept, $removed) = (0, 0);
+        my @out; my @pending; my ($kept, $removed, $cut) = (0, 0, 0);
         for my $line (split /\r?\n/, $_) {
             my $l = $line;
             $l =~ s/^\s+|\s+$//g;
@@ -964,7 +971,16 @@ kkphim_playlist_filter() {
                 next;
             }
             my $u = abs_url($l);
-            if (is_ad($u)) { @pending = (); $removed++; next }
+            if (is_ad($u)) { @pending = (); $removed++; $cut = 1; next }
+            # Cắt segment -> mốc thời gian bị nhảy; báo cho trình phát bằng
+            # #EXT-X-DISCONTINUITY (phải đứng TRƯỚC #EXTINF) để nó nối tiếp
+            # ngay thay vì chờ/khựng.
+            if ($cut) {
+                my $has_disc = grep { $_ eq "#EXT-X-DISCONTINUITY" } @pending;
+                my $last_disc = (@out && $out[-1] eq "#EXT-X-DISCONTINUITY");
+                push @out, "#EXT-X-DISCONTINUITY" unless $has_disc || $last_disc;
+                $cut = 0;
+            }
             push @out, @pending; @pending = ();
             push @out, $u;
             $kept++;
@@ -981,8 +997,9 @@ kkphim_playlist_filter() {
         }
         my @final;
         for my $l (@out) {
-            next if $l =~ m{^#EXT-X-MEDIA-SEQUENCE:}i;
-            next if $l =~ m{^#EXT-X-DISCONTINUITY-SEQUENCE:}i;
+            # GIỮ NGUYÊN #EXT-X-MEDIA-SEQUENCE / #EXT-X-DISCONTINUITY-SEQUENCE:
+            # số thứ tự segment là IV mặc định của AES-128 và là mốc của BYTERANGE,
+            # đổi đi sẽ làm giải mã sai / đọc sai byte.
             push @final, $l;
             if (!$has_type && !$inserted && $l =~ m{^#EXT-X-TARGETDURATION:}i) {
                 push @final, "#EXT-X-PLAYLIST-TYPE:VOD";
@@ -992,7 +1009,6 @@ kkphim_playlist_filter() {
         if (!$inserted && !$has_type) {         # playlist không có TARGETDURATION
             splice @final, 1, 0, "#EXT-X-PLAYLIST-TYPE:VOD";
         }
-        splice @final, 1, 0, "#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-DISCONTINUITY-SEQUENCE:0";
         push @final, "#EXT-X-ENDLIST" unless $has_end;
         print join("\n", @final), "\n";
     '
@@ -1007,18 +1023,43 @@ kkphim_adfree_playlist() {
         *"#EXTM3U"*) : ;;
         *)           return 1 ;;
     esac
-    # master playlist: chọn variant băng thông cao nhất rồi tải playlist con
+    # Master playlist: chọn 1 variant. Mặc định lấy variant ĐẦU TIÊN (giống cách
+    # trình phát vẫn chọn trước đây) - lấy variant nặng nhất rất dễ bị "phát 3
+    # giây, đệm 3 giây" nếu mạng không đủ. Đổi bằng KKPHIM_AD_VARIANT=max|<số>.
     if printf '%s' "$text" | grep -q '#EXT-X-STREAM-INF'; then
-        variant=$(printf '%s\n' "$text" | perl -ne '
+        variant=$(printf '%s\n' "$text" | KKPHIM_AD_VARIANT="${KKPHIM_AD_VARIANT:-first}" perl -ne '
+            my $want = lc($ENV{KKPHIM_AD_VARIANT} // "first");
             if (/^#EXT-X-STREAM-INF:.*BANDWIDTH=(\d+)/i) { $bw = $1; next }
             next if /^#/ || /^\s*$/;
             chomp;
-            if (defined $bw && $bw > ($best // -1)) { $best = $bw; $uri = $_ }
-            END { print $uri // "" }')
+            if (defined $bw) {
+                push @v, [$bw, $_];
+                $bw = undef;
+            }
+            END {
+                exit 0 unless @v;
+                if ($want eq "max") {
+                    @v = sort { $b->[0] <=> $a->[0] } @v;
+                    print $v[0][1];
+                } elsif ($want =~ /^\d+$/ && $want >= 1 && $want <= @v) {
+                    print $v[$want - 1][1];
+                } else {
+                    print $v[0][1];       # first
+                }
+            }' 2>/dev/null)
         [ -z "$variant" ] && return 1
         url=$(kkphim_abs_url "$url" "$variant")
         text=$(kkphim_fetch_text "$url") || return 1
     fi
+
+    # Playlist mã hoá AES-128 mà KHÔNG kèm IV: IV được suy từ số thứ tự segment,
+    # bỏ segment sẽ làm giải mã sai toàn bộ -> thà phát bản gốc còn hơn hỏng phim.
+    if printf '%s' "$text" | grep -qi 'METHOD=AES-128' && \
+       printf '%s' "$text" | grep -i 'METHOD=AES-128' | grep -qvi 'IV='; then
+        echo "⚠️ Playlist mã hoá AES-128 không kèm IV - bỏ qua lọc để không hỏng phim." >&2
+        return 1
+    fi
+
     filtered=$(printf '%s' "$text" | kkphim_playlist_filter "$url" 2>/dev/null) || return 1
     [ -z "$filtered" ] && return 1
     out="${TMPDIR:-/tmp}/anisub-adfree-$$.m3u8"
@@ -1125,7 +1166,6 @@ play_stream() {
     case "$PLAYER" in
         mpv)
             mpv "$play_url" --no-terminal --profile=sw-fast --audio-display=no \
-                --cache=yes --cache-secs=30 --demuxer-readahead-secs=30 \
                 --no-keepaspect-window --title="Anisub: $title" \
                 --referrer="$KKPHIM_REFERER" --user-agent="$KKPHIM_USER_AGENT" \
                 --http-header-fields="Referer: $KKPHIM_REFERER" &
@@ -1736,7 +1776,7 @@ show_source_settings() {
     while true; do
         local ad_state="bật"
         kkphim_ad_block_enabled || ad_state="tắt"
-        opt=$(echo -e "🩺 Kiểm tra kết nối & phụ thuộc\n🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🚫 Chặn quảng cáo trong m3u8: $ad_state\n🏷️ Mẫu nhận diện quảng cáo: ${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document · lỗi tìm kiếm? chạy 🩺 trước")
+        opt=$(echo -e "🩺 Kiểm tra kết nối & phụ thuộc\n🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🚫 Chặn quảng cáo trong m3u8: $ad_state\n🎚️ Chất lượng khi chặn quảng cáo: ${KKPHIM_AD_VARIANT:-$DEFAULT_KKPHIM_AD_VARIANT} (first|max|1..9)\n🏷️ Mẫu nhận diện quảng cáo: ${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document · lỗi tìm kiếm? chạy 🩺 trước")
         case "$opt" in
             *"Kiểm tra kết nối"*)
                 clear
@@ -1790,6 +1830,21 @@ show_source_settings() {
                     echo "✅ Đã BẬT chặn quảng cáo (lọc segment quảng cáo trong m3u8)."
                 fi
                 save_config
+                sleep 1.2 ;;
+            *"Chất lượng khi chặn quảng cáo"*)
+                echo "🎚️ Playlist của KKPhim có nhiều mức chất lượng (variant)."
+                echo "   first = mức đầu tiên (mặc định, giống trình phát trước đây - mượt nhất)"
+                echo "   max   = nét nhất (dễ bị 'phát 3 giây, đệm 3 giây' nếu mạng yếu)"
+                echo "   1..9  = chọn đúng thứ tự variant trong playlist"
+                read -r -p "Chọn (first/max/số, Enter = giữ nguyên): " inp
+                case "${inp:-}" in
+                    "")            : ;;
+                    first|max)     KKPHIM_AD_VARIANT="$inp" ;;
+                    [1-9]|[1-9][0-9]) KKPHIM_AD_VARIANT="$inp" ;;
+                    *)             echo "⚠️ Bỏ qua (chỉ nhận first / max / 1..99)"; sleep 1.2; continue ;;
+                esac
+                save_config
+                echo "✅ Đã lưu: ${KKPHIM_AD_VARIANT:-first}"
                 sleep 1.2 ;;
             *"Mẫu nhận diện quảng cáo"*)
                 echo "🏷️ Các mẫu cách nhau bằng dấu phẩy; so khớp nguyên 1 thành phần"

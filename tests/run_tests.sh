@@ -610,7 +610,7 @@ KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/master.m3u8" >
 adfree_file=$(cat "$WORK/adfree.path")
 check "bật chặn -> trả về file playlist đã lọc" "1" "$(printf '%s' "$adfree_file" | grep -c 'anisub-adfree-.*\.m3u8$')"
 check "file đã lọc tồn tại" "1" "$([ -s "$adfree_file" ] && echo 1 || echo 0)"
-check "chọn variant băng thông cao nhất (high/)" "1" "$(grep -c 'hls/phim/high/002.ts' "$adfree_file")"
+check "mặc định chọn variant ĐẦU TIÊN (low/, giống trình phát cũ)" "1" "$(grep -c 'hls/phim/low/002.ts' "$adfree_file")"
 check "giữ đủ 3 segment phim" "3" "$(grep -cE '^https?://.*\.ts' "$adfree_file")"
 check "bỏ segment preroll (ads.adtag.vn)" "0" "$(grep -ci 'preroll' "$adfree_file")"
 check "bỏ segment quảng cáo (quangcao.vn)" "0" "$(grep -ci 'quangcao' "$adfree_file")"
@@ -625,6 +625,15 @@ check "tắt chặn -> trả lại link gốc" "https://cdn.phim.test/hls/phim/m
 check "tải playlist lỗi -> phát link gốc (không chặn được)" "https://manga-offline.test/x.m3u8" \
     "$(KKPHIM_AD_BLOCK=1 kkphim_play_url https://manga-offline.test/x.m3u8)"
 rm -f "$adfree_file"
+
+: > "$MOCK_CURL_LOG"
+KKPHIM_AD_BLOCK=1 KKPHIM_AD_VARIANT=max kkphim_play_url "https://cdn.phim.test/hls/phim/master.m3u8" >/dev/null 2>&1
+check "KKPHIM_AD_VARIANT=max -> lấy variant nặng nhất" "1" "$(grep -c 'high/index.m3u8' "$MOCK_CURL_LOG")"
+: > "$MOCK_CURL_LOG"
+KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/master.m3u8" >/dev/null 2>&1
+check "mặc định (first) -> chỉ tải variant đầu" "1" "$(grep -c 'low/index.m3u8' "$MOCK_CURL_LOG")"
+kkphim_play_url "https://cdn.phim.test/hls/phim/aesnoiv.m3u8" > "$WORK/aes.out" 2>/dev/null
+check "AES-128 không kèm IV -> không lọc (tránh hỏng phim)" "https://cdn.phim.test/hls/phim/aesnoiv.m3u8" "$(cat "$WORK/aes.out")"
 
 : > "$WORK/mpv-ad.log"
 MOCK_MPV_LOG="$WORK/mpv-ad.log" PLAYER=mpv KKPHIM_AD_BLOCK=1 \
@@ -647,11 +656,14 @@ KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/live.m3u8" > "
 live_file=$(cat "$WORK/live.path")
 check "playlist thiếu ENDLIST -> thêm ENDLIST" "1" "$(grep -c '#EXT-X-ENDLIST' "$live_file")"
 check "thêm PLAYLIST-TYPE:VOD" "1" "$(grep -c '#EXT-X-PLAYLIST-TYPE:VOD' "$live_file")"
-check "MEDIA-SEQUENCE đưa về 0" "1" "$(grep -c '^#EXT-X-MEDIA-SEQUENCE:0$' "$live_file")"
-check "DISCONTINUITY-SEQUENCE đưa về 0" "1" "$(grep -c '^#EXT-X-DISCONTINUITY-SEQUENCE:0$' "$live_file")"
+check "giữ nguyên MEDIA-SEQUENCE gốc (IV của AES + byterange)" "1" "$(grep -c '^#EXT-X-MEDIA-SEQUENCE:120$' "$live_file")"
+check "giữ nguyên DISCONTINUITY-SEQUENCE gốc" "1" "$(grep -c '^#EXT-X-DISCONTINUITY-SEQUENCE:4$' "$live_file")"
+check "chèn #EXT-X-DISCONTINUITY tại chỗ cắt (gốc có 1, giờ 2)" "2" "$(grep -c '^#EXT-X-DISCONTINUITY$' "$live_file")"
+check "DISCONTINUITY đứng TRƯỚC #EXTINF của segment kế tiếp" "#EXT-X-DISCONTINUITY" \
+    "$(grep -B2 'seg-121.ts' "$live_file" | head -1)"
 check "bỏ segment quảng cáo trong playlist live" "0" "$(grep -ci 'adtag' "$live_file")"
 check "giữ 3 segment phim" "3" "$(grep -cE '^https?://.*\.ts' "$live_file")"
-check "giữ #EXT-X-DISCONTINUITY giữa phim" "1" "$(grep -c '^#EXT-X-DISCONTINUITY$' "$live_file")"
+check "giữ #EXT-X-DISCONTINUITY gốc + chèn thêm ở chỗ cắt" "2" "$(grep -c '^#EXT-X-DISCONTINUITY$' "$live_file")"
 check "VOD sẵn rồi thì không nhân đôi ENDLIST" "1" \
     "$(KKPHIM_AD_BLOCK=1 kkphim_play_url https://cdn.phim.test/hls/phim/master.m3u8 2>/dev/null | xargs grep -c '#EXT-X-ENDLIST')"
 kkphim_ad_report "https://cdn.phim.test/hls/phim/live.m3u8" > "$WORK/adreport.txt" 2>&1
