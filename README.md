@@ -25,6 +25,8 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🧾》- **📚 Đọc Truyện Tranh** giờ không im lặng nữa: nếu menu truyện không mở được, anisub nói rõ (đã vẽ menu chưa, fzf trả về gì), tự thử nạp/tải lại bộ nguồn ngay tại chỗ, và ghi lại dấu vết vào `~/.config/anisub_cli/cache/anisub-debug.log`<br>
+《🩺》- `--doctor` in thêm môi trường (bash/fzf/TERM), commit git đang chạy + nhắc `git pull` khi chậm bản, và tình trạng các hàm chính (`manga_main_menu`, `fetch_chapter_list`, …)<br>
 《🩺》- Sửa lỗi **không đọc được truyện tranh**: nếu máy chỉ có `anisub.sh` (thiếu `src/`) thì anisub **tự tải `src/` về** khi chạy, báo lỗi kèm cách sửa nếu không tải được, và có thêm `./anisub.sh --doctor` để chẩn đoán toàn bộ (module · phụ thuộc · nguồn truyện)<br>
 《🔄》- Sửa **🔄 Cập nhật**: trước đây luôn báo "thiếu anisub.sh hoặc src/" (giải nén nhầm thư mục tạm) — giờ cập nhật đúng cả `anisub.sh` + `src/`<br>
 《🔐》- `anisub.sh` được đặt quyền chạy (`chmod +x`) nên `./anisub.sh` chạy được ngay sau khi clone<br>
@@ -216,6 +218,7 @@ Kiểm tra nhanh toàn bộ luồng đọc: vào `📚 Truyện tranh` → **`�
 ```shell
 ./anisub.sh --version                          # xem đang chạy bản nào
 ./anisub.sh --doctor                           # 🩺 kiểm tra module src/, phụ thuộc, nguồn truyện (tự tải src/ nếu thiếu)
+tail -n 20 ~/.config/anisub_cli/cache/anisub-debug.log   # log mở menu truyện / lựa chọn của fzf
 ./anisub.sh --manga-selftest                   # tự chọn truyện mẫu theo nguồn đang dùng
 ./anisub.sh --manga-selftest one-piece-dao-hai-tac
 # 1️⃣ trang truyện (HTTP + kích thước)  2️⃣ danh sách chapter (HTTP + số chapter)
@@ -224,6 +227,7 @@ Kiểm tra nhanh toàn bộ luồng đọc: vào `📚 Truyện tranh` → **`�
 
 | Kết quả | Nguyên nhân | Cách xử lý |
 | --- | --- | --- |
+| Bấm **📚 Đọc Truyện Tranh** nháy một cái rồi quay lại menu chính | fzf trả về rỗng (Esc, terminal quá thấp, hoặc fzf lỗi) | anisub đã báo rõ số lần fzf trả về; xem `~/.config/anisub_cli/cache/anisub-debug.log` (dòng `comic-menu:`) rồi gửi kèm khi báo lỗi |
 | Bấm **📚 Đọc Truyện Tranh** không có gì xảy ra / menu truyện trống | thiếu thư mục `src/` (chỉ có `anisub.sh`, hoặc cập nhật dở) | chạy `./anisub.sh --doctor` (tự tải `src/` về); không có mạng thì `git clone https://github.com/NiyakiPham/anisub.git` |
 | `HTTP 000` | không với được trang nguồn | kiểm tra mạng / DNS / VPN, hoặc `curl -I https://nettruyen.info` |
 | `HTTP 403` / Cloudflare challenge | trang chặn client không phải trình duyệt | anisub đã gửi User-Agent trình duyệt; thử lại sau, hoặc đổi `MANGA_BASE_URL` sang domain mirror (nettruyen: `nettruyenn.org`, truyenvn: domain mới) |

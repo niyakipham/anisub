@@ -39,5 +39,16 @@ case "$prompt" in
     *"thể loại"*)         pick="${KK_MOCK_PICK_CAT:-1}" ;;
     *"Menu >"*)            pick="${KK_MOCK_PICK_MENU:-1}" ;;
 esac
+# KK_MOCK_PICK_SEQ="3,99,9": trả về dòng thứ 3, rồi 99 (rỗng), rồi 9 — theo thứ tự gọi.
+if [ -n "${KK_MOCK_PICK_SEQ:-}" ]; then
+    cnt_file="${MOCK_FZF_STATE_DIR:-${HOME:-/tmp}}/.kk-fzf-count"
+    cnt=0
+    [ -f "$cnt_file" ] && cnt=$(cat "$cnt_file" 2>/dev/null)
+    cnt=$((cnt + 1))
+    printf '%s' "$cnt" > "$cnt_file" 2>/dev/null
+    seq_pick=$(printf '%s' "$KK_MOCK_PICK_SEQ" | cut -d, -f"$cnt")
+    [ -n "$seq_pick" ] && pick="$seq_pick"
+fi
+
 [ -n "$expect" ] && [ "${KK_MOCK_FZF_NO_KEYLINE:-0}" != "1" ] && printf '%s\n' "${KK_MOCK_FZF_KEY:-}"   # --expect: phím bấm ở dòng đầu (Enter = rỗng)
 printf '%s\n' "$input" | sed -n "${pick}p"
