@@ -764,6 +764,61 @@ check "update không tạo src/src lồng nhau" "0" "$([ -d "$WORK/upd/src/src" 
   > "$WORK/solo-read.txt" 2>&1 )
 check "đọc được chapter sau khi tự tải src/" "1" "$([ "$(tr -d ' \n' < "$WORK/solo-read.txt")" -ge 3 ] 2>/dev/null && echo 1 || echo 0)"
 
+echo "== 36. bấm 📚 Đọc Truyện Tranh không vào được: chẩn đoán + tự chọn đúng src/ =="
+# (a) env trỏ vào src/ HỎNG: phải thử tiếp chỗ khác, không ghi đè src/ người dùng
+mkdir -p "$WORK/badsrc/movie" "$WORK/badsrc/comic" "$WORK/goodsrc/movie" "$WORK/goodsrc/comic"
+printf '#!/bin/bash\necho phim\n' > "$WORK/badsrc/movie/kkphim.sh"
+printf 'this is not ( valid bash\n' > "$WORK/badsrc/comic/core.sh"
+printf '#!/bin/bash\necho phim\n' > "$WORK/goodsrc/movie/kkphim.sh"
+printf 'manga_main_menu() { echo ok; }\n' > "$WORK/goodsrc/comic/core.sh"
+( ANISUB_SRC_DIR="$WORK/badsrc" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; ANISUB_SOURCES_OK=0
+    ANISUB_SRC_DIR='$WORK/badsrc'; SCRIPT_DIR='$WORK/goodroot'; mkdir -p '$WORK/goodroot'; cp -R '$WORK/goodsrc' '$WORK/goodroot/src'
+    anisub_ensure_sources >/dev/null 2>&1; echo \"rc=\$? src=\$ANISUB_SRC_DIR ok=\$ANISUB_SOURCES_OK\"" ) > "$WORK/ens-a.txt" 2>&1
+check "src/ hỏng -> thử tiếp src/ cạnh script" "rc=0 src=$WORK/goodroot/src ok=1" "$(cat "$WORK/ens-a.txt")"
+has "không ghi đè src/ hỏng của người dùng" "this is not ( valid bash" "$(cat "$WORK/badsrc/comic/core.sh")"
+
+# (b) chỉ có src/ hỏng, không có chỗ nào khác -> báo rõ, KHÔNG tự tải đè
+( ANISUB_SRC_DIR="$WORK/badsrc" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; ANISUB_SOURCES_OK=0
+    ANISUB_SRC_DIR='$WORK/badsrc'; SCRIPT_DIR='$WORK/emptyroot'; mkdir -p '$WORK/emptyroot'; HOME='$WORK/home-empty'
+    CONFIG_DIR='$WORK/home-empty/.config/anisub_cli'
+    anisub_ensure_sources; echo \"rc=\$?\"" ) > "$WORK/ens-b.txt" 2>&1
+has "src/ hỏng -> nói rõ không nạp được module" "không nạp được module nào" "$(cat "$WORK/ens-b.txt")"
+has "src/ hỏng -> chỉ cách sửa" "--doctor" "$(cat "$WORK/ens-b.txt")"
+check "src/ hỏng -> không tạo src/ mới" "0" "$([ -d "$WORK/emptyroot/src" ] && echo 1 || echo 0)"
+
+# (c) log chẩn đoán: ghi được + tự cắt bớt khi quá dài
+( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; CACHE_DIR='$WORK/logcache'
+    anisub_debug_log 'thử ghi log'; anisub_debug_log 'dòng 2'" ) > /dev/null 2>&1
+has "log ghi được nội dung" "thử ghi log" "$(cat "$WORK/logcache/anisub-debug.log" 2>/dev/null)"
+( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; CACHE_DIR='$WORK/logcache'
+    for i in \$(seq 1 310); do anisub_debug_log \"n\$i\"; done
+    wc -l < '$WORK/logcache/anisub-debug.log'" ) > "$WORK/log.txt" 2>&1
+check "log tự cắt còn <= 300 dòng" "1" "$([ "$(tr -d ' ' < "$WORK/log.txt")" -le 300 ] 2>/dev/null && echo 1 || echo 0)"
+has "log giữ lại dòng mới nhất sau khi cắt" "n310" "$(cat "$WORK/logcache/anisub-debug.log" 2>/dev/null)"
+
+# (d) main -> menu truyện: có log, và nếu fzf trả rỗng thì báo rõ "chưa vào được"
+mkdir -p "$WORK/home-cm" "$WORK/fakebin-cm" "$WORK/cm"
+for b in ffmpeg yt-dlp mpv; do printf '#!/bin/bash\nexit 0\n' > "$WORK/fakebin-cm/$b"; chmod +x "$WORK/fakebin-cm/$b"; done
+cp -R "$ROOT/src" "$WORK/cm/src"
+cp "$ROOT/anisub.sh" "$WORK/cm/"
+printf 'q\nq\nq\n' > "$WORK/cm/keys.txt"
+( cd "$WORK/cm" && ANISUB_SRC_DIR="$WORK/cm/src" HOME="$WORK/home-cm" MOCK_FIXTURES="$HERE/fixtures" \
+  PATH="$HERE/mockbin:$WORK/fakebin-cm:$PATH" \
+  KK_MOCK_PICK_MENU=3 KK_MOCK_PICK_SEQ="3,99,9" MOCK_FZF_STATE_DIR="$WORK/home-cm" \
+  TERM=dumb timeout 25 bash -c "source ./anisub.sh; MANGA_SOURCE=nettruyen; MANGA_BASE_URL=https://nettruyen.info; main" \
+  > "$WORK/cm/out.txt" 2>&1 < "$WORK/cm/keys.txt" )
+has "menu chính mở được menu truyện" "MANGA READER" "$(cat "$WORK/cm/out.txt")"
+has "fzf trả rỗng -> báo chưa vào được" "Chưa vào được menu truyện" "$(cat "$WORK/cm/out.txt")"
+has "log có ghi lần mở menu truyện" "mở 📚 menu truyện" "$(cat "$WORK/home-cm/.config/anisub_cli/cache/anisub-debug.log" 2>/dev/null)"
+has "log có ghi fzf trả rỗng" "fzf trả về [<rỗng>]" "$(cat "$WORK/home-cm/.config/anisub_cli/cache/anisub-debug.log" 2>/dev/null)"
+
+# (e) --doctor in ra môi trường + tình trạng hàm chính + log
+( cd "$WORK/cm" && ANISUB_SRC_DIR="$WORK/cm/src" HOME="$WORK/home-cm" MOCK_FIXTURES="$HERE/fixtures" \
+  PATH="$HERE/mockbin:$WORK/fakebin-cm:$PATH" timeout 30 bash ./anisub.sh --doctor > "$WORK/cm/doctor.txt" 2>&1 )
+has "doctor in môi trường (bash/fzf/TERM)" "🐚 Môi trường: bash" "$(cat "$WORK/cm/doctor.txt")"
+has "doctor kiểm tra hàm chính" "🧭 Hàm chính" "$(cat "$WORK/cm/doctor.txt")"
+has "doctor in log gần nhất" "log gần nhất" "$(cat "$WORK/cm/doctor.txt")"
+
 
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"

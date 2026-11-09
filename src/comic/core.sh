@@ -1917,9 +1917,14 @@ manga_main_menu() {
         echo "╚══════════════════════════════════════════════════════════════════════════════╝"
         echo ""
 
+        # Dấu vết cho chẩn đoán: menu đã vẽ chưa, fzf trả về gì (xem --doctor)
+        ANISUB_MANGA_MENU_SHOWN=1
         main_opt=$(echo -e "🔍 Tìm kiếm truyện tranh\n📖 Truyện mới cập nhật\n🔥 Truyện hot\n👀 Truyện đọc nhiều\n🗂 Theo thể loại\n🔗 Mở bằng link / slug\n📜 Lịch sử đọc\n⭐ Truyện yêu thích\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔙 Quay lại Menu Chính" | \
             fzf --prompt="📚 Menu > " --height=45% --reverse \
                 --header="Nguồn truyện: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL} · tìm kiếm = tải danh sách rồi lọc theo từ khóa")
+
+        anisub_debug_log "comic-menu: fzf trả về [${main_opt:-<rỗng>}]"
+        [ -n "$main_opt" ] && ANISUB_MANGA_MENU_PICKS=$(( ${ANISUB_MANGA_MENU_PICKS:-0} + 1 ))
 
         case "$main_opt" in
             "🔍 Tìm kiếm truyện tranh")

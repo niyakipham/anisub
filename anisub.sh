@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.10c"
+ANISUB_VERSION="2026.11.10d"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -411,27 +411,52 @@ anisub_fetch_sources() {
 # Nhờ vậy lỗi "bấm Đọc Truyện Tranh mà không có gì xảy ra" không còn xảy ra nữa.
 anisub_ensure_sources() {
     [ "${ANISUB_SOURCES_OK:-0}" = "1" ] && return 0
-    local found dest
-    if found=$(anisub_find_src); then
-        ANISUB_SRC_DIR="$found"
-        anisub_load_sources "$ANISUB_SRC_DIR" && { ANISUB_SOURCES_OK=1; return 0; }
-    fi
-    # Chưa có -> thử tải về cạnh script, không ghi được thì để trong thư mục config
-    mkdir -p "$CONFIG_DIR" 2>/dev/null
-    for dest in "$SCRIPT_DIR" "$CONFIG_DIR"; do
-        [ -w "$dest" ] || continue
-        if anisub_fetch_sources "$dest"; then
-            if found=$(anisub_find_src); then
-                ANISUB_SRC_DIR="$found"
-                if anisub_load_sources "$ANISUB_SRC_DIR"; then
-                    ANISUB_SOURCES_OK=1
-                    echo "✅ Đã tải bộ file nguồn: $ANISUB_SRC_DIR"
-                    sleep 1
-                    return 0
-                fi
-            fi
+    local d dest tried=" " looked_ok=0
+
+    # 1) Thử lần lượt mọi thư mục nguồn có sẵn: env -> cạnh script -> thư mục config.
+    #    "Trông có vẻ đúng" chưa đủ (file có thể hỏng), nên phải nạp thật mới tin.
+    for d in "${ANISUB_SRC_DIR:-}" "${SCRIPT_DIR:-}/src" "${CONFIG_DIR:-}/src"; do
+        [ -n "$d" ] || continue
+        anisub_src_looks_ok "$d" || continue
+        looked_ok=1
+        case "$tried" in *" $d "*) continue ;; esac
+        tried="$tried$d "
+        if anisub_load_sources "$d"; then
+            ANISUB_SRC_DIR="$d"
+            ANISUB_SOURCES_OK=1
+            return 0
         fi
     done
+
+    # 2) Có src/ mà không nạp được (file hỏng / tải dở) -> KHÔNG ghi đè lên src/ của
+    #    người dùng, báo rõ file nào để họ tự sửa hoặc clone lại.
+    if [ "$looked_ok" = "1" ]; then
+        echo "❌ Có thư mục src/ nhưng không nạp được module nào."
+        echo "   Thư mục đã thử: ${ANISUB_SRC_DIR:-$SCRIPT_DIR/src}"
+        echo ""
+        echo "   Cách sửa: ./anisub.sh --doctor     (chỉ ra file nào hỏng)"
+        echo "             hoặc clone lại bản đầy đủ:"
+        echo "             git clone https://github.com/NiyakiPham/anisub.git ~/anisub && cd ~/anisub && ./anisub.sh"
+        return 1
+    fi
+
+    # 3) Chưa có src/ -> tự tải về cạnh script (không ghi được thì để trong thư mục config)
+    mkdir -p "$CONFIG_DIR" 2>/dev/null
+    for dest in "$SCRIPT_DIR" "$CONFIG_DIR"; do
+        [ -n "$dest" ] && [ -w "$dest" ] || continue
+        case "$tried" in *" $dest/src "*) continue ;; esac
+        tried="$tried$dest/src "
+        anisub_fetch_sources "$dest" || continue
+        # Dùng đúng thư mục vừa tải — không dò lại từ đầu (env có thể trỏ vào chỗ hỏng)
+        if [ -d "$dest/src" ] && anisub_load_sources "$dest/src"; then
+            ANISUB_SRC_DIR="$dest/src"
+            ANISUB_SOURCES_OK=1
+            echo "✅ Đã tải bộ file nguồn: $ANISUB_SRC_DIR"
+            sleep 1
+            return 0
+        fi
+    done
+
     echo "❌ anisub cần thư mục src/ (movie/ + comic/) nhưng không tìm thấy và cũng không tải được."
     echo ""
     echo "   Đã tìm ở : ${SCRIPT_DIR}/src"
@@ -453,6 +478,22 @@ if _anisub_src=$(anisub_find_src); then
     anisub_load_sources "$ANISUB_SRC_DIR" && ANISUB_SOURCES_OK=1
 fi
 unset _anisub_src
+
+# --- LOG CHẨN ĐOÁN (nhỏ, xoay vòng) ------------------------------------------
+# Ghi lại các bước then chốt để khi "bấm vào không có gì xảy ra" vẫn có dữ kiện:
+# menu truyện có được vẽ không, fzf trả về gì, nguồn nào đang dùng.
+anisub_debug_log() {
+    [ -n "${1:-}" ] || return 0
+    mkdir -p "$CACHE_DIR" 2>/dev/null || return 0
+    printf '%s  %s\n' "$(date '+%H:%M:%S')" "$1" >> "$CACHE_DIR/anisub-debug.log" 2>/dev/null || return 0
+    local n
+    n=$(wc -l < "$CACHE_DIR/anisub-debug.log" 2>/dev/null || echo 0)
+    if [ "${n:-0}" -gt 300 ]; then
+        tail -n 200 "$CACHE_DIR/anisub-debug.log" > "$CACHE_DIR/anisub-debug.log.tmp" 2>/dev/null \
+            && mv -f "$CACHE_DIR/anisub-debug.log.tmp" "$CACHE_DIR/anisub-debug.log" 2>/dev/null
+    fi
+    return 0
+}
 
 # --- SETTINGS & UPDATE ---
 show_settings() {
@@ -566,6 +607,26 @@ anisub_doctor() {
     fi
     echo "📚 Truyện : $(manga_source_label) · ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🎬 Phim   : $SOURCE_NAME · $KKPHIM_API_URL"
+    local fzf_ver
+    fzf_ver=$(fzf --version 2>/dev/null | head -1)
+    [ -n "$fzf_ver" ] || fzf_ver="❌ chưa cài"
+    echo "🐚 Môi trường: bash ${BASH_VERSION%%(*} · TERM=${TERM:-?} · fzf $fzf_ver"
+    if [ -d "${SCRIPT_DIR:-}/.git" ] && command -v git > /dev/null 2>&1; then
+        echo "🔖 Git    : $(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?') · $(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?') · $(git -C "$SCRIPT_DIR" log -1 --format=%cd --date=short 2>/dev/null || echo '?')"
+        local behind
+        behind=$(git -C "$SCRIPT_DIR" rev-list --count HEAD..origin/main 2>/dev/null || echo "")
+        [ "${behind:-0}" -gt 0 ] 2>/dev/null && echo "   ⚠️ Đang chậm $behind commit so với origin/main → chạy: git pull"
+    fi
+    local miss=""
+    declare -F main > /dev/null 2>&1 || miss="$miss main"
+    declare -F manga_main_menu > /dev/null 2>&1 || miss="$miss manga_main_menu"
+    declare -F fetch_chapter_list > /dev/null 2>&1 || miss="$miss fetch_chapter_list"
+    declare -F kkphim_search_menu > /dev/null 2>&1 || miss="$miss kkphim_search_menu"
+    if [ -z "$miss" ]; then
+        echo "🧭 Hàm chính : ✅ đủ (main, manga_main_menu, fetch_chapter_list, kkphim_search_menu)"
+    else
+        echo "🧭 Hàm chính : ❌ thiếu:$miss  → src/ chưa nạp đủ, xem mục 'Nguồn' ở trên"
+    fi
     echo
     local dep missing=""
     for dep in ffmpeg curl grep yt-dlp fzf jq awk sed chafa perl "$PLAYER"; do
@@ -581,6 +642,15 @@ anisub_doctor() {
     echo
     manga_diagnose --no-pause
     echo
+    local dlog="$CACHE_DIR/anisub-debug.log"
+    if [ -s "$dlog" ]; then
+        echo "🧾 8 dòng log gần nhất ($dlog):"
+        tail -n 8 "$dlog" | sed 's/^/   /'
+        echo
+    else
+        echo "🧾 Chưa có log ($dlog) — log sẽ ghi khi bạn mở 📚 Đọc Truyện Tranh."
+        echo
+    fi
     echo "Nếu vẫn lỗi: gửi nguyên nội dung lệnh này khi báo bug:"
     echo "   ./anisub.sh --doctor 2>&1 | tee anisub-doctor.txt"
     return 0
@@ -591,6 +661,16 @@ anisub_doctor() {
 anisub_need_module() {
     local fn="$1" label="$2"
     declare -F "$fn" > /dev/null 2>&1 && return 0
+    # Thử cứu tại chỗ: nạp/tải lại bộ nguồn rồi kiểm tra lần nữa (khỏi phải thoát ra vào)
+    echo ""
+    echo "⏳ Chưa có module $label — đang thử nạp lại bộ nguồn..."
+    ANISUB_SOURCES_OK=0
+    anisub_ensure_sources || true
+    if declare -F "$fn" > /dev/null 2>&1; then
+        echo "✅ Đã nạp được module $label."
+        sleep 1
+        return 0
+    fi
     echo ""
     echo "❌ Chưa nạp được module $label."
     echo "   Thư mục nguồn: ${ANISUB_SRC_DIR:-(không xác định)}"
@@ -635,7 +715,25 @@ main() {
                 ;;
             *"Đọc Truyện Tranh"*)
                 clear
-                anisub_need_module manga_main_menu "truyện tranh (src/comic/)" && manga_main_menu
+                if anisub_need_module manga_main_menu "truyện tranh (src/comic/)"; then
+                    ANISUB_MANGA_MENU_SHOWN=0
+                    ANISUB_MANGA_MENU_PICKS=0
+                    anisub_debug_log "main: mở 📚 menu truyện (nguồn=${MANGA_SOURCE:-mặc định}, src=${ANISUB_SRC_DIR:-?}, term=${TERM:-?})"
+                    manga_main_menu
+                    anisub_debug_log "main: thoát menu truyện (đã vẽ=${ANISUB_MANGA_MENU_SHOWN:-0}, số lựa chọn=${ANISUB_MANGA_MENU_PICKS:-0})"
+                    # Vào menu mà chưa chọn được gì = "bấm vào không thấy gì": nói rõ ra
+                    if [ "${ANISUB_MANGA_MENU_PICKS:-0}" = "0" ]; then
+                        clear
+                        echo "⚠️  Chưa vào được menu truyện."
+                        echo "    Menu đã vẽ: $([ "${ANISUB_MANGA_MENU_SHOWN:-0}" = "1" ] && echo 'có' || echo 'KHÔNG')"
+                        echo "    fzf trả về lựa chọn: ${ANISUB_MANGA_MENU_PICKS:-0} lần"
+                        echo ""
+                        echo "    Gửi mình kết quả lệnh này để mình chỉ đúng chỗ hỏng:"
+                        echo "       ./anisub.sh --doctor"
+                        printf '    Nhấn Enter để quay lại menu chính... '
+                        read -r _ || true
+                    fi
+                fi
                 ;;
             "📂 Xem từ Local Anidata") play_anidata_local ;;
             "📜 Lịch sử xem Anime") show_history ;;
