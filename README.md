@@ -25,6 +25,7 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🎛》- **Đổi nguồn truyện** trong Cài đặt giờ là **menu chọn bằng fzf** (đánh dấu ✅ nguồn đang dùng, thấy đủ 4 nguồn: nettruyen / truyenvn / e-hentai / kagane) thay vì phải gõ số; nếu bộ `src/` trên máy còn là bản cũ (chưa có nguồn kagane) thì anisub **nói rõ “chạy 🔄 Cập nhật”** thay vì im lặng<br>
 《📚》- Thêm nguồn truyện **kagane** (`https://kagane.moe`): duyệt/tìm truyện, danh sách chương lấy từ API riêng của site, ảnh trang đọc dùng **token ngắn hạn** (anisub tự xin + tự làm mới khi hết hạn); đổi nguồn ở `⚙️ Cài đặt → 📚 Nguồn truyện`, lọc ngôn ngữ bằng `KAGANE_LANG`<br>
 《🔒》- **DNS nhà mạng chặn e-hentai**: anisub tự hỏi IP qua **DNS-over-HTTPS** (cloudflare-dns.com → dns.google) rồi nối thẳng bằng `--resolve`, nhớ IP cho lần sau; tắt bằng `MANGA_DOH="off"`<br>
 《🩺》- Thêm `./anisub.sh --netcheck [host]`: kiểm tra **từng lớp** DNS hệ thống → DoH → HTTPS/TLS để biết bị chặn ở đâu (DNS / IP / SNI), kèm cách sửa (`resolvectl`, VPN, proxy)<br>
@@ -137,7 +138,9 @@ KAGANE_COOKIE=""                               # cookie kagane.moe (chỉ cần 
 ```
 
 Đổi nguồn không cần sửa file:
-`⚙️ Cài đặt → 📚 Nguồn truyện → 🔁 Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane)`
+`⚙️ Cài đặt → 📚 Nguồn truyện → 🔁 Đổi nguồn truyện` — chọn trong menu fzf (✅ = nguồn đang dùng;
+máy không có fzf thì vẫn gõ số 1/2/3/4). Nếu bộ `src/` là bản cũ (thiếu nguồn kagane), menu nguồn
+truyện sẽ nhắc **chạy 🔄 Cập nhật** — cập nhật xong là thấy nguồn mới.
 (máy đang dùng config cũ chưa có `MANGA_SOURCE` sẽ tự chuyển sang nettruyen một lần).
 
 ### 📚 Nguồn Kagane (`kagane.moe`)
@@ -267,6 +270,7 @@ tail -n 20 ~/.config/anisub_cli/cache/anisub-debug.log   # log mở menu truyệ
 | --- | --- | --- |
 | Bấm **📚 Đọc Truyện Tranh** nháy một cái rồi quay lại menu chính | fzf trả về rỗng (Esc, terminal quá thấp, hoặc fzf lỗi) | anisub đã báo rõ số lần fzf trả về; xem `~/.config/anisub_cli/cache/anisub-debug.log` (dòng `comic-menu:`) rồi gửi kèm khi báo lỗi |
 | Bấm **📚 Đọc Truyện Tranh** không có gì xảy ra / menu truyện trống | thiếu thư mục `src/` (chỉ có `anisub.sh`, hoặc cập nhật dở) | chạy `./anisub.sh --doctor` (tự tải `src/` về); không có mạng thì `git clone https://github.com/NiyakiPham/anisub.git` |
+| Trong Cài đặt **không thấy nguồn kagane** | bộ `src/` trên máy là bản cũ (chưa cập nhật) | chạy `🔄 Cập nhật` ở menu chính hoặc `./anisub.sh --update` rồi mở lại; menu nguồn truyện có dòng nhắc khi phát hiện bản cũ |
 | Kagane: ảnh trang `401/403/507` | token đọc hết hạn hoặc truyện 18+ chưa xác nhận | anisub tự xin token mới 1 lần; vẫn lỗi thì đặt `KAGANE_COOKIE` hoặc `./anisub.sh --netcheck kagane.moe` |
 | Đổi DNS rồi **vẫn** `HTTP 000` | nhà mạng chặn theo IP/SNI, không chỉ DNS | `./anisub.sh --netcheck e-hentai.org` để xem lớp nào bị chặn; DNS chặn thì anisub tự đi DoH, còn IP/SNI chặn thì cần VPN/proxy (`MANGA_PROXY`, `https_proxy`) |
 | `HTTP 000` | không với được trang nguồn | anisub in kèm mã lỗi curl: `6` DNS (đổi DNS 1.1.1.1), `7` bị chặn/không kết nối, `28` timeout, `35/60` TLS. Với **e-hentai**: site hay bị nhà mạng VN chặn → bật VPN, hoặc bấm `1` để đổi sang nettruyen |

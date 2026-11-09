@@ -693,7 +693,7 @@ check "EHENTAI_CHUNK chặn giá trị nhỏ (<5)" "5" "$(EHENTAI_CHUNK=1 eh_chu
 has "menu cài đặt có mục tag e-hentai" "Tag mặc định (e-hentai)" "$(src_has 'Tag mặc định (e-hentai)')"
 has "menu cài đặt có mục cookie e-hentai" "Cookie e-hentai" "$(src_has 'Cookie e-hentai')"
 has "menu cài đặt có mục số trang mỗi chapter" "Số trang ảnh mỗi chapter" "$(src_has 'Số trang ảnh mỗi chapter')"
-has "menu đổi nguồn có e-hentai" "e-hentai   (https://e-hentai.org)" "$(src_has 'e-hentai   (https://e-hentai.org)')"
+has "menu đổi nguồn có e-hentai" "3|ehentai|" "$(src_has '3|ehentai|')"
 
 eh manga_diagnose </dev/null > "$WORK/eh-diag.txt" 2>&1
 check "chẩn đoán e-hentai chạy được" "1" "$(grep -c 'Chẩn đoán nguồn e-hentai' "$WORK/eh-diag.txt")"
@@ -1088,7 +1088,39 @@ has "chẩn đoán kagane: kiểm tra token đọc" "Token đọc" "$K40_DIAG"
 has "chẩn đoán kagane: đếm chương qua API" "3 chương" "$K40_DIAG"
 
 # (n) cấu hình: menu nguồn + config.cfg
-has "menu có lựa chọn kagane" '4) kagane     (https://kagane.moe)' "$(src_has '4) kagane     (https://kagane.moe)')"
+check "danh sách nguồn có đủ 4 lựa chọn" "4" "$(kgsh 'manga_source_choices' | grep -c '.')"
+check "nguồn thứ 4 là kagane" "kagane|https://kagane.moe" \
+    "$(kgsh 'manga_source_choices' | sed -n '4p' | cut -d'|' -f2,3)"
+check "module kagane được nhận là đã nạp" "1" "$(kgsh 'manga_has_kagane_module && echo 1 || echo 0')"
+K40_FZFDIR="$WORK/k40-fzf"; mkdir -p "$K40_FZFDIR"
+cat > "$K40_FZFDIR/fzf" <<'EOS'
+#!/bin/bash
+inp=$(cat)
+[ -n "${K40_FZF_DUMP:-}" ] && printf '%s\n' "$inp" > "$K40_FZF_DUMP"
+printf '%s\n' "$inp" | sed -n "${KK_MOCK_PICK:-1}p"
+EOS
+chmod +x "$K40_FZFDIR/fzf"
+PATH="$K40_FZFDIR:$PATH" K40_FZF_DUMP="$WORK/k40-fzf-dump.txt" KK_MOCK_PICK=2 \
+    kgsh 'MANGA_SOURCE=truyenvn; manga_switch_source' > /dev/null 2>&1
+check "picker đánh dấu nguồn đang dùng" "1" \
+    "$(grep -c '✅ 2) truyenvn' "$WORK/k40-fzf-dump.txt" 2>/dev/null)"
+check "picker liệt kê đủ 4 nguồn" "4" \
+    "$(grep -cE '^ *(✅ )?[1-4]\) ' "$WORK/k40-fzf-dump.txt" 2>/dev/null)"
+check "Cài đặt: chọn 4 -> chuyển sang kagane" "kagane|https://kagane.moe" \
+    "$(KK_MOCK_PICK=4 kgsh 'MANGA_SOURCE=nettruyen; MANGA_BASE_URL="https://nettruyen.info"; manga_switch_source >/dev/null 2>&1; printf "%s|%s" "$MANGA_SOURCE" "$MANGA_BASE_URL"')"
+has "Cài đặt: lưu nguồn kagane vào config" 'MANGA_SOURCE="kagane"' \
+    "$(cat "$WORK/home-k40/.config/anisub_cli/config.cfg" 2>/dev/null)"
+check "Cài đặt: Esc -> giữ nguyên nguồn" "nettruyen" \
+    "$(KK_MOCK_PICK=99 kgsh 'MANGA_SOURCE=nettruyen; manga_switch_source >/dev/null 2>&1; printf "%s" "$MANGA_SOURCE"')"
+check "Cài đặt: chọn 3 -> e-hentai" "ehentai|https://e-hentai.org" \
+    "$(KK_MOCK_PICK=3 kgsh 'MANGA_SOURCE=nettruyen; manga_switch_source >/dev/null 2>&1; printf "%s|%s" "$MANGA_SOURCE" "$MANGA_BASE_URL"')"
+# bộ src/ cũ (không có module kagane): cảnh báo + KHÔNG đổi nguồn
+K40_OLD=$(KK_MOCK_PICK=4 kgsh 'unset KAGANE_MODULE; unset -f kg_list_items; MANGA_SOURCE=nettruyen; MANGA_BASE_URL="https://nettruyen.info"; manga_switch_source; printf "src=%s|" "$MANGA_SOURCE"')
+has "bộ src/ cũ -> cảnh báo cần Cập nhật" "chưa có module kagane" "$K40_OLD"
+has "bộ src/ cũ -> nhắc ./anisub.sh --update" "--update" "$K40_OLD"
+has "bộ src/ cũ -> không đổi sang kagane" "src=nettruyen|" "$K40_OLD"
+has "menu nhắc bộ src/ cũ khi chưa có kagane" "bộ src/ cũ: thiếu nguồn kagane" \
+    "$(src_has 'bộ src/ cũ: thiếu nguồn kagane')"
 has "nhãn menu nguồn truyện có kagane" "nettruyen / truyenvn / e-hentai / kagane" \
     "$(src_has 'nettruyen / truyenvn / e-hentai / kagane')"
 check "có file module src/comic/kagane.sh" "1" "$([ -f "$ROOT/src/comic/kagane.sh" ] && echo 1 || echo 0)"
