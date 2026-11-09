@@ -26,6 +26,8 @@
 《🪟》- Chạy trên windows<br>
 ## UPDATE
 《📺》- Thêm gợi ý từ khóa<br>
+《🧩》- Tách mã nguồn: `src/movie/` (nguồn phim) và `src/comic/` (nguồn truyện) — thêm nguồn mới chỉ cần thêm 1 file, code chính gọn còn ~1/6<br>
+《🔞》- Thêm nguồn truyện **e-hentai** (`https://e-hentai.org`), mặc định xem tag `language:vietnamese`<br>
 《🚫》- Gỡ tính năng chặn quảng cáo trong `.m3u8` (lọc playlist làm phim phát 3 giây lại khựng 3 giây): giờ phát thẳng link `.m3u8` gốc của KKPhim, mượt như trước<br>
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
 《📖》- Tích hợp truyenvn ( manga thì đọc oke còn webtoon thì như hạch ) <br>
@@ -50,6 +52,7 @@
 《🎬》- **KKPhim** — `https://kkphim.com` : tìm kiếm, danh mục, thông tin phim, server phụ đề và link `.m3u8` đều lấy từ API chính thức mà KKPhim công bố tại https://kkphim.com/api-document (base `https://phimapi.com`) <br>
 《📚》- **nettruyen** — `https://nettruyen.info` : đọc truyện tranh (mặc định; cào HTML, danh sách chapter nằm sẵn trong trang, không cần API key) <br>
 《📚》- **TruyenVN** — `https://truyenvn.my` : nguồn cũ, đổi lại được bằng `🔁 Đổi nguồn truyện` (cần API nội bộ `list-chapter`) <br>
+《🔞》- **e-hentai** — `https://e-hentai.org` : gallery ảnh (18+), mặc định duyệt tag `language:vietnamese` <br>
 《📂》- **Local Anidata** — `assets/aniw_export_2026-01-14.csv` : xem offline không cần mạng <br>
 
 <br>
@@ -112,10 +115,13 @@ MANGA_SEARCH_PAGES="1"                         # số trang của mỗi bảng (
 MANGA_IMAGE_SCALE="130"                        # % độ rộng ảnh so với terminal (100 = full)
 MANGA_IMAGE_PROTOCOL="auto"                    # auto | symbols | kitty | sixel | iterm
 MANGA_READER_PROXY="https://r.jina.ai"         # "" hoặc "off" để tắt (xem bên dưới)
+EHENTAI_TAG="language:vietnamese"              # tag mở ra đầu tiên của nguồn e-hentai
+EHENTAI_CHUNK="20"                             # số trang ảnh gộp thành 1 "chapter" (5-100)
+EHENTAI_COOKIE=""                              # cookie đăng nhập e-hentai (chỉ khi gallery cần)
 ```
 
 Đổi nguồn không cần sửa file:
-`⚙️ Cài đặt → 📚 Nguồn truyện → 🔁 Đổi nguồn truyện (nettruyen ⇄ truyenvn)`
+`⚙️ Cài đặt → 📚 Nguồn truyện → 🔁 Đổi nguồn truyện (nettruyen / truyenvn / e-hentai)`
 (máy đang dùng config cũ chưa có `MANGA_SOURCE` sẽ tự chuyển sang nettruyen một lần).
 
 **Ba chỗ hay hỏng và cách anisub xử lý** (áp dụng cho cả hai nguồn)
@@ -213,6 +219,63 @@ Kiểm tra nhanh toàn bộ luồng đọc: vào `📚 Truyện tranh` → **`�
 
 <br>
 
+
+### 🔞 Đọc truyện trên e-hentai
+
+Nguồn **`https://e-hentai.org`** (nội dung người lớn — 18+, bạn tự chịu trách nhiệm khi bật).
+e-hentai là hệ **gallery ảnh**, nên anisub quy ước:
+
+| Trên anisub | Trên e-hentai |
+| --- | --- |
+| 1 "truyện" | 1 gallery `https://e-hentai.org/g/<id>/<token>/` |
+| 1 "chapter" | 1 nhóm trang ảnh (mặc định **20 trang**: `Trang 1–20/123`) |
+| thể loại | tag (`language:vietnamese`, `language:vietnamese manga`, …) |
+
+- **Danh sách mặc định** = tag `EHENTAI_TAG` (mặc định `language:vietnamese`) →
+  `https://e-hentai.org/tag/language:vietnamese`. Đổi tag bằng
+  `⚙️ Cài đặt → 📚 Nguồn truyện → 🏷 Tag mặc định (e-hentai)` hoặc chọn `🗂 Theo thể loại`.
+- **Phân trang**: e-hentai dùng link `Next >` (`?next=<id>`) chứ không phải `?page=N`,
+  nên menu duyệt của e-hentai tự đọc link "Next" từ trang vừa tải.
+- **Đọc ảnh**: link ảnh thật chỉ có trong trang xem từng ảnh (`/s/<token>/<id>-<i>`, thẻ
+  `<img id="img">`). Đọc 1 nhóm 20 trang = 20 request, anisub **cache** link ảnh ở
+  `~/.config/anisub_cli/cache/ehentai/` nên lần sau mở lại gần như tức thì. Có delay
+  `EHENTAI_DELAY` (mặc định 0.4s) giữa các request để không bị chặn "Excessive pageloads".
+- **Gallery giới hạn/18+**: dán cookie đăng nhập vào
+  `⚙️ Cài đặt → 📚 Nguồn truyện → 🍪 Cookie e-hentai` (F12 → Network → copy header `cookie`,
+  thường có `ipb_member_id=…; ipb_pass_hash=…; sk=…`). Không có cookie vẫn xem được gallery
+  công khai.
+- **Lỗi hay gặp**: `Excessive pageloads` / IP bị khoá tạm → chờ 2-5 phút; trang báo cần đăng
+  nhập → thêm cookie; `Không đọc được số trang của gallery` → kiểm tra lại link `/g/<id>/<token>/`.
+- **Lịch sử / yêu thích** lưu gallery dạng `id/token` nên mở lại đúng gallery, đúng nhóm trang.
+
+Gõ tay từ dòng lệnh:
+
+```shell
+MANGA_SOURCE=ehentai MANGA_BASE_URL=https://e-hentai.org ./anisub.sh --manga-selftest "https://e-hentai.org/g/4313400/7fcc76c845/"
+```
+
+### 🧩 Cấu trúc mã nguồn (src/)
+
+Code đã tách khỏi 1 file duy nhất để dễ bảo trì. `anisub.sh` chỉ còn phần cấu hình, tiện ích,
+lịch sử/yêu thích, cài đặt, menu chính và **bộ nạp module**:
+
+```text
+anisub.sh                 # khởi động + menu chính + nạp src/ (anisub_load_sources)
+src/movie/kkphim.sh       # nguồn phim KKPhim: API, danh mục, server, tập, phát phim
+src/movie/media.sh        # tải / cắt / ghép video, mở link, xem file local
+src/comic/core.sh         # engine đọc truyện dùng chung (HTTP, ảnh, fzf, khung đọc, menu)
+src/comic/nettruyen.sh    # nguồn nettruyen.info
+src/comic/truyenvn.sh     # nguồn truyenvn.my
+src/comic/ehentai.sh      # nguồn e-hentai.org
+```
+
+- Mọi file `src/movie/*.sh` và `src/comic/*.sh` được nạp tự động (theo tên file) —
+  **thêm nguồn mới chỉ cần thêm 1 file**, không sửa `anisub.sh`.
+- Chạy ở nơi khác (hoặc nhúng vào script khác): đặt `ANISUB_SRC_DIR=/duong/dan/src`.
+- Nếu thiếu `src/` (ví dụ chỉ tải mỗi `anisub.sh`), anisub báo rõ và dừng — hãy clone cả repo.
+- `🔄 Cập nhật` tải archive `main` của GitHub rồi cập nhật **cả** `anisub.sh` và `src/`.
+- Test offline: `bash tests/run_tests.sh` (không cần mạng, mọi request đi qua `tests/mockbin`).
+
 ## INSTALL
 
 UBUNTU
@@ -227,6 +290,9 @@ yay -S ffmpeg curl grep yt-dlp fzf pup manga-tui jq awk cutafa chafa mpv
 ```
 
 ## RUN
+
+> ⚠️ Anisub giờ gồm nhiều file (`anisub.sh` + `src/`). Hãy **clone cả repo**, đừng tải mỗi
+> `anisub.sh`: `git clone https://github.com/NiyakiPham/anisub.git && cd anisub`
 
 Cấp quyền cho file
 ```shell
