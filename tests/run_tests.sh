@@ -22,10 +22,18 @@ export HOME="$WORK/home"
 mkdir -p "$HOME"
 export PATH="$HERE/mockbin:$PATH"
 
-# Nạp các hàm của script (bỏ lời gọi "main" ở dòng cuối)
+# Nạp các hàm của script (bỏ lời gọi "main" ở dòng cuối).
+# Code đã tách thành anisub.sh + src/{movie,comic}/*.sh nên phải trỏ ANISUB_SRC_DIR
+# về src/ của repo: lib.sh nằm trong $WORK nên tự nó không tìm thấy src/.
+export ANISUB_SRC_DIR="$ROOT/src"
 sed '$d' "$ROOT/anisub.sh" > "$WORK/lib.sh"
 # shellcheck source=/dev/null
 source "$WORK/lib.sh"
+
+# Tìm trong toàn bộ mã nguồn (file chính + các module nguồn)
+SRC_FILES=("$ROOT/anisub.sh" "$ROOT"/src/*/*.sh)
+src_has()   { grep -rho -- "$1" "${SRC_FILES[@]}" 2>/dev/null | head -1; }
+src_count() { grep -rh -- "$1" "${SRC_FILES[@]}" 2>/dev/null | grep -c . ; }
 
 pass=0; fail=0; group=""
 ok()  { pass=$((pass + 1)); printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -166,7 +174,7 @@ has "chẩn đoán nhắc đổi domain" "MANGA_BASE_URL" "$diag"
 menu_src=$(declare -f manga_main_menu)
 check "menu không dùng start:reload (fzf cũ vẫn mở được)" "0" "$(printf '%s' "$menu_src" | grep -c 'start:reload')"
 has "menu có mục dán link" "🔗 Mở bằng link / slug" "$menu_src"
-check "không còn gọi thẳng domain cũ" "0" "$(grep -c 'https://truyenvn\.shop' "$ROOT/anisub.sh")"
+check "không còn gọi thẳng domain cũ" "0" "$(src_count 'https://truyenvn\.shop')"
 check "manga_read_manga có gọi fzf để chọn chapter" "1" "$(grep -c 'Chọn chapter' "$MOCK_FZF_LOG")"
 
 echo "== 12. không hồi quy: lịch sử & yêu thích =="
@@ -483,13 +491,13 @@ check "proxy=off -> không gọi dịch vụ ngoài" "1" "$?"
 MANGA_READER_PROXY="https://r.jina.ai" manga_proxy_fetch "https://truyenvn.my/truyen-tranh/bocchi-the-rock/chapter-243" >"$WORK/jina.log" 2>/dev/null
 check "proxy bật -> lấy được markdown" "3" "$(grep -c 'cc_00' "$WORK/jina.log")"
 check "mặc định có bật proxy (để tự cứu khi bị chặn)" "https://r.jina.ai" "$DEFAULT_MANGA_READER_PROXY"
-has "Cài đặt có mục bật/tắt dịch vụ đọc hộ" "Dịch vụ đọc hộ khi bị chặn" "$(grep -o 'Dịch vụ đọc hộ khi bị chặn' "$ROOT/anisub.sh" | head -1)"
+has "Cài đặt có mục bật/tắt dịch vụ đọc hộ" "Dịch vụ đọc hộ khi bị chặn" "$(src_has 'Dịch vụ đọc hộ khi bị chặn')"
 
 echo "== 27. phiên bản & lối vào chẩn đoán =="
 check "có nhãn phiên bản" "1" "$(printf '%s' "$ANISUB_VERSION" | grep -cE '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}[a-z0-9]*$')"
 has "selftest in phiên bản để biết đang chạy bản nào" "anisub: $ANISUB_VERSION" "$(manga_selftest bocchi-the-rock 2>&1)"
 check "CLI --version chạy được" "anisub $ANISUB_VERSION" "$(bash "$ROOT/anisub.sh" --version 2>/dev/null)"
-has "menu truyện có mục chẩn đoán" "Kiểm tra đọc truyện (chẩn đoán)" "$(grep -o 'Kiểm tra đọc truyện (chẩn đoán)' "$ROOT/anisub.sh" | head -1)"
+has "menu truyện có mục chẩn đoán" "Kiểm tra đọc truyện (chẩn đoán)" "$(src_has 'Kiểm tra đọc truyện (chẩn đoán)')"
 
 
 echo "== 28. nguồn nettruyen: URL, tìm kiếm, danh sách truyện =="
@@ -566,16 +574,16 @@ has "selftest đọc được ảnh nettruyen" "imgchapter.store" "$(cat "$WORK/
 has "selftest chỉ ra chap trước/sau kiểu chuong-" "chuong-146|https://nettruyen.info/truyen-toi-manh-hon-anh-hung/chuong-148" \
     "$(grep 'chap trước|sau' "$WORK/nt-selftest.txt")"
 has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen ⇄ truyenvn)" \
-    "$(grep -o 'Đổi nguồn truyện (nettruyen ⇄ truyenvn)' "$ROOT/anisub.sh" | head -1)"
+    "$(src_has 'Đổi nguồn truyện (nettruyen ⇄ truyenvn)')"
 check "chẩn đoán ghi đúng nguồn" "1" \
     "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'Chẩn đoán nguồn truyện tranh (nettruyen)')"
 check "chẩn đoán đọc được trang chủ nettruyen" "1" \
     "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'parse được 3 truyện')"
 echo "== 32. bấm \"📚 Đọc Truyện Tranh\" phải mở được menu truyện =="
 has "case menu chính dùng khớp mềm (nhãn nguồn đổi được)" '*"Đọc Truyện Tranh"*)' \
-    "$(grep -o '\*"Đọc Truyện Tranh"\*)' "$ROOT/anisub.sh" | head -1)"
+    "$(src_has '\*"Đọc Truyện Tranh"\*)')"
 has "lời nhắc tìm kiếm theo nguồn, không hard-code TruyenVN" "cần tìm (%s)" \
-    "$(grep -o 'cần tìm (%s)' "$ROOT/anisub.sh" | head -1)"
+    "$(src_has 'cần tìm (%s)')"
 if command -v timeout >/dev/null 2>&1; then
     mkdir -p "$WORK/fakebin" "$WORK/home-menu"
     for b in ffmpeg yt-dlp; do
@@ -595,11 +603,11 @@ has "CLI --manga-selftest tự chọn truyện mẫu theo nguồn" "nettruyen" \
 
 
 echo "== 33. đã gỡ tính năng chặn quảng cáo trong m3u8 (gây khựng khi phát) =="
-check "không còn cấu hình KKPHIM_AD_BLOCK" "0" "$(grep -c 'KKPHIM_AD_BLOCK' "$ROOT/anisub.sh")"
-check "không còn menu chặn quảng cáo" "0" "$(grep -c 'Chặn quảng cáo trong m3u8' "$ROOT/anisub.sh")"
-check "không còn hàm lọc playlist" "0" "$(grep -c 'kkphim_playlist_filter\|kkphim_play_url' "$ROOT/anisub.sh")"
-check "play_stream phát thẳng link gốc" "1" "$(grep -c 'mpv \"\$url\" --no-terminal' "$ROOT/anisub.sh")"
-check "không còn cờ CLI --kkphim-ad-debug" "0" "$(grep -c 'kkphim-ad-debug' "$ROOT/anisub.sh")"
+check "không còn cấu hình KKPHIM_AD_BLOCK" "0" "$(src_count 'KKPHIM_AD_BLOCK')"
+check "không còn menu chặn quảng cáo" "0" "$(src_count 'Chặn quảng cáo trong m3u8')"
+check "không còn hàm lọc playlist" "0" "$(src_count 'kkphim_playlist_filter\|kkphim_play_url')"
+check "play_stream phát thẳng link gốc" "1" "$(src_count 'mpv \"\$url\" --no-terminal')"
+check "không còn cờ CLI --kkphim-ad-debug" "0" "$(src_count 'kkphim-ad-debug')"
 mkdir -p "$WORK/home3/.config/anisub_cli"
 printf 'PLAYER="mpv"\nKKPHIM_AD_BLOCK=0\nKKPHIM_AD_PATTERNS="ad,quangcao"\nKKPHIM_AD_VARIANT=max\n' > "$WORK/home3/.config/anisub_cli/config.cfg"
 ( HOME="$WORK/home3" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; load_config >/dev/null 2>&1" ) \
