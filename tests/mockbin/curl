@@ -1,33 +1,59 @@
 #!/bin/bash
 # curl giả lập cho test offline (xem tests/run_tests.sh)
 # - HTML của TruyenVN: trả fixture theo đường dẫn trong URL
+# - API POST /webapi/stories/list-chapter: trả JSON fixture (giả lập được 419/500)
 # - Ảnh (imggo.net / /uploads/): ghi vài byte giả, không có -w
 # - Host chứa "manga-offline": mô phỏng mất mạng (HTTP 000, không body)
-url=""; out=""; data=""; wmode=""
+url=""; out=""; data=""; post=""; wmode=""; referer=""
 args=("$@")
+skip_next=0
 for i in "${!args[@]}"; do
     a="${args[$i]}"
     nxt="${args[$((i + 1))]}"
+    if [ "$skip_next" = "1" ]; then
+        skip_next=0
+        continue          # bỏ qua giá trị của tham số (không nhầm thành URL)
+    fi
     case "$a" in
-        -o) out="$nxt" ;;
-        -w) wmode="1" ;;
-        --write-out) wmode="1" ;;
-        --data-urlencode) enc=${nxt// /%20}; data="$data&$enc" ;;
+        -o|--output) out="$nxt"; skip_next=1 ;;
+        -w|--write-out) wmode="1"; skip_next=1 ;;
+        -e|--referer) referer="$nxt"; skip_next=1 ;;
+        -H|--header|-A|--user-agent|-X|--request) skip_next=1 ;;
+        --max-time|--retry|--retry-delay|--connect-timeout) skip_next=1 ;;
+        -c|--cookie-jar|-b|--cookie) skip_next=1 ;;
+        --data|--data-raw|--data-binary) post="$nxt"; skip_next=1 ;;
+        --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*"/uploads/"*|*"manga-offline"*)
-                    [ -z "$url" ] && url="$a" ;;
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*"/uploads/"*|*"manga-offline"*)
+                    url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
 done
-eff="$url$data"
+eff="$url$data$post"
 [ -n "${MOCK_CURL_LOG:-}" ] && printf '%s\n' "$eff" >> "$MOCK_CURL_LOG"
+# log header để kiểm tra Referer (CDN ảnh của TruyenVN trả 403 nếu có Referer)
+if [ -n "${MOCK_CURL_HEADER_LOG:-}" ]; then
+    printf '%s|referer=%s|args=%s\n' "$url" "${referer:-none}" "${args[*]}" >> "$MOCK_CURL_HEADER_LOG"
+fi
 
 code="200"
 body=""
 case "$eff" in
     *manga-offline*)        code="000"; body="" ;;
+    *"/webapi/stories/list-chapter"*)
+        if [ -n "${MOCK_API_419:-}" ] && [ ! -f "${MOCK_API_419}" ]; then
+            : > "${MOCK_API_419}"          # lần đầu: phiên hết hạn
+            code="419"; body="${MOCK_FIXTURES}/manga-api-419.json"
+        elif [ "${MOCK_API_FAIL:-0}" = "1" ]; then
+            code="500"; body="${MOCK_FIXTURES}/manga-api-500.json"
+        elif [ -z "$post" ] && [ -z "$data" ]; then
+            code="400"; body="${MOCK_FIXTURES}/manga-api-500.json"
+        else
+            body="${MOCK_FIXTURES}/manga-chapters-api.json"
+        fi ;;
     *"/chapter-"*js*)       body="${MOCK_FIXTURES}/manga-chapter-js.html" ;;
+    *"no-story-id"*)        body="${MOCK_FIXTURES}/manga-detail-no-story-id.html" ;;
     *"/chapter-"*)           body="${MOCK_FIXTURES}/manga-chapter.html" ;;
     *"/truyen-tranh/"*)      body="${MOCK_FIXTURES}/manga-detail.html" ;;
     *"/tim-kiem"*|*"/the-loai/"*|*"/danh-sach"*) body="${MOCK_FIXTURES}/manga-home.html" ;;
@@ -38,7 +64,13 @@ esac
 
 # Tải ảnh (không có -w): ghi file giả rồi thoát
 if [ -z "$wmode" ]; then
-    [ -n "$out" ] && printf '\xff\xd8\xff\xe0fake-jpg-bytes' > "$out"
+    if [ -n "$out" ]; then
+        if [ "${MOCK_IMG_FORBIDDEN:-0}" = "1" ]; then
+            printf '<html><body>403 Forbidden</body></html>' > "$out"   # CDN chặn
+        else
+            printf '\xff\xd8\xff\xe0fake-jpg-bytes' > "$out"
+        fi
+    fi
     exit 0
 fi
 
@@ -46,7 +78,11 @@ if [ -n "$out" ]; then
     if [ "$code" = "200" ] && [ -n "$body" ]; then
         cp "$body" "$out" 2>/dev/null || : > "$out"
     else
-        printf '<html>%s Bad Gateway</html>' "$code" > "$out"
+        if [ -n "$body" ] && [ -s "$body" ]; then
+            cp "$body" "$out" 2>/dev/null || printf '{"message":"error"}' > "$out"
+        else
+            printf '<html>%s Bad Gateway</html>' "$code" > "$out"
+        fi
     fi
 else
     [ "$code" = "200" ] && [ -n "$body" ] && cat "$body"

@@ -1,2 +1,4 @@
 #!/bin/bash
+# chafa giả lập: ghi lại tham số để test kiểm tra có vẽ ảnh hay không
+[ -n "${MOCK_CHAFA_LOG:-}" ] && printf '%s\n' "$*" >> "$MOCK_CHAFA_LOG"
 exit 0

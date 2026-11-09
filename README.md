@@ -29,6 +29,7 @@
 《📺》- Thêm data từ kkphim, nguồn ophim sang dạng cào<br>
 《📖》- Tích hợp truyenvn ( manga thì đọc oke còn webtoon thì như hạch ) <br>
 《📖》- Đổi nguồn truyện sang `truyenvn.my`, sửa lỗi không tải được danh sách chapter / ảnh trang đọc<br>
+《📖》- Truyện tranh: xem trước **ảnh bìa** khi chọn truyện, lấy **đủ danh sách chapter** (API `list-chapter`) và **ảnh trang đọc hiện ở mọi terminal**<br>
 《✂》- Bổ sung cắt video 1 lần và cắt video nhiều lần<br>
 《﬚》- Bổ sung tính năng ghép nhiều video với nhau <br>
 #### Và còn nhiều tính năng khác!!! <br>
@@ -44,7 +45,7 @@
 ## NGUỒN PHIM
 
 《🎬》- **KKPhim** — `https://kkphim.com` : tìm kiếm, danh mục, thông tin phim, server phụ đề và link `.m3u8` đều lấy từ API chính thức mà KKPhim công bố tại https://kkphim.com/api-document (base `https://phimapi.com`) <br>
-《📚》- **TruyenVN** — `https://truyenvn.my` : đọc truyện tranh (cào HTML trực tiếp, không cần API key) <br>
+《📚》- **TruyenVN** — `https://truyenvn.my` : đọc truyện tranh (cào HTML + API nội bộ `list-chapter`, không cần API key) <br>
 《📂》- **Local Anidata** — `assets/aniw_export_2026-01-14.csv` : xem offline không cần mạng <br>
 
 <br>
@@ -85,13 +86,37 @@ và in mã HTTP + số kết quả nhận được (bản này chính là thứ 
 ### 📚 Đọc truyện tranh (TruyenVN)
 
 Nguồn truyện mới là `https://truyenvn.my` (trang cũ `truyenvn.shop` đã đổi nên không đọc được nữa).
-Toàn bộ danh sách truyện, danh sách chương và ảnh trang đọc đều cào thẳng HTML của trang, không dùng API.
+Danh sách truyện và ảnh trang đọc cào thẳng HTML; riêng **danh sách chương** phải gọi API
+nội bộ của web (xem ghi chú bên dưới).
 
 ```shell
 MANGA_BASE_URL="https://truyenvn.my"           # nguồn truyện (đổi được khi site đổi domain)
 MANGA_SEARCH_FEEDS="latest,trending,views"     # các bảng sẽ quét khi tìm
 MANGA_SEARCH_PAGES="1"                         # số trang của mỗi bảng (1-5)
 MANGA_IMAGE_SCALE="130"                        # % độ rộng ảnh so với terminal (100 = full)
+MANGA_IMAGE_PROTOCOL="auto"                    # auto | symbols | kitty | sixel | iterm
+```
+
+**Ba chỗ hay hỏng và cách anisub xử lý**
+
+1. **Ảnh bìa khi chọn truyện** — mỗi dòng danh sách là `Tên|URL|slug|ảnh bìa`; fzf hiện
+   khung preview bên phải (ảnh được cache ở `~/.config/anisub_cli/cache/manga-covers/`).
+2. **Danh sách chương** — trang truyện chỉ nhúng 2 link `Đọc từ đầu` + `Chap mới nhất`, còn
+   danh sách thật do JavaScript lấy từ `POST /webapi/stories/list-chapter`
+   (body `story_id=…&routeName=story.detail`, header `X-CSRF-TOKEN` lấy từ
+   `<meta name="csrf-token">`, có cookie phiên). anisub gọi đúng API đó, tự tải lại trang khi
+   gặp `HTTP 419` (phiên của web chỉ sống 60 giây), API lỗi thì mới fallback về 2 chapter và
+   cảnh báo rõ ra màn hình. Nếu trang không còn `"story_id"`, anisub suy id từ URL ảnh bìa
+   (`/books/<id>/cover_*.jpg`); nếu slug trên URL khác slug trong link chapter thì tự dò slug
+   xuất hiện nhiều nhất trong danh sách để không lẫn chapter của truyện khác.
+3. **Ảnh trang đọc không hiện** — CDN ảnh (`*.imggo.net`) trả **403 với mọi request có
+   `Referer`**, nên anisub tải ảnh **không kèm Referer** và kiểm tra magic bytes trước khi vẽ.
+   Ngoài ra anisub không còn ép `sixel` cho mọi terminal: `MANGA_IMAGE_PROTOCOL=auto` tự nhận
+   `kitty`/`sixel`/`iterm`, terminal lạ thì vẽ bằng ký tự (`symbols`) nên **luôn thấy hình**.
+
+```shell
+# xem nhanh mình đang ở giao thức nào
+⚙️ Cài đặt → 📚 Nguồn truyện → 🖼️ Kiểu hiển thị ảnh     # hoặc sửa MANGA_IMAGE_PROTOCOL trong config.cfg
 ```
 
 Sửa nhanh: `⚙️ Cài đặt → 📚 Nguồn truyện` (đổi domain / số bảng / số trang) hoặc
@@ -101,14 +126,15 @@ parse được từ trang thật.
 Bộ thử nghiệm chạy offline (mock `curl`/`fzf` + HTML mẫu của TruyenVN, không cần mạng):
 
 ```shell
-bash tests/run_tests.sh     # parse danh sách, danh sách chapter, ảnh trang đọc, tìm kiếm, lịch sử / yêu thích
+bash tests/run_tests.sh     # parse danh sách + ảnh bìa, API chapter (419/500), tải ảnh không Referer,
+                           # giao thức vẽ ảnh, script preview bìa, tìm kiếm, lịch sử / yêu thích
 ```
 
-> **Vì sao tìm kiếm phải quét theo bảng?** `truyenvn.my` có trang `/tim-kiem` nhưng server
-> **bỏ qua từ khóa** (`?q=`, `?keyword=`, `?title=` đều trả toàn bộ 49k truyện, không lọc),
-> và cũng không mở API/`wp-json`/`admin-ajax` nào để tìm. Nên anisub vẫn gửi từ khóa lên
-> `/tim-kiem` (biết đâu họ bật lại), đồng thời lọc **tại máy** trên các bảng
-> `m_orderby=latest|trending|views`; gõ dấu cách vẫn khớp (`bo chi` → `Bocchi`), không cần gõ dấu.
+> **Tìm kiếm dùng tham số nào?** `/tim-kiem` của `truyenvn.my` lọc thật ở server bằng
+> **`?search=<từ khóa>`** (`?q=` / `?keyword=` bị bỏ qua, trả về cả 49k truyện).
+> anisub gửi `?search=` trước; chỉ khi server không trả mục nào khớp mới quét thêm các bảng
+> `m_orderby=latest|trending|views` rồi lọc **tại máy**; gõ dấu cách vẫn khớp
+> (`bo chi` → `Bocchi`), không cần gõ dấu.
 > Không thấy gì? vào `🔗 Mở bằng link / slug` và dán thẳng link truyện
 > (`https://truyenvn.my/truyen-tranh/bocchi-the-rock`) là đọc được ngay; hoặc duyệt theo
 > `🗂️ Thể loại`. Muốn tìm phủ nhiều truyện hơn thì tăng `MANGA_SEARCH_PAGES` lên `3`–`5`.
@@ -118,8 +144,10 @@ bash tests/run_tests.sh     # parse danh sách, danh sách chapter, ảnh trang 
 | `HTTP 000` | không với được `truyenvn.my` | kiểm tra mạng / DNS / VPN, hoặc `curl -I https://truyenvn.my` |
 | `HTTP 403` / Cloudflare challenge | trang chặn client không phải trình duyệt | anisub đã gửi User-Agent trình duyệt; thử lại sau, hoặc đổi `MANGA_BASE_URL` sang domain mirror của TruyenVN |
 | `❌ Không lấy được danh sách chapter` | slug sai hoặc trang đổi layout | dùng `🔗 Mở bằng link / slug` dán link thật từ trình duyệt |
+| Chỉ có ~2 chapter (đầu + cuối) | API `list-chapter` đổi đường dẫn / chặn | chạy `🩺 Kiểm tra nguồn truyện` để xem HTTP của API, rồi báo lên repo |
+| Chọn truyện không thấy ảnh bìa | thiếu `chafa`, hoặc terminal không vẽ được ảnh | `sudo apt install chafa`; đổi `MANGA_IMAGE_PROTOCOL` sang `symbols` |
 | Danh sách rỗng khi tìm | từ khóa quá ngắn / nằm ngoài các bảng đang quét | gõ ≥ 2 ký tự, tăng `MANGA_SEARCH_PAGES`, hoặc lọc theo `🗂️ Thể loại` |
-| Ảnh đen / không hiện | thiếu `chafa` | `sudo apt install chafa` (hoặc `yay -S chafa`); không có `chafa` thì anisub tự mở bằng `feh`/`xdg-open` |
+| Ảnh đen / không hiện | thiếu `chafa`, hoặc giao thức vẽ ảnh không khớp terminal | `sudo apt install chafa` (hoặc `yay -S chafa`); đặt `MANGA_IMAGE_PROTOCOL=symbols` để chắc chắn thấy hình; `Enter` luôn mở ảnh bằng ứng dụng ngoài |
 
 <br>
 
