@@ -573,8 +573,8 @@ has "selftest ghi rõ nguồn" "nguồn: nettruyen (https://nettruyen.info)" "$(
 has "selftest đọc được ảnh nettruyen" "imgchapter.store" "$(cat "$WORK/nt-selftest.txt")"
 has "selftest chỉ ra chap trước/sau kiểu chuong-" "chuong-146|https://nettruyen.info/truyen-toi-manh-hon-anh-hung/chuong-148" \
     "$(grep 'chap trước|sau' "$WORK/nt-selftest.txt")"
-has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen ⇄ truyenvn)" \
-    "$(src_has 'Đổi nguồn truyện (nettruyen ⇄ truyenvn)')"
+has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen / truyenvn / e-hentai)" \
+    "$(src_has 'Đổi nguồn truyện (nettruyen / truyenvn / e-hentai)')"
 check "chẩn đoán ghi đúng nguồn" "1" \
     "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'Chẩn đoán nguồn truyện tranh (nettruyen)')"
 check "chẩn đoán đọc được trang chủ nettruyen" "1" \
@@ -613,6 +613,96 @@ printf 'PLAYER="mpv"\nKKPHIM_AD_BLOCK=0\nKKPHIM_AD_PATTERNS="ad,quangcao"\nKKPHI
 ( HOME="$WORK/home3" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; load_config >/dev/null 2>&1" ) \
     && ok "config cũ còn khoá KKPHIM_AD_* vẫn nạp bình thường (bỏ qua, không lỗi)" \
     || bad "config cũ còn khoá KKPHIM_AD_*" "nạp được" "lỗi"
+
+echo "== 34. nguồn truyện e-hentai (e-hentai.org) =="
+eh() { MANGA_SOURCE=ehentai MANGA_BASE_URL=https://e-hentai.org EHENTAI_DELAY=0 "$@"; }
+
+check "nhãn nguồn = e-hentai" "e-hentai" "$(eh manga_source_label)"
+check "manga_is_ehentai nhận đúng" "1" "$(eh manga_is_ehentai && echo 1 || echo 0)"
+check "manga_is_nettruyen từ chối e-hentai" "0" "$(eh manga_is_nettruyen && echo 1 || echo 0)"
+check "MANGA_BASE_URL không phải e-hentai -> vẫn về e-hentai.org" "https://e-hentai.org" \
+    "$(MANGA_BASE_URL=https://nettruyen.info eh_base)"
+check "eh_base giữ domain đang cấu hình" "https://e-hentai.org" \
+    "$(MANGA_SOURCE=ehentai MANGA_BASE_URL=https://e-hentai.org/ eh_base)"
+
+check "ghép URL gallery từ id/token" "https://e-hentai.org/g/4313400/7fcc76c845/" \
+    "$(eh_gallery_url 4313400/7fcc76c845)"
+check "giữ nguyên URL gallery đầy đủ" "https://e-hentai.org/g/4313400/7fcc76c845/" \
+    "$(eh_gallery_url https://e-hentai.org/g/4313400/7fcc76c845/)"
+check "bỏ #pN khi ghép URL" "https://e-hentai.org/g/4313400/7fcc76c845/" \
+    "$(eh_gallery_url "https://e-hentai.org/g/4313400/7fcc76c845/#p40")"
+check "lấy id gallery" "4313400" "$(eh_gallery_id https://e-hentai.org/g/4313400/7fcc76c845/)"
+check "lấy token gallery" "7fcc76c845" "$(eh_gallery_token https://e-hentai.org/g/4313400/7fcc76c845/)"
+
+check "parse danh sách: 3 gallery" "3" "$(eh_parse_items < "$ROOT/tests/fixtures/ehentai-tag.html" | grep -c '|')"
+check "tên lấy từ alt + số trang" "[Ryota tanaka] 逆轉S2 33 (Vietnamese) · 103 trang" \
+    "$(eh_parse_items < "$ROOT/tests/fixtures/ehentai-tag.html" | head -1 | cut -d'|' -f1)"
+check "URL gallery trong danh sách" "https://e-hentai.org/g/4304955/1e66fed787/" \
+    "$(eh_parse_items < "$ROOT/tests/fixtures/ehentai-tag.html" | sed -n '2p' | cut -d'|' -f2)"
+check "ảnh bìa tương đối -> tuyệt đối" "https://e-hentai.org/w/02/772/91675-rt5obxe2.webp" \
+    "$(eh_parse_items < "$ROOT/tests/fixtures/ehentai-tag.html" | sed -n '2p' | cut -d'|' -f4)"
+check "số trang thứ 3" "8 trang" \
+    "$(eh_parse_items < "$ROOT/tests/fixtures/ehentai-tag.html" | sed -n '3p' | cut -d'|' -f1 | sed 's/.*· //')"
+check "trang kế tiếp (?next=)" "https://e-hentai.org/tag/language:vietnamese?next=4185969" \
+    "$(eh_parse_next < "$ROOT/tests/fixtures/ehentai-tag.html")"
+
+check "đọc số trang của gallery" "45" "$(eh_parse_total_pages < "$ROOT/tests/fixtures/ehentai-gallery.html")"
+check "đọc số trang gallery 1 trang" "1" "$(eh_parse_total_pages < "$ROOT/tests/fixtures/ehentai-single.html")"
+check "đọc ảnh bìa gallery" "https://ehgt.org/w/02/772/91675-rt5obxe2.webp" \
+    "$(eh_parse_cover < "$ROOT/tests/fixtures/ehentai-gallery.html")"
+check "link trang ảnh (đúng thứ tự)" "https://e-hentai.org/s/aaa111/4304955-0|https://e-hentai.org/s/bbb222/4304955-1|https://e-hentai.org/s/ccc333/4304955-2|https://e-hentai.org/s/ddd444/4304955-3" \
+    "$(eh_parse_page_links < "$ROOT/tests/fixtures/ehentai-gallery.html" | tr '\n' '|' | sed 's/|$//')"
+check "link ảnh thật từ <img id=img>" "https://abc.hath.network/h/6f1c2a9d3b/4304955-7.jpg?tok=xyz" \
+    "$(eh_parse_image_src < "$ROOT/tests/fixtures/ehentai-img.html")"
+
+check "danh sách qua HTTP (mock)" "3" "$(eh eh_list_items "/tag/language:vietnamese" 2>/dev/null | grep -c '|')"
+check "tìm kiếm dùng f_search" "3" "$(eh eh_search_items "seiren" 2>/dev/null | grep -c '|')"
+check "tag mặc định = language:vietnamese" "/tag/language:vietnamese" "$(eh eh_start_url)"
+check "EHENTAI_CHUNK=20 -> trang 21 nằm ở nhóm bắt đầu 20" \
+    "https://e-hentai.org/g/4313400/7fcc76c845/#p20" "$(eh eh_chapter_url "https://e-hentai.org/g/4313400/7fcc76c845/" 21)"
+
+eh eh_fetch_chapter_list "https://e-hentai.org/g/4304955/1e66fed787/" > "$WORK/eh-chaps.txt" 2>/dev/null
+check "gallery 45 trang -> 3 nhóm (20/20/5)" "3" "$(grep -c '|' "$WORK/eh-chaps.txt")"
+check "tên nhóm trang" "Trang 1–20/45" "$(head -1 "$WORK/eh-chaps.txt" | cut -d'|' -f1)"
+check "nhóm cuối dừng ở trang 45" "Trang 41–45/45" "$(tail -1 "$WORK/eh-chaps.txt" | cut -d'|' -f1)"
+check "URL nhóm mang #p40" "https://e-hentai.org/g/4304955/1e66fed787/#p40" \
+    "$(tail -1 "$WORK/eh-chaps.txt" | cut -d'|' -f2)"
+
+check "lấy được link ảnh của nhóm đầu" "https://abc.hath.network/h/6f1c2a9d3b/4304955-0.jpg?tok=xyz|https://abc.hath.network/h/6f1c2a9d3b/4304955-1.jpg?tok=xyz|https://abc.hath.network/h/6f1c2a9d3b/4304955-2.jpg?tok=xyz|https://abc.hath.network/h/6f1c2a9d3b/4304955-3.jpg?tok=xyz" \
+    "$(eh fetch_chapter_images "https://e-hentai.org/g/4304955/1e66fed787/#p0" 2>/dev/null | tr '\n' '|' | sed 's/|$//')"
+check "fetch_chapter_images định tuyến e-hentai" "1" \
+    "$(eh fetch_chapter_images "https://e-hentai.org/g/4304955/1e66fed787/#p0" 2>/dev/null | grep -c 'hath.network' | sed 's/^[0-9]*$/1/')"
+check "fetch_chapter_list định tuyến e-hentai" "Trang 21–40/45" \
+    "$(eh fetch_chapter_list "https://e-hentai.org/g/4304955/1e66fed787/" 2>/dev/null | sed -n '2p' | cut -d'|' -f1)"
+check "manga_manga_url trả URL gallery" "https://e-hentai.org/g/4304955/1e66fed787/" \
+    "$(eh manga_manga_url "4304955/1e66fed787")"
+check "slug truyện e-hentai = id/token (mở lại từ lịch sử)" "4304955/1e66fed787" \
+    "$(eh manga_slug_from_url "https://e-hentai.org/g/4304955/1e66fed787/")"
+check "thể loại = tag e-hentai (có language:vietnamese)" "1" "$(eh manga_genres | grep -c '|language:vietnamese$')"
+
+mkdir -p "$WORK/home-eh/.config/anisub_cli"
+( HOME="$WORK/home-eh" ANISUB_SRC_DIR="$ROOT/src" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=ehentai; MANGA_BASE_URL=https://e-hentai.org; EHENTAI_TAG='language:vietnamese manga'; EHENTAI_CHUNK=30; EHENTAI_COOKIE='ipb_member_id=1; ipb_pass_hash=x'; save_config >/dev/null 2>&1" )
+check "lưu tag e-hentai vào config" "1" "$(grep -c '^EHENTAI_TAG="language:vietnamese manga"' "$WORK/home-eh/.config/anisub_cli/config.cfg")"
+check "lưu số trang mỗi chapter" "1" "$(grep -c '^EHENTAI_CHUNK="30"' "$WORK/home-eh/.config/anisub_cli/config.cfg")"
+check "lưu cookie e-hentai" "1" "$(grep -c '^EHENTAI_COOKIE="ipb_member_id=1' "$WORK/home-eh/.config/anisub_cli/config.cfg")"
+check "nạp lại được nguồn e-hentai từ config" "ehentai" \
+    "$( HOME="$WORK/home-eh" ANISUB_SRC_DIR="$ROOT/src" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; load_config; echo \"\$MANGA_SOURCE\"")"
+check "EHENTAI_CHUNK chặn giá trị vô lý (>100)" "100" "$(EHENTAI_CHUNK=999 eh_chunk_size)"
+check "EHENTAI_CHUNK chặn giá trị nhỏ (<5)" "5" "$(EHENTAI_CHUNK=1 eh_chunk_size)"
+
+has "menu cài đặt có mục tag e-hentai" "Tag mặc định (e-hentai)" "$(src_has 'Tag mặc định (e-hentai)')"
+has "menu cài đặt có mục cookie e-hentai" "Cookie e-hentai" "$(src_has 'Cookie e-hentai')"
+has "menu cài đặt có mục số trang mỗi chapter" "Số trang ảnh mỗi chapter" "$(src_has 'Số trang ảnh mỗi chapter')"
+has "menu đổi nguồn có e-hentai" "e-hentai   (https://e-hentai.org)" "$(src_has 'e-hentai   (https://e-hentai.org)')"
+
+eh manga_diagnose </dev/null > "$WORK/eh-diag.txt" 2>&1
+check "chẩn đoán e-hentai chạy được" "1" "$(grep -c 'Chẩn đoán nguồn e-hentai' "$WORK/eh-diag.txt")"
+check "chẩn đoán thấy tag mặc định" "1" "$([ "$(grep -c 'language:vietnamese' "$WORK/eh-diag.txt")" -ge 1 ] && echo 1 || echo 0)"
+check "chẩn đoán parse được gallery" "1" "$(grep -c 'parse được 3 gallery' "$WORK/eh-diag.txt")"
+
+check "module nguồn nằm trong src/comic/ehentai.sh" "1" "$([ -f "$ROOT/src/comic/ehentai.sh" ] && echo 1 || echo 0)"
+check "bộ nạp module tự tìm src/movie + src/comic" "1" "$([ "$(src_count 'anisub_load_sources')" -ge 1 ] && echo 1 || echo 0)"
+check "src/movie có nguồn phim KKPhim" "1" "$([ -f "$ROOT/src/movie/kkphim.sh" ] && echo 1 || echo 0)"
 
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"

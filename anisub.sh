@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.10a"
+ANISUB_VERSION="2026.11.10b"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -53,6 +53,9 @@ LOCAL_DATA_FILE="$SCRIPT_DIR/assets/aniw_export_2026-01-14.csv"
 #             Ảnh trang:       https://net.imgchapter.store/<slug>/<chap>/page_<i>.jpg
 # truyenvn  : https://truyenvn.my  - cần API /webapi/stories/list-chapter,
 #             URL truyện /truyen-tranh/<slug>, chương /chapter-<n> (giữ để đổi lại).
+# e-hentai  : https://e-hentai.org  - gallery ảnh, 1 gallery = 1 "truyện", các
+#             trang ảnh được gom thành từng nhóm (EHENTAI_CHUNK) = 1 "chapter".
+#             Danh sách mặc định = tag EHENTAI_TAG (language:vietnamese).
 DEFAULT_MANGA_SOURCE="nettruyen"
 DEFAULT_MANGA_BASE_URL="https://nettruyen.info"
 DEFAULT_MANGA_SEARCH_FEEDS="latest,trending,views"   # danh sách dùng để lọc khi search
@@ -66,12 +69,20 @@ DEFAULT_MANGA_IMAGE_PROTOCOL="auto"
 # qua dịch vụ đọc hộ này (nó tải trang bằng trình duyệt thật rồi trả markdown).
 # Đặt "" hoặc "off" để tắt (khi tắt, anisub không gửi URL truyện ra bên thứ ba).
 DEFAULT_MANGA_READER_PROXY="https://r.jina.ai"
+# e-hentai: tag mặc định (danh sách mở ra đầu tiên), số trang ảnh mỗi "chapter",
+# và cookie đăng nhập (chỉ cần cho gallery giới hạn/18+; để trống nếu không dùng).
+DEFAULT_EHENTAI_TAG="language:vietnamese"
+DEFAULT_EHENTAI_CHUNK=20
+DEFAULT_EHENTAI_COOKIE=""
 MANGA_SOURCE=""
 MANGA_BASE_URL=""
 MANGA_SEARCH_FEEDS=""
 MANGA_SEARCH_PAGES=""
 MANGA_IMAGE_PROTOCOL=""
 MANGA_READER_PROXY="$DEFAULT_MANGA_READER_PROXY"
+EHENTAI_TAG=""
+EHENTAI_CHUNK=""
+EHENTAI_COOKIE=""
 MANGA_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 # Trang chapter của TruyenVN trả bản rút gọn (không có ảnh) nếu request "không giống
 # trình duyệt". Gửi kèm đủ header điều hướng để nhận đúng HTML có <img>.
@@ -107,13 +118,16 @@ load_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "PLAYER=\"$DEFAULT_PLAYER\"" > "$CONFIG_FILE"
         echo "DOWNLOAD_DIR=\"$DEFAULT_DOWNLOAD_DIR\"" >> "$CONFIG_FILE"
-        echo "# --- NGUỒN TRUYỆN TRANH (nettruyen | truyenvn) ---" >> "$CONFIG_FILE"
+        echo "# --- NGUỒN TRUYỆN TRANH (nettruyen | truyenvn | ehentai) ---" >> "$CONFIG_FILE"
         echo "MANGA_SOURCE=\"$DEFAULT_MANGA_SOURCE\"" >> "$CONFIG_FILE"
         echo "MANGA_BASE_URL=\"$DEFAULT_MANGA_BASE_URL\"" >> "$CONFIG_FILE"
         echo "MANGA_SEARCH_FEEDS=\"$DEFAULT_MANGA_SEARCH_FEEDS\"" >> "$CONFIG_FILE"
         echo "MANGA_SEARCH_PAGES=\"$DEFAULT_MANGA_SEARCH_PAGES\"" >> "$CONFIG_FILE"
         echo "MANGA_IMAGE_PROTOCOL=\"$DEFAULT_MANGA_IMAGE_PROTOCOL\"" >> "$CONFIG_FILE"
         echo "MANGA_READER_PROXY=\"$DEFAULT_MANGA_READER_PROXY\"" >> "$CONFIG_FILE"
+        echo "EHENTAI_TAG=\"$DEFAULT_EHENTAI_TAG\"" >> "$CONFIG_FILE"
+        echo "EHENTAI_CHUNK=\"$DEFAULT_EHENTAI_CHUNK\"" >> "$CONFIG_FILE"
+        echo "EHENTAI_COOKIE=\"$DEFAULT_EHENTAI_COOKIE\"" >> "$CONFIG_FILE"
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---" >> "$CONFIG_FILE"
         echo "KKPHIM_SITE_URL=\"$DEFAULT_KKPHIM_SITE_URL\"" >> "$CONFIG_FILE"
         echo "KKPHIM_API_URL=\"$DEFAULT_KKPHIM_API_URL\"" >> "$CONFIG_FILE"
@@ -142,6 +156,10 @@ load_config() {
     MANGA_IMAGE_PROTOCOL=${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL}
     MANGA_READER_PROXY=${MANGA_READER_PROXY-$DEFAULT_MANGA_READER_PROXY}
     case "${MANGA_READER_PROXY:-}" in off|OFF|none|null|0) MANGA_READER_PROXY="" ;; esac
+    # e-hentai: tag mặc định + số trang mỗi chapter + cookie đăng nhập (nếu có)
+    EHENTAI_TAG=${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}
+    EHENTAI_CHUNK=${EHENTAI_CHUNK:-$DEFAULT_EHENTAI_CHUNK}
+    EHENTAI_COOKIE=${EHENTAI_COOKIE:-$DEFAULT_EHENTAI_COOKIE}
     # Cấu hình nguồn phim KKPhim: config.cfg > giá trị mặc định
     KKPHIM_SITE_URL=${KKPHIM_SITE_URL:-$DEFAULT_KKPHIM_SITE_URL}
     KKPHIM_API_URL=${KKPHIM_API_URL:-$DEFAULT_KKPHIM_API_URL}
@@ -170,6 +188,9 @@ save_config() {
         echo "MANGA_SEARCH_PAGES=\"$MANGA_SEARCH_PAGES\""
         echo "MANGA_IMAGE_PROTOCOL=\"$MANGA_IMAGE_PROTOCOL\""
         echo "MANGA_READER_PROXY=\"$MANGA_READER_PROXY\""
+        echo "EHENTAI_TAG=\"$EHENTAI_TAG\""
+        echo "EHENTAI_CHUNK=\"$EHENTAI_CHUNK\""
+        echo "EHENTAI_COOKIE=\"$EHENTAI_COOKIE\""
         echo "# --- NGUỒN PHIM KKPHIM (sửa nếu KKPhim đổi domain) ---"
         echo "KKPHIM_SITE_URL=\"$KKPHIM_SITE_URL\""
         echo "KKPHIM_API_URL=\"$KKPHIM_API_URL\""
@@ -199,6 +220,22 @@ check_dependencies() {
             echo "Gợi ý: Cài đặt chafa để xem được hình ảnh (apt install chafa / brew install chafa / pkg install chafa)"
         fi
         exit 1
+    fi
+}
+
+# --- MỞ LINK BẰNG TRÌNH DUYỆT (dùng chung cho phim & truyện) ---
+# Mở URL bằng trình duyệt mặc định (trang phim, trang chapter bị chặn...)
+open_url() {
+    local url="$1"
+    [ -z "$url" ] && return 1
+    echo "🌐 $url"
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "$url" > /dev/null 2>&1 &
+    elif command -v open &> /dev/null; then
+        open "$url" > /dev/null 2>&1 &
+    else
+        echo "(Không tìm thấy xdg-open/open - hãy copy link và mở thủ công.)"
+        sleep 2
     fi
 }
 add_to_history() {

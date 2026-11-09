@@ -179,12 +179,27 @@ manga_page_cover() {
 # API/CSRF), ảnh trang đọc có dạng https://net.imgchapter.store/<slug>/<chap>/page_<i>.jpg
 # Nhãn hiển thị của nguồn đang dùng
 manga_source_label() {
-    if manga_is_nettruyen; then printf 'nettruyen'; else printf 'TruyenVN'; fi
+    if   manga_is_ehentai;   then printf 'e-hentai'
+    elif manga_is_nettruyen; then printf 'nettruyen'
+    else                          printf 'TruyenVN'
+    fi
+}
+
+# Nguồn TruyenVN (Madara) - dùng cho phần cần API/CSRF riêng của nó
+manga_is_truyenvn() {
+    case "${MANGA_SOURCE:-$DEFAULT_MANGA_SOURCE}" in
+        nettruyen|nt|nettruyen.info|ehentai|eh|e-hentai|e-hentai.org|exhentai) return 1 ;;
+        *)                                                                     return 0 ;;
+    esac
 }
 
 # Số chapter -> URL chương của nguồn đang dùng
 manga_chapter_url() {
     local page_url="$1" num="$2"
+    if manga_is_ehentai; then
+        eh_chapter_url "$page_url" "$num"
+        return $?
+    fi
     num="${num//[^0-9.]/}"
     [ -z "$num" ] && return 1
     if manga_is_nettruyen; then
@@ -197,6 +212,10 @@ manga_chapter_url() {
 # URL trang truyện từ slug (hoặc trả nguyên URL nếu đã là URL tuyệt đối)
 manga_manga_url() {
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+    if manga_is_ehentai; then
+        eh_gallery_url "${1:-}"
+        return $?
+    fi
     case "${1:-}" in
         http://*|https://*) printf '%s' "${1%/}" ;;
         "")                 printf '' ;;
@@ -207,6 +226,24 @@ manga_manga_url() {
                                 printf '%s/truyen-tranh/%s' "$base" "${1#/}" | sed 's#/$##'
                             fi ;;
     esac
+}
+
+# "Slug" của truyện từ URL trang truyện: nguồn thường là phần cuối URL, riêng
+# e-hentai cần cả <id>/<token> để mở lại từ lịch sử / yêu thích.
+manga_slug_from_url() {
+    local url="${1:-}"
+    if manga_is_ehentai; then
+        local g t
+        g=$(eh_gallery_id "$url")
+        t=$(eh_gallery_token "$url")
+        if [ -n "$g" ] && [ -n "$t" ]; then
+            printf '%s/%s' "$g" "$t"
+            return 0
+        fi
+        [ -n "$g" ] && { printf '%s' "$g"; return 0; }
+    fi
+    local u="${url%/}"
+    printf '%s' "${u##*/}"
 }
 
 # Chuyển href tương đối trong HTML thành URL tuyệt đối
@@ -538,7 +575,10 @@ show_manga_favorites() {
 # nên bị loại đúng). Tên lấy theo độ tin cậy: title="" > text trong thẻ > alt="".
 # Parser danh sách truyện: chọn theo nguồn đang dùng
 manga_parse_items() {
-    if manga_is_nettruyen; then nt_parse_items; else manga_parse_items_pp; fi
+    if   manga_is_ehentai;   then eh_parse_items
+    elif manga_is_nettruyen; then nt_parse_items
+    else                          manga_parse_items_pp
+    fi
 }
 
 # Tải 1 danh sách của TruyenVN -> "Tên|URL|slug"
@@ -546,6 +586,10 @@ manga_parse_items() {
 manga_list_items() {
     local path="$1"
     shift
+    if manga_is_ehentai; then
+        eh_list_items "$path" "$@"
+        return $?
+    fi
     local html=""
     if ! html=$(manga_http_fetch "$path" "$@"); then
         echo "⚠️ Không tải được $path (HTTP ${MANGA_HTTP_STATUS:-000}) - kiểm tra mạng hoặc MANGA_BASE_URL" >&2
@@ -570,6 +614,10 @@ manga_search_items() {
     if [ "${#kw}" -lt 2 ]; then
         echo "💡 Gõ tối thiểu 2 ký tự để tìm truyện ($(manga_source_label))..." >&2
         return 1
+    fi
+    if manga_is_ehentai; then
+        eh_search_items "$kw"
+        return $?
     fi
     if manga_is_nettruyen; then
         nt_search_items "$kw"
@@ -633,6 +681,10 @@ manga_search_items() {
 # --- FETCH CHAPTER LIST ---
 fetch_chapter_list() {
     local target="$1"
+    if manga_is_ehentai; then
+        eh_fetch_chapter_list "$target"
+        return $?
+    fi
     if manga_is_nettruyen; then
         nt_fetch_chapter_list "$target"
         return $?
@@ -675,6 +727,10 @@ fetch_chapter_images() {
     local chapter_url="$1"
     local prefer_slug="${2:-}"
     [ -z "$chapter_url" ] && return 1
+    if manga_is_ehentai || eh_is_gallery_url "$chapter_url"; then
+        eh_fetch_chapter_images "$chapter_url" "$prefer_slug"
+        return $?
+    fi
     if [ -n "$(nt_chapter_parts "$chapter_url")" ]; then
         nt_fetch_chapter_images "$chapter_url"
         return $?
@@ -1134,6 +1190,14 @@ manga_selftest() {
     local default_target="bocchi-the-rock"
     manga_is_nettruyen && default_target="one-piece-dao-hai-tac"
     local target="${1:-$default_target}"
+    if manga_is_ehentai; then
+        # e-hentai: mẫu = gallery đầu tiên của danh sách tag đang dùng
+        target="${1:-}"
+        if [ -z "$target" ]; then
+            target=$(eh_list_items "$(eh_start_url)" 2>/dev/null | head -1 | cut -d'|' -f2)
+            [ -z "$target" ] && { echo "❌ Không lấy được gallery mẫu từ $(eh_start_url) — dán link gallery: ./anisub.sh --manga-selftest <link>"; return 1; }
+        fi
+    fi
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🧪 KIỂM TRA ĐỌC TRUYỆN"
     echo "   anisub: $ANISUB_VERSION · nguồn: ${MANGA_SOURCE:-$DEFAULT_MANGA_SOURCE} ($base) · ảnh: ${MANGA_IMAGE_PROTOCOL:-auto}"
@@ -1141,10 +1205,15 @@ manga_selftest() {
 
     local page_url
     page_url=$(manga_manga_url "$target")
-    local slug="${page_url##*/}"
+    local slug
+    slug=$(manga_slug_from_url "$page_url")
     echo "1️⃣  Trang truyện: $page_url"
     local html http
-    html=$(manga_http_fetch "$page_url")
+    if manga_is_ehentai; then
+        html=$(eh_fetch "$page_url")
+    else
+        html=$(manga_http_fetch "$page_url")
+    fi
     http=$(anisub_last_http)
     echo "    HTTP $http · $(printf '%s' "$html" | wc -c | tr -d ' ') byte"
     if [ -z "$html" ]; then
@@ -1152,7 +1221,7 @@ manga_selftest() {
         echo "       → Kiểm tra mạng, hoặc MANGA_BASE_URL đã đổi tên miền."
         return 1
     fi
-    if ! manga_is_nettruyen; then
+    if manga_is_truyenvn; then
         local sid tok
         sid=$(printf '%s' "$html" | manga_story_id)
         tok=$(printf '%s' "$html" | manga_csrf_token)
@@ -1177,6 +1246,8 @@ manga_selftest() {
 
     local chap_url
     chap_url=$(printf '%s\n' "$chapters" | tail -1 | cut -d'|' -f2)
+    # e-hentai: mỗi "chapter" là 1 nhóm trang ảnh -> lấy nhóm đầu cho nhanh
+    manga_is_ehentai && chap_url=$(printf '%s\n' "$chapters" | head -1 | cut -d'|' -f2)
     [ -z "$chap_url" ] && chap_url=$(manga_chapter_url "$page_url" 1)
     echo "3️⃣  Trang chapter: $chap_url"
     local imgs nimg nav
@@ -1186,8 +1257,10 @@ manga_selftest() {
     # bỏ qua nav còn sót lại từ nguồn khác (đổi nguồn thì link kiểu cũ vô nghĩa)
     if manga_is_nettruyen; then
         case "$nav" in *chuong-*) : ;; *) nav="" ;; esac
-    else
+    elif manga_is_truyenvn; then
         case "$nav" in *"/chapter-"*) : ;; *) nav="" ;; esac
+    else
+        nav=""      # e-hentai không có link chap trước/sau kiểu này
     fi
     if [ -z "$nav" ] || [ "$nav" = "|" ]; then   # chưa đọc lần nào -> đọc thẳng từ trang
         local chtml=""
@@ -1344,7 +1417,8 @@ manga_read_manga() {
     local name="$1" slug_or_url="$2" start_chap="${3:-}"
     local page_url
     page_url=$(manga_manga_url "$slug_or_url")
-    local slug="${page_url##*/}"
+    local slug
+    slug=$(manga_slug_from_url "$page_url")
     local target="$slug"
     # dán link đầy đủ (mirror khác) -> giữ nguyên URL đó khi tải trang truyện
     case "$slug_or_url" in http*) target="$page_url" ;; esac
@@ -1359,7 +1433,7 @@ manga_read_manga() {
     fi
     local count
     count=$(printf '%s\n' "$chapters" | grep -c '.')
-    if [ "$count" -le 2 ]; then
+    if [ "$count" -le 2 ] && ! manga_is_ehentai; then
         echo "⚠️ Chỉ lấy được $count chapter (API danh sách chapter có thể bị chặn)."
         echo "   Vẫn đọc được bình thường: chọn 1 chapter rồi dùng n/p, hoặc Ctrl-G để nhảy tới số chapter."
         sleep 2.5
@@ -1459,7 +1533,9 @@ manga_browse_menu() {
 
 # Danh sách mặc định (mới cập nhật / hot / đọc nhiều) theo nguồn
 manga_browse_latest() {
-    if manga_is_nettruyen; then
+    if manga_is_ehentai; then
+        eh_browse_menu "$(eh_start_url)" "Truyện tiếng Việt (mới cập nhật)"
+    elif manga_is_nettruyen; then
         manga_browse_menu "/" "Truyện mới cập nhật"
     else
         manga_browse_menu "/tim-kiem" "Truyện mới cập nhật" "m_orderby=latest"
@@ -1467,7 +1543,9 @@ manga_browse_latest() {
 }
 
 manga_browse_hot() {
-    if manga_is_nettruyen; then
+    if manga_is_ehentai; then
+        eh_browse_menu "/?f_search=$(eh_tag)&f_srdd=4" "Tiếng Việt · điểm ≥ 4★"
+    elif manga_is_nettruyen; then
         manga_browse_menu "/truyen-tranh-hot" "Truyện hot"
     else
         manga_browse_menu "/tim-kiem" "Truyện hot" "m_orderby=trending"
@@ -1475,7 +1553,9 @@ manga_browse_hot() {
 }
 
 manga_browse_views() {
-    if manga_is_nettruyen; then
+    if manga_is_ehentai; then
+        eh_browse_menu "/?f_search=$(eh_tag)&f_srdd=5" "Tiếng Việt · điểm tối đa"
+    elif manga_is_nettruyen; then
         manga_browse_menu "/the-loai/hot" "Truyện đọc nhiều"
     else
         manga_browse_menu "/tim-kiem" "Truyện đọc nhiều" "m_orderby=views"
@@ -1483,6 +1563,10 @@ manga_browse_views() {
 }
 
 manga_genres() {
+    if manga_is_ehentai; then
+        eh_genres
+        return 0
+    fi
     if manga_is_nettruyen; then
         printf '%s\n' \
             "🀄 Manga / Nhật Bản|manga" \
@@ -1533,6 +1617,10 @@ manga_genres() {
 }
 
 manga_genre_menu() {
+    if manga_is_ehentai; then
+        eh_genre_menu
+        return $?
+    fi
     local gline gslug gname
     gline=$(manga_genres | fzf --prompt="🗂 Chọn thể loại > " \
         --header="📚 Thể loại lấy từ ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}/the-loai/...")
@@ -1546,6 +1634,10 @@ manga_genre_menu() {
 
 # Kiểm tra nhanh nguồn truyện: kết nối + parse được bao nhiêu mục
 manga_diagnose() {
+    if manga_is_ehentai; then
+        eh_diagnose
+        return $?
+    fi
     echo "💡 Chẩn đoán nhanh từ dòng lệnh: ./anisub.sh --manga-selftest <slug|URL> (anisub $ANISUB_VERSION)"
     echo ""
     local base="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
@@ -1637,7 +1729,7 @@ manga_diagnose() {
 show_manga_settings() {
     local opt inp
     while true; do
-        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔁 Đổi nguồn truyện (nettruyen ⇄ truyenvn)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
+        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔁 Đổi nguồn truyện (nettruyen / truyenvn / e-hentai)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🏷 Tag mặc định (e-hentai): ${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}\n🍪 Cookie e-hentai: $([ -n "${EHENTAI_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt (chỉ gallery công khai)')\n🔢 Số trang ảnh mỗi chapter (e-hentai): ${EHENTAI_CHUNK:-$DEFAULT_EHENTAI_CHUNK}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
             | fzf --prompt="📚 Nguồn truyện ($(manga_source_label)) > " --header="$(manga_source_label): ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}")
         case "$opt" in
             *"Đổi nguồn truyện"*)
@@ -1647,11 +1739,15 @@ show_manga_settings() {
                 echo ""
                 echo "  1) nettruyen  (https://nettruyen.info)  - mặc định, ảnh nhanh, đủ truyện"
                 echo "  2) truyenvn   (https://truyenvn.my)     - nguồn cũ (cần API chapter)"
+                echo "  3) e-hentai   (https://e-hentai.org)    - gallery ảnh, mặc định xem tag"
+                echo "     $(eh_tag)  (nội dung 18+, cần cookie nếu gallery giới hạn)"
                 echo ""
-                read -r -p "Chọn nguồn (1/2, Enter = giữ nguyên): " inp
+                read -r -p "Chọn nguồn (1/2/3, Enter = giữ nguyên): " inp
                 case "${inp:-}" in
                     1) MANGA_SOURCE="nettruyen"; MANGA_BASE_URL="https://nettruyen.info" ;;
                     2) MANGA_SOURCE="truyenvn";  MANGA_BASE_URL="https://truyenvn.my" ;;
+                    3) MANGA_SOURCE="ehentai";   MANGA_BASE_URL="$DEFAULT_MANGA_EHENTAI_URL"
+                       echo "   ⚠️ e-hentai có nội dung người lớn (18+). Bạn tự chịu trách nhiệm khi xem." ;;
                     *) : ;;
                 esac
                 save_config
@@ -1667,7 +1763,9 @@ show_manga_settings() {
                 local st_target=""
                 local st_def="bocchi-the-rock"
                 manga_is_nettruyen && st_def="one-piece-dao-hai-tac"
+                manga_is_ehentai && st_def="(gallery đầu tiên của tag $(eh_tag))"
                 printf '🧪 Nhập slug hoặc link truyện (Enter = %s): ' "$st_def"
+                manga_is_ehentai && st_def=""
                 read -r st_target
                 [ -z "$st_target" ] && st_target="$st_def"
                 mkdir -p "$CACHE_DIR" 2>/dev/null
@@ -1720,6 +1818,44 @@ show_manga_settings() {
                 echo "✅ Đã lưu: $MANGA_SEARCH_PAGES trang"
                 sleep 1.2
                 ;;
+            *"Tag mặc định (e-hentai)"*)
+                echo "🏷 Tag dùng cho danh sách mặc định của e-hentai."
+                echo "   Ví dụ: language:vietnamese · language:vietnamese manga · language:english"
+                echo "   (xem thêm ở 🗂 Theo thể loại sau khi chọn nguồn e-hentai)"
+                read -r -p "Tag (Enter = giữ nguyên ${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}): " inp
+                if [ -n "$inp" ]; then
+                    EHENTAI_TAG="$(printf '%s' "$inp" | sed 's/^ *//; s/ *$//')"
+                    save_config
+                    echo "✅ Đã lưu: $EHENTAI_TAG"
+                    sleep 1.2
+                fi ;;
+            *"Cookie e-hentai"*)
+                clear
+                echo "🍪 COOKIE E-HENTAI (chỉ cần khi gallery báo cần đăng nhập / 18+)"
+                echo "   Cách lấy: đăng nhập e-hentai.org bằng trình duyệt → F12 → Network →"
+                echo "   chọn 1 request → copy nguyên dòng 'cookie' (thường có ipb_member_id=...;"
+                echo "   ipb_pass_hash=...; sk=...). Dán vào đây."
+                echo "   Đang có: $([ -n "${EHENTAI_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt')"
+                read -r -p "Cookie (Enter = giữ nguyên, 'xoa' = xóa): " inp
+                case "${inp:-}" in
+                    "")            : ;;
+                    xoa|Xoa|XOA|delete|x) EHENTAI_COOKIE="" ;;
+                    *)             EHENTAI_COOKIE="$inp" ;;
+                esac
+                save_config
+                echo "✅ Cookie: $([ -n "${EHENTAI_COOKIE:-}" ] && echo 'đã lưu' || echo 'đã xóa')"
+                sleep 1.2 ;;
+            *"Số trang ảnh mỗi chapter"*)
+                read -r -p "Số trang ảnh gộp thành 1 chapter (5-100, Enter = $DEFAULT_EHENTAI_CHUNK): " inp
+                inp="${inp:-$DEFAULT_EHENTAI_CHUNK}"
+                if [[ "$inp" =~ ^[0-9]+$ ]] && [ "$inp" -ge 5 ] && [ "$inp" -le 100 ]; then
+                    EHENTAI_CHUNK="$inp"
+                    save_config
+                    echo "✅ Đã lưu: $EHENTAI_CHUNK trang/chapter"
+                    sleep 1.2
+                else
+                    echo "⚠️ Bỏ qua (cần số từ 5 đến 100)"; sleep 1.2
+                fi ;;
             *"Kiểu hiển thị ảnh"*)
                 clear
                 echo "╔═══════════════════════════════════════════════════════════╗"
@@ -1762,7 +1898,7 @@ manga_main_menu() {
         echo "║      ██║   ██╔══██╗██║   ██║  ╚██╔╝  ██╔══╝  ██║╚██╗██║╚██╗ ██╔╝██║╚██╗██║   ║"
         echo "║      ██║   ██║  ██║╚██████╔╝   ██║   ███████╗██║ ╚████║ ╚████╔╝ ██║ ╚████║   ║"
         echo "║      ╚═╝   ╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═══╝  ╚═══╝  ╚═╝  ╚═══╝   ║"
-        echo "║                    📚 MANGA READER · TruyenVN 📚                             ║"
+        printf "║                    📚 MANGA READER · %-24s 📚║\n" "$(manga_source_label)"
         printf "║  v%-10s %-62s║\n" "$ANISUB_VERSION" "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
         echo "║                                                                              ║"
         echo "╚══════════════════════════════════════════════════════════════════════════════╝"
@@ -1805,6 +1941,18 @@ manga_main_menu() {
                 local inp="" slug="" chap=""
                 local ex_route="truyen-tranh/bocchi-the-rock"
                 manga_is_nettruyen && ex_route="truyen-one-piece-dao-hai-tac"
+                if manga_is_ehentai; then
+                    printf '🔗 Dán link gallery e-hentai (vd https://e-hentai.org/g/4313400/7fcc76c845/) hoặc id/token: '
+                    read -r inp
+                    inp="${inp#"${inp%%[![:space:]]*}"}"
+                    inp="${inp%"${inp##*[![:space:]]}"}"
+                    if [ -z "$inp" ]; then
+                        sleep 1
+                        continue
+                    fi
+                    manga_read_manga "e-hentai $(printf '%s' "$inp" | cut -d/ -f1)" "$inp"
+                    continue
+                fi
                 printf '🔗 Dán link trang truyện (vd %s/%s) hoặc slug: ' "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}" "$ex_route"
                 read -r inp
                 inp="${inp#"${inp%%[![:space:]]*}"}"
@@ -1839,7 +1987,9 @@ manga_main_menu() {
                 local st_target=""
                 local st_def="bocchi-the-rock"
                 manga_is_nettruyen && st_def="one-piece-dao-hai-tac"
+                manga_is_ehentai && st_def="(gallery đầu tiên của tag $(eh_tag))"
                 printf '🧪 Nhập slug hoặc link truyện (Enter = %s): ' "$st_def"
+                manga_is_ehentai && st_def=""
                 read -r st_target
                 [ -z "$st_target" ] && st_target="$st_def"
                 mkdir -p "$CACHE_DIR" 2>/dev/null

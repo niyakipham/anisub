@@ -27,7 +27,7 @@ for i in "${!args[@]}"; do
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*"/uploads/"*|*"manga-offline"*)
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*"/uploads/"*|*"manga-offline"*)
                     url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
@@ -58,6 +58,18 @@ case "$eff" in
     *nettruyen.info/tim-kiem*)       body="${MOCK_FIXTURES}/nt-search.html" ;;
     *nettruyen.info/the-loai/*)      body="${MOCK_FIXTURES}/nt-search.html" ;;
     *nettruyen.info/truyen-tranh-hot*) body="${MOCK_FIXTURES}/nt-search.html" ;;
+    *e-hentai.org/s/*)              body="${MOCK_FIXTURES}/ehentai-img.html"
+                                    # mỗi trang ảnh trả 1 link khác nhau (theo số trang)
+                                    eh_idx=$(printf '%s' "$url" | sed -n 's#.*/s/[0-9A-Za-z]*/[0-9]*-\([0-9]*\).*#\1#p')
+                                    if [ -n "$eh_idx" ]; then
+                                        eh_tmp="${TMPDIR:-/tmp}/mock-eh-img-$$-$eh_idx.html"
+                                        sed "s/4304955-7\.jpg/4304955-$eh_idx.jpg/" "$body" > "$eh_tmp" 2>/dev/null && body="$eh_tmp"
+                                    fi ;;
+    *e-hentai.org/g/9999999/*)      body="${MOCK_FIXTURES}/ehentai-single.html" ;;
+    *e-hentai.org/g/*)              body="${MOCK_FIXTURES}/ehentai-gallery.html" ;;
+    *e-hentai.org/tag/*)            body="${MOCK_FIXTURES}/ehentai-tag.html" ;;
+    *f_search=*)                    body="${MOCK_FIXTURES}/ehentai-tag.html" ;;
+    *e-hentai.org*)                 body="${MOCK_FIXTURES}/ehentai-tag.html" ;;
     *nettruyen.info/*chuong-*)       body="${MOCK_FIXTURES}/nt-chapter.html" ;;
     *nettruyen.info/truyen-*)        body="${MOCK_FIXTURES}/nt-story.html" ;;
     *nettruyen.info*)                body="${MOCK_FIXTURES}/nt-search.html" ;;

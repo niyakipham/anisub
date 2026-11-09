@@ -4,20 +4,6 @@
 # Tách riêng khỏi phần "nguồn phim" để code chính gọn hơn; các hàm ở đây chỉ dùng
 # ffmpeg/curl nên không phụ thuộc KKPhim.
 
-# Mở URL bằng trình duyệt mặc định (dùng cho trang phim / trang embed của KKPhim)
-open_url() {
-    local url="$1"
-    [ -z "$url" ] && return 1
-    echo "🌐 $url"
-    if command -v xdg-open &> /dev/null; then
-        xdg-open "$url" > /dev/null 2>&1 &
-    elif command -v open &> /dev/null; then
-        open "$url" > /dev/null 2>&1 &
-    else
-        echo "(Không tìm thấy xdg-open/open - hãy copy link và mở thủ công.)"
-        sleep 2
-    fi
-}
 
 # --- MEDIA PROCESSING FUNCTIONS ---
 download_video() {
