@@ -25,6 +25,9 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🔒》- **DNS nhà mạng chặn e-hentai**: anisub tự hỏi IP qua **DNS-over-HTTPS** (cloudflare-dns.com → dns.google) rồi nối thẳng bằng `--resolve`, nhớ IP cho lần sau; tắt bằng `MANGA_DOH="off"`<br>
+《🩺》- Thêm `./anisub.sh --netcheck [host]`: kiểm tra **từng lớp** DNS hệ thống → DoH → HTTPS/TLS để biết bị chặn ở đâu (DNS / IP / SNI), kèm cách sửa (`resolvectl`, VPN, proxy)<br>
+《🧦》- Thêm `MANGA_PROXY` cho phần truyện (vd `socks5h://127.0.0.1:1080`); vẫn dùng được `export https_proxy=...` như curl<br>
 《🌐》- **e-hentai không tải được (HTTP 000)** giờ nói rõ nguyên nhân theo mã lỗi curl (DNS / không kết nối / timeout / TLS) và cảnh báo e-hentai hay bị nhà mạng VN chặn; in **URL đầy đủ** thay vì `/?f_search=…`, và cho **bấm `1` để chuyển ngay sang nettruyen**; kết nối bị chặn giờ báo lỗi sau ~10s thay vì treo 30s<br>
 《💾》- Sửa `save_config`: tự tạo `~/.config/anisub_cli` (trước đây lưu cài đặt **mất im lặng** nếu thư mục chưa có) và báo lỗi nếu không ghi được<br>
 《🧾》- **📚 Đọc Truyện Tranh** giờ không im lặng nữa: nếu menu truyện không mở được, anisub nói rõ (đã vẽ menu chưa, fzf trả về gì), tự thử nạp/tải lại bộ nguồn ngay tại chỗ, và ghi lại dấu vết vào `~/.config/anisub_cli/cache/anisub-debug.log`<br>
@@ -122,6 +125,8 @@ MANGA_SEARCH_PAGES="1"                         # số trang của mỗi bảng (
 MANGA_IMAGE_SCALE="130"                        # % độ rộng ảnh so với terminal (100 = full)
 MANGA_IMAGE_PROTOCOL="auto"                    # auto | symbols | kitty | sixel | iterm
 MANGA_READER_PROXY="https://r.jina.ai"         # "" hoặc "off" để tắt (xem bên dưới)
+MANGA_DOH="auto"                               # auto | off — tự hỏi IP qua DNS-over-HTTPS khi DNS nhà mạng chặn
+MANGA_PROXY=""                                 # vd socks5h://127.0.0.1:1080 (v2rayN/clash/ssh -D); "" = dùng https_proxy
 EHENTAI_TAG="language:vietnamese"              # tag mở ra đầu tiên của nguồn e-hentai
 EHENTAI_CHUNK="20"                             # số trang ảnh gộp thành 1 "chapter" (5-100)
 EHENTAI_COOKIE=""                              # cookie đăng nhập e-hentai (chỉ khi gallery cần)
@@ -220,6 +225,7 @@ Kiểm tra nhanh toàn bộ luồng đọc: vào `📚 Truyện tranh` → **`�
 ```shell
 ./anisub.sh --version                          # xem đang chạy bản nào
 ./anisub.sh --doctor                           # 🩺 kiểm tra module src/, phụ thuộc, nguồn truyện (tự tải src/ nếu thiếu)
+./anisub.sh --netcheck e-hentai.org            # 🔒 bị chặn ở đâu: DNS hệ thống / DoH / IP / TLS — kèm cách sửa
 tail -n 20 ~/.config/anisub_cli/cache/anisub-debug.log   # log mở menu truyện / lựa chọn của fzf
 ./anisub.sh --manga-selftest                   # tự chọn truyện mẫu theo nguồn đang dùng
 ./anisub.sh --manga-selftest one-piece-dao-hai-tac
@@ -231,6 +237,7 @@ tail -n 20 ~/.config/anisub_cli/cache/anisub-debug.log   # log mở menu truyệ
 | --- | --- | --- |
 | Bấm **📚 Đọc Truyện Tranh** nháy một cái rồi quay lại menu chính | fzf trả về rỗng (Esc, terminal quá thấp, hoặc fzf lỗi) | anisub đã báo rõ số lần fzf trả về; xem `~/.config/anisub_cli/cache/anisub-debug.log` (dòng `comic-menu:`) rồi gửi kèm khi báo lỗi |
 | Bấm **📚 Đọc Truyện Tranh** không có gì xảy ra / menu truyện trống | thiếu thư mục `src/` (chỉ có `anisub.sh`, hoặc cập nhật dở) | chạy `./anisub.sh --doctor` (tự tải `src/` về); không có mạng thì `git clone https://github.com/NiyakiPham/anisub.git` |
+| Đổi DNS rồi **vẫn** `HTTP 000` | nhà mạng chặn theo IP/SNI, không chỉ DNS | `./anisub.sh --netcheck e-hentai.org` để xem lớp nào bị chặn; DNS chặn thì anisub tự đi DoH, còn IP/SNI chặn thì cần VPN/proxy (`MANGA_PROXY`, `https_proxy`) |
 | `HTTP 000` | không với được trang nguồn | anisub in kèm mã lỗi curl: `6` DNS (đổi DNS 1.1.1.1), `7` bị chặn/không kết nối, `28` timeout, `35/60` TLS. Với **e-hentai**: site hay bị nhà mạng VN chặn → bật VPN, hoặc bấm `1` để đổi sang nettruyen |
 | `HTTP 403` / Cloudflare challenge | trang chặn client không phải trình duyệt | anisub đã gửi User-Agent trình duyệt; thử lại sau, hoặc đổi `MANGA_BASE_URL` sang domain mirror (nettruyen: `nettruyenn.org`, truyenvn: domain mới) |
 | `❌ Không tìm thấy hình ảnh` khi đọc chapter nettruyen | trang đọc không trả `<img>` hoặc đổi host ảnh | chạy `./anisub.sh --manga-selftest <slug>`; xem `~/.config/anisub_cli/cache/manga-debug.txt`; bấm `o` để mở chapter bằng trình duyệt |

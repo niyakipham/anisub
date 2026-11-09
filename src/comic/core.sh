@@ -46,6 +46,98 @@ manga_net_hint() {
     esac
 }
 
+# ─── CHẨN ĐOÁN MẠNG / DNS-over-HTTPS ────────────────────────────────────────
+# Hỏi IP qua DNS-over-HTTPS (cứu khi DNS của nhà mạng chặn e-hentai).
+# In IP ra stdout; không hỏi được -> return 1.
+anisub_doh_resolve() {
+    local host="${1:-}" json ip="" provider
+    [ -n "$host" ] || return 1
+    for provider in "https://cloudflare-dns.com/dns-query?name=$host&type=A" \
+                    "https://dns.google/resolve?name=$host&type=A"; do
+        json=$(curl -sS --max-time 8 -H 'accept: application/dns-json' "$provider" 2>/dev/null) || continue
+        ip=$(printf '%s' "$json" | grep -o '"data":[ ]*"[0-9][0-9.]*"' | head -1 | sed 's/.*"\([0-9][0-9.]*\)"/\1/')
+        [ -n "$ip" ] && { printf '%s' "$ip"; return 0; }
+    done
+    return 1
+}
+
+# Kiểm tra mạng theo TỪNG LỚP cho host của nguồn truyện đang dùng (hoặc host truyền vào):
+# DNS hệ thống -> DNS-over-HTTPS -> HTTPS/TLS. Nhờ vậy biết chính xác bị chặn ở đâu
+# (DNS, IP, hay SNI/TLS) thay vì chỉ "HTTP 000".
+anisub_netcheck() {
+    local host="${1:-}"
+    if [ -z "$host" ]; then
+        if declare -F manga_is_ehentai > /dev/null 2>&1 && manga_is_ehentai; then
+            host=$(eh_base)
+        else
+            host="${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
+        fi
+    fi
+    host="${host#*://}"      # bỏ scheme nếu có (https://)
+    host="${host%%/*}"       # bỏ path
+    host="${host%%\?*}"      # bỏ query
+    [ -n "$host" ] || { echo "❌ Không rõ host cần kiểm tra (ví dụ: ./anisub.sh --netcheck e-hentai.org)"; return 1; }
+
+    echo "🌐 Kiểm tra mạng: $host"
+    local sys_ip doh_ip code rc direct_rc direct_code="" doh_code="" doh_rc=""
+    sys_ip=$(getent hosts "$host" 2>/dev/null | awk '{print $1; exit}')
+    [ -n "$sys_ip" ] || sys_ip=$(host "$host" 2>/dev/null | awk '/has address/ {print $4; exit}')
+    echo "   DNS hệ thống   : ${sys_ip:-❌ không phân giải được}"
+    doh_ip=$(anisub_doh_resolve "$host")
+    echo "   DNS-over-HTTPS : ${doh_ip:-❌ không hỏi được (cloudflare-dns.com / dns.google cũng bị chặn?)}"
+    if [ -n "$sys_ip" ] && [ -n "$doh_ip" ] && [ "$sys_ip" != "$doh_ip" ]; then
+        echo "                    (Cloudflare trả nhiều IP nên lệch nhau là bình thường)"
+    fi
+    [ -n "${MANGA_PROXY:-}" ] && echo "   Proxy (config) : $MANGA_PROXY"
+    if [ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]; then
+        echo "   Proxy (môi trường): ${https_proxy:-$HTTPS_PROXY}"
+    fi
+
+    code=$(curl -sS -o /dev/null --connect-timeout 8 --max-time 15 -w '%{http_code}' \
+        -A "${MANGA_USER_AGENT:-Mozilla/5.0}" "https://$host/" 2>/dev/null); rc=$?
+    direct_code="$code"; direct_rc="$rc"
+    echo "   HTTPS trực tiếp: HTTP ${code:-000}$([ "${rc:-0}" -ne 0 ] && echo " · curl lỗi $rc")"
+    if [ "${rc:-0}" -ne 0 ] && [ -n "$doh_ip" ]; then
+        code=$(curl -sS -o /dev/null --connect-timeout 8 --max-time 15 -w '%{http_code}' \
+            -A "${MANGA_USER_AGENT:-Mozilla/5.0}" --resolve "$host:443:$doh_ip" "https://$host/" 2>/dev/null); rc=$?
+        doh_code="$code"; doh_rc="$rc"
+        echo "   HTTPS qua DoH  : HTTP ${code:-000}$([ "${rc:-0}" -ne 0 ] && echo " · curl lỗi $rc")"
+    fi
+    echo ""
+
+    case "$direct_code" in
+        2??|3??)
+            echo "   ✅ Vào được $host (HTTP $direct_code)."
+            return 0 ;;
+    esac
+    case "$doh_code" in
+        2??|3??)
+            echo "   ✅ Vào được $host khi đi qua DoH (HTTP $doh_code) → chỉ DNS bị chặn."
+            echo "      anisub sẽ tự dùng DoH khi tải (MANGA_DOH=auto). Còn DNS hệ thống thì nên sửa:"
+            echo "        sudo systemctl restart systemd-resolved && resolvectl status"
+            return 0 ;;
+    esac
+
+    echo "   ❗ Bị chặn ở đâu:"
+    if [ -z "$sys_ip" ] && [ -n "$doh_ip" ]; then
+        echo "   • DNS của máy/nhà mạng KHÔNG phân giải được, nhưng DoH thì được → DNS vẫn bị chặn."
+        echo "     Đổi file cấu hình DNS là chưa đủ: cần restart + kiểm tra bằng 'resolvectl status'."
+        echo "     anisub tự dùng DoH khi tải e-hentai (MANGA_DOH=auto) nên phần này không chặn nữa."
+    fi
+    case "${direct_rc:-0}${doh_rc:-0}" in
+        *7*)  echo "   • Không mở được cổng 443 → IP bị chặn (DPI/nhà mạng). Đổi DNS KHÔNG cứu được." ;;
+        *28*) echo "   • Kết nối 443 bị treo/timeout → IP bị chặn hoặc mạng rất chậm." ;;
+        *35*|*60*) echo "   • Lỗi TLS/SNI → nhà mạng chặn theo tên miền. Cần proxy/VPN (hoặc ECH trong client)." ;;
+    esac
+    echo "   • Cần VPN/proxy thật. Nếu đã có client cục bộ (v2rayN, clash, ssh -D):"
+    echo "       export https_proxy=socks5h://127.0.0.1:1080     # rồi chạy lại anisub"
+    echo "     hoặc đặt trong ~/.config/anisub_cli/config.cfg:"
+    echo "       MANGA_PROXY=\"socks5h://127.0.0.1:1080\""
+    echo "   • Không có VPN? Đọc truyện tranh thường bằng nettruyen (không bị chặn):"
+    echo "       ⚙️ Cài đặt → 📚 Nguồn truyện → 1) nettruyen"
+    return 1
+}
+
 # Gọi 1 URL của TruyenVN, in nội dung ra stdout (lỗi -> return 1).
 # Tham số 2+ dạng key=value được curl -G --data-urlencode tự mã hoá.
 manga_http_fetch() {
@@ -98,7 +190,10 @@ manga_http_fetch() {
         retry_opt=(--retry 0)
         max_time=15
     fi
+    local -a proxy_opt=()
+    [ -n "${MANGA_PROXY:-}" ] && proxy_opt=(--proxy "$MANGA_PROXY")
     status=$(curl -sS -G -L --compressed --connect-timeout 10 --max-time "$max_time" "${retry_opt[@]}" \
+        "${proxy_opt[@]}" \
         -A "$ua" \
         "${cookie_opts[@]}" \
         "${hdr_opts[@]}" \
@@ -397,8 +492,10 @@ manga_download_image() {
     local tmp="${dest}.part"
     rm -f "$tmp" 2>/dev/null
     # Lần 1: KHÔNG Referer (CDN của TruyenVN - imggo.net - trả 403 nếu có Referer)
+    local -a proxy_opt=()
+    [ -n "${MANGA_PROXY:-}" ] && proxy_opt=(--proxy "$MANGA_PROXY")
     curl -fsSL --compressed --max-time 30 --retry 2 --retry-delay 1 \
-        -A "$MANGA_USER_AGENT" \
+        -A "$MANGA_USER_AGENT" "${proxy_opt[@]}" \
         -o "$tmp" "$url" >/dev/null 2>&1
     if [ "$(manga_file_is_image "$tmp")" = "1" ]; then
         mv "$tmp" "$dest" 2>/dev/null && return 0
@@ -406,7 +503,7 @@ manga_download_image() {
     # Lần 2: có Referer (một số mirror/CDN lại bắt buộc) - nhận cái nào ra ảnh thật
     rm -f "$tmp" 2>/dev/null
     curl -fsSL --compressed --max-time 30 --retry 1 --retry-delay 1 \
-        -A "$MANGA_USER_AGENT" \
+        -A "$MANGA_USER_AGENT" "${proxy_opt[@]}" \
         -e "${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}/" \
         -o "$tmp" "$url" >/dev/null 2>&1
     if [ "$(manga_file_is_image "$tmp")" = "1" ]; then

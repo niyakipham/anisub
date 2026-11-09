@@ -908,6 +908,69 @@ check "ghi lại mã lỗi curl" "http=000 curl=6" "$(tail -1 "$WORK/eh38e.txt")
     echo \"exists=\$([ -f '$WORK/home-sc38/.config/anisub_cli/config.cfg' ] && echo 1 || echo 0)\"" ) > "$WORK/eh38f.txt" 2>&1
 check "save_config tự tạo thư mục cấu hình" "exists=1" "$(tail -1 "$WORK/eh38f.txt")"
 
+echo "== 39. DNS bị chặn: tự hỏi IP qua DoH + chẩn đoán đúng lớp bị chặn =="
+# (a) hỏi IP qua DNS-over-HTTPS
+( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; anisub_doh_resolve e-hentai.org" ) > "$WORK/n39a.txt" 2>&1
+check "DoH trả về IP" "203.0.113.10" "$(tail -1 "$WORK/n39a.txt")"
+
+# (b) DNS hỏng -> tự DoH + --resolve rồi tải được
+mkdir -p "$WORK/home-n39"
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-n39" MOCK_FIXTURES="$HERE/fixtures" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=ehentai; MANGA_BASE_URL='https://dnsblock.test'; MANGA_DOH=auto
+    out=\$(eh_fetch '/'); echo \"rc=\$? http=\$(anisub_last_http) len=\${#out}\"
+    echo \"cache=\$(cat \$HOME/.config/anisub_cli/cache/doh-dnsblock.test 2>/dev/null)\"" ) > "$WORK/n39b.txt" 2>&1
+has "tự retry qua DoH -> tải được" "rc=0 http=200" "$(cat "$WORK/n39b.txt")"
+has "nhớ IP DoH cho lần sau" "cache=203.0.113.10" "$(cat "$WORK/n39b.txt")"
+
+# (c) MANGA_DOH=off -> không dùng DoH (vẫn 000)
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-n39" MOCK_FIXTURES="$HERE/fixtures" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=ehentai; MANGA_BASE_URL='https://dnsblock.test'; MANGA_DOH=off
+    rm -f \$HOME/.config/anisub_cli/cache/doh-dnsblock.test
+    eh_fetch '/' >/dev/null 2>&1; echo \"http=\$(anisub_last_http)\"" ) > "$WORK/n39c.txt" 2>&1
+check "DOH=off -> không retry" "http=000" "$(tail -1 "$WORK/n39c.txt")"
+
+# (d) netcheck: chỉ DNS bị chặn -> nói rõ và khuyên restart systemd-resolved
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-n39" MOCK_FIXTURES="$HERE/fixtures" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=ehentai; MANGA_BASE_URL='https://dnsblock.test'; anisub_netcheck; echo \"rc=\$?\"" ) > "$WORK/n39d.txt" 2>&1
+has "netcheck in DNS hệ thống" "DNS hệ thống" "$(cat "$WORK/n39d.txt")"
+has "netcheck in DoH" "DNS-over-HTTPS : 203.0.113.10" "$(cat "$WORK/n39d.txt")"
+has "netcheck kết luận chỉ DNS bị chặn" "chỉ DNS bị chặn" "$(cat "$WORK/n39d.txt")"
+has "nhắc restart systemd-resolved" "systemctl restart systemd-resolved" "$(cat "$WORK/n39d.txt")"
+
+# (e) netcheck: host vào được -> báo OK, rc=0
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-n39" MOCK_FIXTURES="$HERE/fixtures" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=nettruyen; MANGA_BASE_URL='https://nettruyen.info'; anisub_netcheck; echo \"rc=\$?\"" ) > "$WORK/n39e.txt" 2>&1
+has "host OK -> báo vào được" "✅ Vào được" "$(cat "$WORK/n39e.txt")"
+has "host OK -> rc=0" "rc=0" "$(tail -1 "$WORK/n39e.txt")"
+
+# (f) bị chặn IP/SNI -> khuyên VPN/proxy, có ví dụ export https_proxy
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-n39" MOCK_FIXTURES="$HERE/fixtures" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=ehentai; MANGA_BASE_URL='https://manga-offline.test'; MANGA_DOH=off
+    anisub_netcheck; echo \"rc=\$?\"" ) > "$WORK/n39f.txt" 2>&1
+has "bị chặn -> khuyên cần VPN/proxy" "Cần VPN/proxy thật" "$(cat "$WORK/n39f.txt")"
+has "có ví dụ export https_proxy" "export https_proxy=socks5h://127.0.0.1:1080" "$(cat "$WORK/n39f.txt")"
+has "bị chặn -> rc=1" "rc=1" "$(tail -1 "$WORK/n39f.txt")"
+
+# (g) MANGA_PROXY được truyền cho curl (kiểm tra qua log tham số)
+rm -f "$WORK/n39args.log"
+( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-n39" MOCK_FIXTURES="$HERE/fixtures" \
+  MOCK_CURL_HEADER_LOG="$WORK/n39args.log" \
+  bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+    MANGA_SOURCE=nettruyen; MANGA_BASE_URL='https://nettruyen.info'; MANGA_PROXY='socks5h://127.0.0.1:1080'
+    manga_http_fetch '/' >/dev/null 2>&1" ) > /dev/null 2>&1
+has "MANGA_PROXY -> curl --proxy" "--proxy socks5h://127.0.0.1:1080" "$(cat "$WORK/n39args.log" 2>/dev/null)"
+
+# (h) --netcheck chạy từ dòng lệnh
+( cd "$WORK" && ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-n39" MOCK_FIXTURES="$HERE/fixtures" \
+  PATH="$HERE/mockbin:$PATH" timeout 30 bash "$ROOT/anisub.sh" --netcheck nettruyen.info > "$WORK/n39h.txt" 2>&1; echo "rc=$?" ) > "$WORK/n39h-rc.txt" 2>&1
+has "--netcheck in kết quả" "Kiểm tra mạng" "$(cat "$WORK/n39h.txt")"
+check "--netcheck thoát 0 khi vào được" "rc=0" "$(tail -1 "$WORK/n39h-rc.txt")"
+
 
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"

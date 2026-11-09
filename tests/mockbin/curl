@@ -21,13 +21,13 @@ for i in "${!args[@]}"; do
         -A|--user-agent) ua="$nxt"; skip_next=1 ;;
         -H|--header|-X|--request) skip_next=1 ;;
         -I|--head) headmode=1 ;;
-        --max-time|--retry|--retry-delay|--connect-timeout) skip_next=1 ;;
+        --max-time|--retry|--retry-delay|--connect-timeout|--resolve|--proxy|-x) skip_next=1 ;;
         -c|--cookie-jar|-b|--cookie) has_cookie=1; skip_next=1 ;;
         --data|--data-raw|--data-binary) post="$nxt"; skip_next=1 ;;
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*codeload.github.com*|*"/uploads/"*|*"manga-offline"*)
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*cloudflare-dns.com*|*dns.google*|*codeload.github.com*|*"/uploads/"*|*"manga-offline"*|*dnsblock*)
                     url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
@@ -50,6 +50,19 @@ case "$eff" in
             code="000"; body=""
         fi ;;
     *manga-offline*)        code="000"; body="" ;;
+    *cloudflare-dns.com*|*dns.google*)
+        # DNS-over-HTTPS giả lập: trả JSON có 1 bản ghi A
+        body="${MOCK_DOH_JSON:-$(mktemp 2>/dev/null)}"
+        printf '{"Status":0,"Answer":[{"name":"x","type":1,"TTL":300,"data":"%s"}]}' "${MOCK_DOH_IP:-203.0.113.10}" > "$body" 2>/dev/null
+        code="200" ;;
+    *dnsblock*)
+        # Giả lập nhà mạng chặn DNS: 000 + curl mã 6, TRỪ KHI đã có --resolve (đi DoH)
+        case " $* " in
+            *" --resolve "*)
+                code="200"
+                body="${MOCK_FIXTURES:-/nonexistent}/ehentai-tag.html" ;;
+            *)  code="000"; body="" ;;
+        esac ;;
     *"/webapi/stories/list-chapter"*)
         if [ -n "${MOCK_API_419:-}" ] && [ ! -f "${MOCK_API_419}" ]; then
             : > "${MOCK_API_419}"          # lần đầu: phiên hết hạn
@@ -128,6 +141,15 @@ if [ -z "$wmode" ] && [ -n "$out" ]; then
                 exit 0
             fi
             exit 22 ;;
+    esac
+fi
+
+# DNS-over-HTTPS (không có -o/-w): in JSON ra stdout
+if [ -z "$wmode" ] && [ -z "$out" ]; then
+    case "$url" in
+        *cloudflare-dns.com*|*dns.google*)
+            cat "$body" 2>/dev/null
+            exit 0 ;;
     esac
 fi
 
