@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.12a"
+ANISUB_VERSION="2026.11.12b"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -419,6 +419,42 @@ anisub_find_src() {
 # (lỗi kinh điển: src/ chỉ có movie/ nên menu in "manga_source_label: command not found").
 ANISUB_REQUIRED_FUNCS="manga_source_label manga_main_menu fetch_chapter_list kkphim_search_menu kkphim_browse_menu"
 
+# Các module nguồn mà bản anisub.sh NÀY cần có. Thiếu file nào = bộ src/ trên máy
+# là bản cũ (ví dụ: chưa có nguồn toon18x) -> anisub tự tải lại bộ nguồn, và nếu
+# không tải được thì nói rõ thiếu nguồn nào thay vì im lặng.
+ANISUB_EXPECTED_COMIC_MODULES="core.sh nettruyen.sh truyenvn.sh ehentai.sh kagane.sh toon18x.sh"
+
+# In ra tên các module còn thiếu trong thư mục nguồn $1 (không in gì = đủ bộ)
+anisub_missing_modules() {
+    local dir="${1:-}" m
+    [ -n "$dir" ] || return 1
+    for m in $ANISUB_EXPECTED_COMIC_MODULES; do
+        [ -f "$dir/comic/$m" ] || printf '%s\n' "$m"
+    done
+}
+
+# Tên nguồn để in cho người dùng từ tên file module
+anisub_module_source_name() {
+    case "${1:-}" in
+        core.sh)      printf 'engine' ;;
+        nettruyen.sh) printf 'nettruyen' ;;
+        truyenvn.sh)  printf 'truyenvn' ;;
+        ehentai.sh)   printf 'e-hentai' ;;
+        kagane.sh)    printf 'kagane' ;;
+        toon18x.sh)   printf 'toon18x' ;;
+        *)            printf '%s' "${1%.sh}" ;;
+    esac
+}
+
+# "kagane, toon18x" - danh sách nguồn còn thiếu, để in trong câu thông báo
+anisub_missing_source_names() {
+    local m out=""
+    for m in $(anisub_missing_modules "${1:-}"); do
+        out="${out:+$out, }$(anisub_module_source_name "$m")"
+    done
+    printf '%s' "$out"
+}
+
 # Dự phòng: nếu module truyện chưa nạp được, menu chính vẫn hiển thị được bình
 # thường và bấm vào sẽ báo lỗi rõ ràng (không lộ "command not found" ra màn hình).
 manga_source_label() {
@@ -460,7 +496,7 @@ anisub_fetch_sources() {
     [ -z "$dest" ] && return 1
     tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/anisub-src.XXXXXX" 2>/dev/null) || return 1
     archive="$tmpdir/anisub.tar.gz"
-    echo "⏳ Chưa có thư mục src/ — đang tải bộ file nguồn từ GitHub (~28MB, chờ chút)..."
+    echo "⏳ Đang tải bộ file nguồn từ GitHub (~28MB, chờ chút)..."
     if ! curl -fsSL --max-time 180 -o "$archive" "$UPDATE_REPO_URL" 2>/dev/null; then
         rm -rf "$tmpdir"
         return 1
@@ -485,14 +521,74 @@ anisub_fetch_sources() {
     return $rc
 }
 
+# Bộ src/ đang có nhưng THIẾU module (bản cũ): tải lại bộ nguồn mới vào đúng thư mục
+# đó rồi nạp lại. Trả 0 nếu sau khi tải đã đủ module (khi đó ANISUB_SRC_DIR đã trỏ đúng).
+anisub_heal_sources() {
+    local dir="${1:-}" parent
+    [ -n "$dir" ] && [ -d "$dir" ] || return 1
+    [ -z "$(anisub_missing_modules "$dir")" ] && return 0
+    local names
+    names=$(anisub_missing_source_names "$dir")
+    echo ""
+    echo "🔧 Bộ file nguồn trên máy là bản cũ: thiếu nguồn $names."
+    echo "   Đang tự tải bộ nguồn mới từ GitHub (chỉ 1 lần)..."
+    case "$dir" in
+        */src) parent="${dir%/src}" ;;
+        *)     parent="" ;;
+    esac
+    if [ -z "$parent" ] || [ ! -w "$parent" ]; then
+        echo "   ❌ Không ghi được vào $dir (thiếu quyền)."
+        echo "      Cách sửa: chạy anisub ở thư mục có quyền ghi, hoặc cập nhật bằng git:"
+        echo "        git -C \"${parent:-$dir}\" pull"
+        return 1
+    fi
+    # Bản cài bằng git (có .git, cây làm việc sạch) -> git pull cho gọn, giữ repo khớp
+    if [ -d "$parent/.git" ] && command -v git > /dev/null 2>&1 \
+       && [ -z "$(git -C "$parent" status --porcelain 2>/dev/null)" ]; then
+        echo "   (bản cài bằng git - chạy: git -C \"$parent\" pull)"
+        if git -C "$parent" pull --ff-only -q 2>/dev/null; then
+            if anisub_load_sources "$dir" && [ -z "$(anisub_missing_modules "$dir")" ]; then
+                ANISUB_SRC_DIR="$dir"
+                ANISUB_SOURCES_OK=1
+                ANISUB_MISSING_MODULES=""
+                echo "   ✅ Đã cập nhật bộ nguồn bằng git: $dir"
+                sleep 1
+                return 0
+            fi
+        fi
+        echo "   ⚠️ git pull không mang về đủ module - chuyển sang tải bản phát hành."
+    fi
+    if ! anisub_fetch_sources "$parent"; then
+        echo "   ❌ Không tải được bộ nguồn mới (mạng lỗi hoặc GitHub chặn)."
+        echo "      Có mạng lại thì chạy: ./anisub.sh --update   (hoặc ./anisub.sh --doctor)"
+        return 1
+    fi
+    if anisub_load_sources "$dir"; then
+        local still
+        still=$(anisub_missing_modules "$dir")
+        if [ -z "$still" ]; then
+            ANISUB_SRC_DIR="$dir"
+            ANISUB_SOURCES_OK=1
+            ANISUB_MISSING_MODULES=""
+            echo "   ✅ Đã cập nhật bộ nguồn: $dir"
+            sleep 1
+            return 0
+        fi
+        echo "   ⚠️ Bản tải về vẫn thiếu module: $(anisub_missing_source_names "$dir")"
+    fi
+    return 1
+}
+
 # Bảo đảm LUÔN có nguồn trước khi mở menu: tìm quanh máy -> tự tải -> báo lỗi rõ ràng.
 # Nhờ vậy lỗi "bấm Đọc Truyện Tranh mà không có gì xảy ra" không còn xảy ra nữa.
 anisub_ensure_sources() {
     [ "${ANISUB_SOURCES_OK:-0}" = "1" ] && return 0
-    local d dest tried=" " looked_ok=0
+    local d dest tried=" " looked_ok=0 fallback=""
 
     # 1) Thử lần lượt mọi thư mục nguồn có sẵn: env -> cạnh script -> thư mục config.
     #    "Trông có vẻ đúng" chưa đủ (file có thể hỏng), nên phải nạp thật mới tin.
+    #    Bộ nạp được nhưng THIẾU module (src/ bản cũ) chỉ dùng làm phương án dự phòng,
+    #    vì nó thiếu nguồn mới (toon18x, kagane...) -> thử các thư mục khác trước.
     for d in "${ANISUB_SRC_DIR:-}" "${SCRIPT_DIR:-}/src" "${CONFIG_DIR:-}/src"; do
         [ -n "$d" ] || continue
         anisub_src_looks_ok "$d" || continue
@@ -500,11 +596,35 @@ anisub_ensure_sources() {
         case "$tried" in *" $d "*) continue ;; esac
         tried="$tried$d "
         if anisub_load_sources "$d"; then
-            ANISUB_SRC_DIR="$d"
-            ANISUB_SOURCES_OK=1
-            return 0
+            if [ -z "$(anisub_missing_modules "$d")" ]; then
+                ANISUB_SRC_DIR="$d"
+                ANISUB_SOURCES_OK=1
+                ANISUB_MISSING_MODULES=""
+                return 0
+            fi
+            [ -z "$fallback" ] && fallback="$d"
+            anisub_debug_log "src thieu module: $d (thieu: $(anisub_missing_modules "$d" | tr '\n' ' '))"
         fi
     done
+
+    # 1b) Chỉ còn bộ src/ cũ (thiếu module) -> tự tải lại bộ nguồn rồi dùng
+    if [ -n "$fallback" ]; then
+        if anisub_heal_sources "$fallback"; then
+            return 0
+        fi
+        # Tải không được (mạng hỏng?) -> vẫn chạy tiếp bằng bộ cũ, nhưng nói rõ thiếu gì
+        ANISUB_SRC_DIR="$fallback"
+        ANISUB_SOURCES_OK=1
+        ANISUB_MISSING_MODULES=$(anisub_missing_modules "$fallback" | tr '\n' ' ')
+        echo ""
+        echo "⚠️ Đang dùng bộ nguồn cũ ở $fallback"
+        echo "   Thiếu nguồn: $(anisub_missing_source_names "$fallback")"
+        echo "   → các nguồn này sẽ KHÔNG hiện trong 📚 Nguồn truyện cho tới khi cập nhật xong."
+        echo "   Thử lại khi có mạng: ./anisub.sh --update  (hoặc ./anisub.sh --doctor)"
+        echo ""
+        sleep 2
+        return 0
+    fi
 
     # 2) Có src/ mà không nạp được (file hỏng / tải dở) -> KHÔNG ghi đè lên src/ của
     #    người dùng, báo rõ file nào để họ tự sửa hoặc clone lại.
@@ -551,9 +671,16 @@ anisub_ensure_sources() {
 # Nạp module ngay khi file được source/chạy (im lặng). Nếu thiếu src/ thì
 # --version vẫn chạy được, còn trước khi mở menu sẽ gọi anisub_ensure_sources.
 ANISUB_SOURCES_OK=0
+ANISUB_MISSING_MODULES=""
 if _anisub_src=$(anisub_find_src); then
     ANISUB_SRC_DIR="$_anisub_src"
-    anisub_load_sources "$ANISUB_SRC_DIR" && ANISUB_SOURCES_OK=1
+    if anisub_load_sources "$ANISUB_SRC_DIR"; then
+        # Nạp được nhưng thiếu module (bộ src/ cũ) thì CHƯA tính là đủ: để
+        # anisub_ensure_sources tự tải bộ nguồn mới (nhờ vậy nguồn mới như
+        # toon18x mới hiện ra trong ⚙️ Cài đặt → 📚 Nguồn truyện).
+        ANISUB_MISSING_MODULES=$(anisub_missing_modules "$ANISUB_SRC_DIR" | tr '\n' ' ')
+        [ -z "$ANISUB_MISSING_MODULES" ] && ANISUB_SOURCES_OK=1
+    fi
 fi
 unset _anisub_src
 
@@ -576,7 +703,11 @@ anisub_debug_log() {
 # --- SETTINGS & UPDATE ---
 show_settings() {
     while true; do
-        opt=$(echo -e "🎬 Đổi trình phát (Hiện tại: $PLAYER)\n📁 Đổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\n🎞 Nguồn phim: $SOURCE_NAME ($KKPHIM_SITE_URL)\n📚 Nguồn truyện: $(manga_source_label) (${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL})\n🖼️ Kích thước ảnh manga (Hiện tại: ${MANGA_IMAGE_SCALE}%)\n🔙 Quay lại" | fzf --prompt="⚙️ Cài đặt > ")
+        local manga_line missing_txt
+        manga_line="📚 Nguồn truyện: $(manga_source_label) (${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL})"
+        missing_txt=$(anisub_missing_source_names "${ANISUB_SRC_DIR:-}")
+        [ -n "$missing_txt" ] && manga_line="$manga_line  ⚠️ thiếu nguồn: $missing_txt"
+        opt=$(echo -e "🎬 Đổi trình phát (Hiện tại: $PLAYER)\n📁 Đổi thư mục tải (Hiện tại: $DOWNLOAD_DIR)\n🎞 Nguồn phim: $SOURCE_NAME ($KKPHIM_SITE_URL)\n$manga_line\n🖼️ Kích thước ảnh manga (Hiện tại: ${MANGA_IMAGE_SCALE}%)\n🔙 Quay lại" | fzf --prompt="⚙️ Cài đặt > ")
         case "$opt" in
             *"Đổi trình phát"*)
                 read -r -p "Nhập lệnh trình phát (vd vlc): " inp
@@ -587,6 +718,21 @@ show_settings() {
             *"Nguồn phim"*)
                 show_source_settings ;;
             *"Nguồn truyện"*)
+                # Bộ src/ cũ (thiếu module) -> nói rõ + tự tải lại, để nguồn mới
+                # (toon18x, kagane...) hiện ra ngay trong menu nguồn truyện.
+                local miss_now
+                miss_now=$(anisub_missing_source_names "${ANISUB_SRC_DIR:-}")
+                if [ -n "$miss_now" ]; then
+                    echo ""
+                    echo "⚠️ Bộ nguồn trên máy là bản cũ: thiếu nguồn $miss_now."
+                    echo "   Vì vậy các nguồn mới chưa hiện trong danh sách nguồn truyện."
+                    read -r -p "Tải bộ nguồn mới ngay? (Y/n): " inp
+                    case "${inp:-Y}" in
+                        [nN]*) echo "   ↩️ Bỏ qua - nguồn $miss_now sẽ chưa dùng được."; sleep 1 ;;
+                        *)     anisub_heal_sources "$ANISUB_SRC_DIR" || \
+                                   echo "   ⏭ Vẫn mở menu nguồn với bộ cũ." ; sleep 1 ;;
+                    esac
+                fi
                 show_manga_settings ;;
             *"Kích thước ảnh manga"*)
                 echo ""
@@ -644,13 +790,26 @@ update_script() {
         return 1
     fi
     remote_ver=$(sed -n 's/^ANISUB_VERSION="\(.*\)"$/\1/p' "$root/anisub.sh" | head -1)
-    if [ "$remote_ver" = "$ANISUB_VERSION" ]; then
+    # So sánh version thôi CHƯA đủ: bộ src/ có thể là bản cũ (thiếu module như toon18x)
+    # dù anisub.sh đã đúng version -> phải cài lại bộ nguồn.
+    local missing_here=""
+    if [ -d "${SCRIPT_DIR}/src" ]; then
+        missing_here=$(anisub_missing_source_names "${SCRIPT_DIR}/src")
+    else
+        missing_here="toàn bộ src/"
+    fi
+    if [ "$remote_ver" = "$ANISUB_VERSION" ] && [ -z "$missing_here" ]; then
         echo "✅ Đang là bản mới nhất ($ANISUB_VERSION)."
         rm -rf "$tmpdir"
         sleep 1
         return 0
     fi
-    echo "🔁 Có bản mới: ${remote_ver:-?} (đang dùng $ANISUB_VERSION). Đang cài..."
+    if [ "$remote_ver" = "$ANISUB_VERSION" ]; then
+        echo "ℹ️ Code đã là $ANISUB_VERSION nhưng bộ nguồn còn thiếu: $missing_here"
+        echo "   → cài lại bộ file nguồn (src/) để có đủ nguồn."
+    else
+        echo "🔁 Có bản mới: ${remote_ver:-?} (đang dùng $ANISUB_VERSION). Đang cài..."
+    fi
     if ! mkdir -p "$SCRIPT_DIR/src"; then
         echo "❌ Không ghi được vào $SCRIPT_DIR"
         rm -rf "$tmpdir"
@@ -682,6 +841,12 @@ anisub_doctor() {
         echo "   ❌ Chưa nạp được module nguồn nào"
     else
         echo "   (đã nạp $n module)"
+        local miss_mod
+        miss_mod=$(anisub_missing_source_names "${ANISUB_SRC_DIR:-/nonexistent}")
+        if [ -n "$miss_mod" ]; then
+            echo "   ⚠️ Thiếu module nguồn: $miss_mod → bộ src/ là bản cũ"
+            echo "      (chạy ./anisub.sh --update để tải lại bộ nguồn)"
+        fi
     fi
     echo "📚 Truyện : $(manga_source_label) · ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🎬 Phim   : $SOURCE_NAME · $KKPHIM_API_URL"

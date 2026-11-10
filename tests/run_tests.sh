@@ -1285,6 +1285,123 @@ check "truyenvn vẫn là truyenvn" "TruyenVN" \
     "$( ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k41" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=truyenvn; manga_source_label" ) 2>&1)"
 check "toon18x không lẫn sang kagane" "0" "$(txsh 'manga_is_kagane && echo 1 || echo 0')"
 
+echo "== 42. bộ src/ cũ thiếu nguồn mới -> tự phát hiện, tự tải lại, và nói rõ =="
+# Bản phát hành cùng version (để test trường hợp \"đã là bản mới nhất\" nhưng src/ cũ)
+mkdir -p "$WORK/r42/anisub-main"
+cp "$ROOT/anisub.sh" "$WORK/r42/anisub-main/"
+cp -R "$ROOT/src" "$WORK/r42/anisub-main/src"
+tar -czf "$WORK/anisub-same.tar.gz" -C "$WORK/r42" anisub-main
+
+# Bộ src/ \"cũ\": có đủ module cũ nhưng thiếu module toon18x
+k42_stale_src() {
+    local dst="$1"
+    mkdir -p "$dst"
+    cp -R "$ROOT/src" "$dst/src"
+    rm -f "$dst/src/comic/toon18x.sh"
+}
+
+# (a) đơn vị: dò module thiếu / tên nguồn
+check "bộ src/ hiện tại đủ module" "" \
+    "$( ( ANISUB_SRC_DIR="$ROOT/src" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; anisub_missing_modules \"$ROOT/src\"" ) 2>&1)"
+mkdir -p "$WORK/h42"
+k42_stale_src "$WORK/h42/stale"
+check "dò ra module toon18x.sh còn thiếu" "toon18x.sh" \
+    "$( ( ANISUB_SRC_DIR="$WORK/h42/stale/src" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; anisub_missing_modules '$WORK/h42/stale/src'" ) 2>&1)"
+check "tên nguồn từ tên module" "toon18x" \
+    "$( ( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; anisub_module_source_name toon18x.sh" ) 2>&1)"
+has "danh sách nguồn thiếu để in thông báo" "toon18x" \
+    "$( ( bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; anisub_missing_source_names '$WORK/h42/stale/src'" ) 2>&1)"
+
+# (b) chạy --doctor với src/ cũ + có mạng -> tự tải lại, nguồn toon18x xuất hiện
+mkdir -p "$WORK/home-k42"
+cp "$ROOT/anisub.sh" "$WORK/h42/stale/"
+( cd "$WORK/h42/stale" && ANISUB_SRC_DIR="$WORK/h42/stale/src" HOME="$WORK/home-k42" \
+  MOCK_UPDATE_TARBALL="$WORK/anisub-main.tar.gz" PATH="$HERE/mockbin:$PATH" \
+  timeout 60 bash ./anisub.sh --doctor > "$WORK/k42-heal.txt" 2>&1 )
+has "phát hiện bộ nguồn cũ thiếu toon18x" "thiếu nguồn toon18x" "$(cat "$WORK/k42-heal.txt")"
+has "báo đang tự tải bộ nguồn mới" "tự tải bộ nguồn mới" "$(cat "$WORK/k42-heal.txt")"
+has "báo đã cập nhật bộ nguồn" "Đã cập nhật bộ nguồn" "$(cat "$WORK/k42-heal.txt")"
+check "tự tải lại được module toon18x.sh" "1" "$([ -f "$WORK/h42/stale/src/comic/toon18x.sh" ] && echo 1 || echo 0)"
+has "doctor liệt kê module toon18x" "✅ toon18x.sh" "$(cat "$WORK/k42-heal.txt")"
+check "sau khi tự chữa lành: không còn cảnh báo thiếu module" "0" \
+    "$(grep -c 'Thiếu module nguồn' "$WORK/k42-heal.txt")"
+check "sau khi tự chữa lành: menu nguồn có đủ 5 dòng" "5" \
+    "$( ( ANISUB_SRC_DIR="$WORK/h42/stale/src" HOME="$WORK/home-k42" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=toon18x; MANGA_BASE_URL='https://toon18x.com'; manga_source_choices" ) 2>&1 | grep -c '.')"
+has "sau khi tự chữa lành: có dòng nguồn 5|toon18x" "5|toon18x" \
+    "$( ( ANISUB_SRC_DIR="$WORK/h42/stale/src" HOME="$WORK/home-k42" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=toon18x; manga_source_choices" ) 2>&1)"
+
+# (c) src/ cũ + KHÔNG có mạng -> nói rõ thiếu nguồn nào, vẫn chạy được
+k42_stale_src "$WORK/h42/stale2"
+cp "$ROOT/anisub.sh" "$WORK/h42/stale2/"
+mkdir -p "$WORK/home-k42b"
+( cd "$WORK/h42/stale2" && ANISUB_SRC_DIR="$WORK/h42/stale2/src" HOME="$WORK/home-k42b" \
+  PATH="$HERE/mockbin:$PATH" timeout 60 bash ./anisub.sh --doctor > "$WORK/k42-nonet.txt" 2>&1 )
+has "không tải được: nói rõ đang dùng bộ nguồn cũ" "Đang dùng bộ nguồn cũ" "$(cat "$WORK/k42-nonet.txt")"
+has "không tải được: nêu tên nguồn thiếu" "Thiếu nguồn: toon18x" "$(cat "$WORK/k42-nonet.txt")"
+has "không tải được: nhắc --update" "./anisub.sh --update" "$(cat "$WORK/k42-nonet.txt")"
+has "không tải được: vẫn mở được doctor" "ANISUB DOCTOR" "$(cat "$WORK/k42-nonet.txt")"
+has "doctor cảnh báo thiếu module" "Thiếu module nguồn: toon18x" "$(cat "$WORK/k42-nonet.txt")"
+
+# (d) dòng \"Nguồn truyện\" trong ⚙️ Cài đặt cảnh báo ngay khi thiếu module
+( cd "$WORK/h42/stale2" && ANISUB_SRC_DIR="$WORK/h42/stale2/src" HOME="$WORK/home-k42b" \
+  PATH="$K40_FZFDIR:$HERE/mockbin:$PATH" K40_FZF_DUMP="$WORK/k42-settings.txt" KK_MOCK_PICK=99 \
+  timeout 60 bash -c 'source ./anisub.sh >/dev/null 2>&1; show_settings >/dev/null 2>&1' )
+check "menu Cài đặt gắn cảnh báo thiếu nguồn vào dòng Nguồn truyện" "1" \
+    "$(grep -c '📚 Nguồn truyện:.*⚠️ thiếu nguồn: toon18x' "$WORK/k42-settings.txt" 2>/dev/null)"
+has "menu Cài đặt nêu rõ nguồn thiếu" "thiếu nguồn: toon18x" "$(cat "$WORK/k42-settings.txt" 2>/dev/null)"
+check "bộ nguồn đủ thì dòng Cài đặt không có cảnh báo" "0" \
+    "$( ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k42b" PATH="$K40_FZFDIR:$HERE/mockbin:$PATH" \
+          K40_FZF_DUMP="$WORK/k42-settings-ok.txt" KK_MOCK_PICK=99 \
+          bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; show_settings >/dev/null 2>&1" ) >/dev/null 2>&1
+        grep -c '⚠️ thiếu nguồn' "$WORK/k42-settings-ok.txt" 2>/dev/null)"
+
+# (e) 🔄 Cập nhật: version bằng nhau nhưng src/ thiếu module -> vẫn cài lại bộ nguồn
+k42_stale_src "$WORK/h42/upd"
+cp "$ROOT/anisub.sh" "$WORK/h42/upd/"
+mkdir -p "$WORK/home-k42c"
+( cd "$WORK/h42/upd" && MOCK_UPDATE_TARBALL="$WORK/anisub-same.tar.gz" HOME="$WORK/home-k42c" \
+  PATH="$HERE/mockbin:$PATH" bash -c "source ./anisub.sh; SCRIPT_DIR='$WORK/h42/upd'; SELF_SCRIPT='$WORK/h42/upd/anisub.sh'; update_script" \
+  > "$WORK/k42-upd.txt" 2>&1 )
+has "update: nói rõ version đã mới nhưng thiếu module" "nhưng bộ nguồn còn thiếu: toon18x" "$(cat "$WORK/k42-upd.txt")"
+check "update: cài lại được module toon18x.sh" "1" "$([ -f "$WORK/h42/upd/src/comic/toon18x.sh" ] && echo 1 || echo 0)"
+check "update: không tạo src/src lồng nhau" "0" "$([ -d "$WORK/h42/upd/src/src" ] && echo 1 || echo 0)"
+
+# (f) bộ nguồn đã đủ -> KHÔNG tải lại từ GitHub khi khởi động
+mkdir -p "$WORK/h42/full" "$WORK/home-k42d"
+cp "$ROOT/anisub.sh" "$WORK/h42/full/"
+cp -R "$ROOT/src" "$WORK/h42/full/src"
+K42_LOG="$WORK/k42-full.log"; : > "$K42_LOG"
+( cd "$WORK/h42/full" && ANISUB_SRC_DIR="$WORK/h42/full/src" HOME="$WORK/home-k42d" \
+  MOCK_CURL_LOG="$K42_LOG" PATH="$HERE/mockbin:$PATH" timeout 60 bash ./anisub.sh --doctor \
+  > "$WORK/k42-full.txt" 2>&1 )
+check "bộ nguồn đủ -> không gọi GitHub tải lại" "0" "$(grep -c 'codeload.github.com' "$K42_LOG" 2>/dev/null)"
+check "bộ nguồn đủ -> không in cảnh báo thiếu nguồn" "0" "$(grep -c 'thiếu nguồn' "$WORK/k42-full.txt" 2>/dev/null)"
+has "bộ nguồn đủ -> doctor bình thường" "ANISUB DOCTOR" "$(cat "$WORK/k42-full.txt")"
+
+# (g) bản cài bằng git (có .git) -> ưu tiên git pull thay vì tải tarball
+mkdir -p "$WORK/h42/git/bin" "$WORK/h42/git/app" "$WORK/home-k42e"
+cp "$ROOT/anisub.sh" "$WORK/h42/git/app/"
+cp -R "$ROOT/src" "$WORK/h42/git/app/src"
+rm -f "$WORK/h42/git/app/src/comic/toon18x.sh"
+mkdir -p "$WORK/h42/git/app/.git"
+cat > "$WORK/h42/git/bin/git" <<EOS
+#!/bin/bash
+# git giả lập: cây làm việc sạch, pull = chép module còn thiếu về
+case "\$*" in
+    *"status --porcelain"*) exit 0 ;;
+    *"pull --ff-only"*)     cp "$ROOT/src/comic/toon18x.sh" "$WORK/h42/git/app/src/comic/" 2>/dev/null; exit 0 ;;
+    *)                      exit 0 ;;
+esac
+EOS
+chmod +x "$WORK/h42/git/bin/git"
+( cd "$WORK/h42/git/app" && ANISUB_SRC_DIR="$WORK/h42/git/app/src" HOME="$WORK/home-k42e" \
+  PATH="$WORK/h42/git/bin:$HERE/mockbin:$PATH" timeout 60 bash ./anisub.sh --doctor > "$WORK/k42-git.txt" 2>&1 )
+has "bản cài git -> dùng git pull thay vì tải tarball" 'git -C "' "$(cat "$WORK/k42-git.txt")"
+has "bản cài git -> báo đã cập nhật bằng git" "Đã cập nhật bộ nguồn bằng git" "$(cat "$WORK/k42-git.txt")"
+check "bản cài git -> có lại module toon18x.sh" "1" "$([ -f "$WORK/h42/git/app/src/comic/toon18x.sh" ] && echo 1 || echo 0)"
+check "bản cài git -> không tải tarball khi git pull chạy được" "0" "$(grep -c 'Đang tải bộ file nguồn' "$WORK/k42-git.txt" 2>/dev/null)"
+
+
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"
 [ "$fail" -gt 0 ] && printf ', \033[31m%s fail\033[0m' "$fail"

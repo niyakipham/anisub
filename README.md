@@ -25,6 +25,7 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🔧》- **Sửa lỗi “không thấy nguồn toon18x trong Cài đặt”**: anisub giờ **tự kiểm tra bộ `src/`** khi khởi động; thiếu module nguồn nào (ví dụ `toon18x.sh`) là **tự tải lại bộ nguồn** (bản cài git thì `git pull`), rồi mới mở menu — không còn cảnh bộ nguồn cũ nằm im. Không tải được (mất mạng) thì nói rõ đang thiếu nguồn nào và cách sửa; dòng `📚 Nguồn truyện` trong ⚙️ Cài đặt cũng gắn `⚠️ thiếu nguồn: …`. `🔄 Cập nhật` không còn bỏ qua khi “đã là bản mới nhất” mà `src/` vẫn thiếu module<br>
 《📚》- Thêm nguồn truyện **toon18x** (`https://toon18x.com/vi`): webtoon/manhwa 18+ bản tiếng Việt, duyệt/tìm trên `/vi/search`, danh sách chương đầy đủ qua `GET /api/v1/manga/<slug>/chapters`, ảnh trang đọc nằm trên `tv1.toon18x.com`; URL chương suy trực tiếp từ số chương nên `Ctrl-G` và lịch sử luôn chạy<br>
 《🎛》- **Đổi nguồn truyện** trong Cài đặt giờ là **menu chọn bằng fzf** (đánh dấu ✅ nguồn đang dùng, thấy đủ 5 nguồn: nettruyen / truyenvn / e-hentai / kagane / toon18x) thay vì phải gõ số; nếu bộ `src/` trên máy còn là bản cũ (chưa có nguồn kagane) thì anisub **nói rõ “chạy 🔄 Cập nhật”** thay vì im lặng<br>
 《📚》- Thêm nguồn truyện **kagane** (`https://kagane.moe`): duyệt/tìm truyện, danh sách chương lấy từ API riêng của site, ảnh trang đọc dùng **token ngắn hạn** (anisub tự xin + tự làm mới khi hết hạn); đổi nguồn ở `⚙️ Cài đặt → 📚 Nguồn truyện`, lọc ngôn ngữ bằng `KAGANE_LANG`<br>
@@ -142,8 +143,9 @@ TOON18X_LOCALE="vi"                            # mã ngôn ngữ trên URL toon1
 
 Đổi nguồn không cần sửa file:
 `⚙️ Cài đặt → 📚 Nguồn truyện → 🔁 Đổi nguồn truyện` — chọn trong menu fzf (✅ = nguồn đang dùng;
-máy không có fzf thì vẫn gõ số 1/2/3/4/5). Nếu bộ `src/` là bản cũ (thiếu nguồn kagane / toon18x), menu nguồn
-truyện sẽ nhắc **chạy 🔄 Cập nhật** — cập nhật xong là thấy nguồn mới.
+máy không có fzf thì vẫn gõ số 1/2/3/4/5). Nếu bộ `src/` là bản cũ (thiếu nguồn kagane / toon18x),
+anisub **tự tải lại bộ nguồn khi khởi động**; không có mạng thì menu nguồn truyện nhắc rõ đang thiếu
+nguồn nào và **chạy 🔄 Cập nhật** — cập nhật xong là thấy nguồn mới.
 (máy đang dùng config cũ chưa có `MANGA_SOURCE` sẽ tự chuyển sang nettruyen một lần).
 
 ### 📚 Nguồn Kagane (`kagane.moe`)
@@ -303,7 +305,7 @@ tail -n 20 ~/.config/anisub_cli/cache/anisub-debug.log   # log mở menu truyệ
 | Bấm **📚 Đọc Truyện Tranh** nháy một cái rồi quay lại menu chính | fzf trả về rỗng (Esc, terminal quá thấp, hoặc fzf lỗi) | anisub đã báo rõ số lần fzf trả về; xem `~/.config/anisub_cli/cache/anisub-debug.log` (dòng `comic-menu:`) rồi gửi kèm khi báo lỗi |
 | Bấm **📚 Đọc Truyện Tranh** không có gì xảy ra / menu truyện trống | thiếu thư mục `src/` (chỉ có `anisub.sh`, hoặc cập nhật dở) | chạy `./anisub.sh --doctor` (tự tải `src/` về); không có mạng thì `git clone https://github.com/NiyakiPham/anisub.git` |
 | Trong Cài đặt **không thấy nguồn kagane** | bộ `src/` trên máy là bản cũ (chưa cập nhật) | chạy `🔄 Cập nhật` ở menu chính hoặc `./anisub.sh --update` rồi mở lại; menu nguồn truyện có dòng nhắc khi phát hiện bản cũ |
-| Trong Cài đặt **không thấy nguồn toon18x** | bộ `src/` trên máy là bản cũ (chưa cập nhật) | chạy `🔄 Cập nhật` ở menu chính hoặc `./anisub.sh --update` rồi mở lại; dòng 5 trong menu nguồn hiện `(cần 🔄 Cập nhật)` khi thiếu module |
+| Trong Cài đặt **không thấy nguồn toon18x** (hoặc nguồn mới bất kỳ) | bộ `src/` trên máy là bản cũ — thiếu module nguồn | **Từ `2026.11.12b` anisub tự xử lý**: khi khởi động thấy thiếu module là tự tải lại bộ nguồn (bản cài git thì `git pull`), xong mới mở menu. Mất mạng thì nó in rõ `Đang dùng bộ nguồn cũ … Thiếu nguồn: toon18x` + nhắc `./anisub.sh --update`; dòng `📚 Nguồn truyện` trong ⚙️ Cài đặt gắn `⚠️ thiếu nguồn: toon18x`. Kiểm tra bằng `./anisub.sh --doctor` (mục `⚠️ Thiếu module nguồn`) |
 | Toon18x: `API Toon18x lỗi (HTTP 404)` | sai slug / site đổi route | dán link thật dạng `https://toon18x.com/vi/manga/<slug>`; nghi bị chặn thì `./anisub.sh --netcheck toon18x.com` |
 | Toon18x: `Trang đọc không có ảnh nào` | chương chưa có ảnh hoặc site đổi cấu trúc | mở link in kèm bằng trình duyệt; gửi kèm URL chương khi báo lỗi |
 | Kagane: ảnh trang `401/403/507` | token đọc hết hạn hoặc truyện 18+ chưa xác nhận | anisub tự xin token mới 1 lần; vẫn lỗi thì đặt `KAGANE_COOKIE` hoặc `./anisub.sh --netcheck kagane.moe` |
