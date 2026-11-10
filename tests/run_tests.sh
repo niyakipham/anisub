@@ -573,8 +573,8 @@ has "selftest ghi rõ nguồn" "nguồn: nettruyen (https://nettruyen.info)" "$(
 has "selftest đọc được ảnh nettruyen" "imgchapter.store" "$(cat "$WORK/nt-selftest.txt")"
 has "selftest chỉ ra chap trước/sau kiểu chuong-" "chuong-146|https://nettruyen.info/truyen-toi-manh-hon-anh-hung/chuong-148" \
     "$(grep 'chap trước|sau' "$WORK/nt-selftest.txt")"
-has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane)" \
-    "$(src_has 'Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane)')"
+has "menu cài đặt có mục đổi nguồn" "Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane / toon18x)" \
+    "$(src_has 'Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane / toon18x)')"
 check "chẩn đoán ghi đúng nguồn" "1" \
     "$(nt manga_diagnose </dev/null 2>&1 | grep -c 'Chẩn đoán nguồn truyện tranh (nettruyen)')"
 check "chẩn đoán đọc được trang chủ nettruyen" "1" \
@@ -719,7 +719,7 @@ cp "$ROOT/anisub.sh" "$WORK/solo/"
 ( cd "$WORK/solo" && ANISUB_SRC_DIR="" MOCK_UPDATE_TARBALL="$WORK/anisub-main.tar.gz" HOME="$WORK/home-solo" \
   PATH="$HERE/mockbin:$PATH" timeout 30 bash ./anisub.sh --doctor > "$WORK/solo-doctor.txt" 2>&1 )
 check "tự tải src/comic/core.sh về cạnh script" "1" "$([ -f "$WORK/solo/src/comic/core.sh" ] && echo 1 || echo 0)"
-check "tự tải đủ 7 module" "7" "$(ls "$WORK/solo/src/movie"/*.sh "$WORK/solo/src/comic"/*.sh 2>/dev/null | wc -l | tr -d ' ')"
+check "tự tải đủ 8 module" "8" "$(ls "$WORK/solo/src/movie"/*.sh "$WORK/solo/src/comic"/*.sh 2>/dev/null | wc -l | tr -d ' ')"
 has "báo đã tải bộ file nguồn" "Đã tải bộ file nguồn" "$(cat "$WORK/solo-doctor.txt")"
 has "doctor chạy được sau khi tự tải" "ANISUB DOCTOR" "$(cat "$WORK/solo-doctor.txt")"
 has "doctor liệt kê module comic" "core.sh" "$(cat "$WORK/solo-doctor.txt")"
@@ -1088,7 +1088,7 @@ has "chẩn đoán kagane: kiểm tra token đọc" "Token đọc" "$K40_DIAG"
 has "chẩn đoán kagane: đếm chương qua API" "3 chương" "$K40_DIAG"
 
 # (n) cấu hình: menu nguồn + config.cfg
-check "danh sách nguồn có đủ 4 lựa chọn" "4" "$(kgsh 'manga_source_choices' | grep -c '.')"
+check "danh sách nguồn có đủ 5 lựa chọn" "5" "$(kgsh 'manga_source_choices' | grep -c '.')"
 check "nguồn thứ 4 là kagane" "kagane|https://kagane.moe" \
     "$(kgsh 'manga_source_choices' | sed -n '4p' | cut -d'|' -f2,3)"
 check "module kagane được nhận là đã nạp" "1" "$(kgsh 'manga_has_kagane_module && echo 1 || echo 0')"
@@ -1104,8 +1104,8 @@ PATH="$K40_FZFDIR:$PATH" K40_FZF_DUMP="$WORK/k40-fzf-dump.txt" KK_MOCK_PICK=2 \
     kgsh 'MANGA_SOURCE=truyenvn; manga_switch_source' > /dev/null 2>&1
 check "picker đánh dấu nguồn đang dùng" "1" \
     "$(grep -c '✅ 2) truyenvn' "$WORK/k40-fzf-dump.txt" 2>/dev/null)"
-check "picker liệt kê đủ 4 nguồn" "4" \
-    "$(grep -cE '^ *(✅ )?[1-4]\) ' "$WORK/k40-fzf-dump.txt" 2>/dev/null)"
+check "picker liệt kê đủ 5 nguồn" "5" \
+    "$(grep -cE '^ *(✅ )?[1-5]\) ' "$WORK/k40-fzf-dump.txt" 2>/dev/null)"
 check "Cài đặt: chọn 4 -> chuyển sang kagane" "kagane|https://kagane.moe" \
     "$(KK_MOCK_PICK=4 kgsh 'MANGA_SOURCE=nettruyen; MANGA_BASE_URL="https://nettruyen.info"; manga_switch_source >/dev/null 2>&1; printf "%s|%s" "$MANGA_SOURCE" "$MANGA_BASE_URL"')"
 has "Cài đặt: lưu nguồn kagane vào config" 'MANGA_SOURCE="kagane"' \
@@ -1119,8 +1119,8 @@ K40_OLD=$(KK_MOCK_PICK=4 kgsh 'unset KAGANE_MODULE; unset -f kg_list_items; MANG
 has "bộ src/ cũ -> cảnh báo cần Cập nhật" "chưa có module kagane" "$K40_OLD"
 has "bộ src/ cũ -> nhắc ./anisub.sh --update" "--update" "$K40_OLD"
 has "bộ src/ cũ -> không đổi sang kagane" "src=nettruyen|" "$K40_OLD"
-has "menu nhắc bộ src/ cũ khi chưa có kagane" "bộ src/ cũ: thiếu nguồn kagane" \
-    "$(src_has 'bộ src/ cũ: thiếu nguồn kagane')"
+has "menu nhắc bộ src/ cũ khi thiếu nguồn" "bộ src/ cũ: thiếu nguồn" \
+    "$(src_has 'bộ src/ cũ: thiếu nguồn')"
 has "nhãn menu nguồn truyện có kagane" "nettruyen / truyenvn / e-hentai / kagane" \
     "$(src_has 'nettruyen / truyenvn / e-hentai / kagane')"
 check "có file module src/comic/kagane.sh" "1" "$([ -f "$ROOT/src/comic/kagane.sh" ] && echo 1 || echo 0)"
@@ -1138,6 +1138,152 @@ check "nettruyen vẫn là nettruyen" "nettruyen" \
 check "e-hentai vẫn là e-hentai" "e-hentai" \
     "$( ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k40" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=ehentai; manga_source_label" ) 2>&1)"
 
+
+echo "== 41. nguồn toon18x (https://toon18x.com) =="
+mkdir -p "$WORK/home-k41"
+# Chạy 1 đoạn lệnh trong subshell với nguồn toon18x + curl/fzf giả lập
+txsh() {
+    ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k41" MOCK_FIXTURES="$HERE/fixtures" \
+      MOCK_CURL_LOG="${K41_LOG:-$MOCK_CURL_LOG}" MOCK_CURL_HEADER_LOG="${K41_HDR:-$MOCK_CURL_HEADER_LOG}" \
+      bash -c "source '$WORK/lib.sh' >/dev/null 2>&1
+        MANGA_SOURCE=toon18x; MANGA_BASE_URL='https://toon18x.com'
+        $1" ) 2>&1
+}
+
+# (a) nhận diện nguồn
+check "nhãn nguồn = toon18x" "toon18x" "$(txsh 'manga_source_label')"
+check "toon18x không bị nhận là truyenvn" "1" "$(txsh 'manga_is_truyenvn && echo 0 || echo 1')"
+check "tx_base bỏ dấu / cuối" "https://toon18x.com" "$(txsh 'MANGA_BASE_URL="https://toon18x.com/"; tx_base')"
+check "tx_base bỏ cả /vi nếu người dùng dán kèm" "https://toon18x.com" \
+    "$(txsh 'MANGA_BASE_URL="https://toon18x.com/vi"; tx_base')"
+check "module toon18x được nhận là đã nạp" "1" "$(txsh 'manga_has_toon18x_module && echo 1 || echo 0')"
+
+# (b) dựng URL + slug
+check "slug -> URL trang truyện" "https://toon18x.com/vi/manga/alpha-story" \
+    "$(txsh "manga_manga_url 'alpha-story'")"
+check "link đọc -> URL trang truyện" "https://toon18x.com/vi/manga/alpha-story" \
+    "$(txsh "manga_manga_url 'https://toon18x.com/vi/manga/alpha-story/chapter/12'")"
+check "slug lưu lịch sử = slug truyện" "alpha-story" \
+    "$(txsh "manga_slug_from_url 'https://toon18x.com/vi/manga/alpha-story/chapter/12'")"
+check "Ctrl-G: chương 12 -> URL đọc" "https://toon18x.com/vi/manga/alpha-story/chapter/12" \
+    "$(txsh "manga_chapter_url 'https://toon18x.com/vi/manga/alpha-story' 12")"
+check "chương lẻ 11.5 giữ nguyên số" "https://toon18x.com/vi/manga/alpha-story/chapter/11.5" \
+    "$(txsh "manga_chapter_url 'https://toon18x.com/vi/manga/alpha-story' 'Chương 11.5'")"
+check "TOON18X_LOCALE=en -> URL /en/..." "https://toon18x.com/en/manga/alpha-story" \
+    "$(txsh "TOON18X_LOCALE=en; manga_manga_url 'alpha-story'")"
+
+# (c) parse HTML danh sách
+K41_ITEMS=$(txsh "tx_parse_items < '$HERE/fixtures/toon18x-list.html'")
+check "parse 3 truyện từ trang danh sách" "3" "$(printf '%s\n' "$K41_ITEMS" | grep -c '.')"
+check "tên truyện đầu tiên" "Alpha Story" "$(printf '%s\n' "$K41_ITEMS" | head -1 | cut -d'|' -f1)"
+check "URL truyện đầu tiên" "https://toon18x.com/vi/manga/alpha-story" \
+    "$(printf '%s\n' "$K41_ITEMS" | head -1 | cut -d'|' -f2)"
+has "ảnh bìa lấy từ cdn.toon18x.com/covers" "https://cdn.toon18x.com/covers/alpha-story.webp" \
+    "$(printf '%s\n' "$K41_ITEMS" | head -1 | cut -d'|' -f4)"
+check "giải mã &amp; trong tên truyện" "Gamma & Garden" \
+    "$(printf '%s\n' "$K41_ITEMS" | sed -n '3p' | cut -d'|' -f1)"
+check "không lặp truyện dù HTML có 2 link/truyện" "3" "$(printf '%s\n' "$K41_ITEMS" | cut -d'|' -f3 | sort -u | grep -c '.')"
+
+# (d) danh sách + tìm kiếm qua dispatch chuẩn
+check "manga_list_items -> 3 truyện" "3" "$(txsh 'manga_list_items "/vi/search" "sort=updated"' | grep -c '.')"
+K41_LOG="$WORK/k41-search.log"; : > "$K41_LOG"
+K41_LOG="$K41_LOG" txsh 'manga_search_items alpha' > /dev/null
+has "tìm kiếm dùng tham số q=" "q=alpha" "$(cat "$K41_LOG" 2>/dev/null)"
+has "tìm kiếm gọi /vi/search" "/vi/search" "$(cat "$K41_LOG" 2>/dev/null)"
+has "sort được chuyển thành tham số" "sort=views" \
+    "$(K41_LOG="$WORK/k41-sort.log"; : > "$K41_LOG"; K41_LOG="$K41_LOG" txsh 'manga_list_items "/vi/search" "sort=views"' >/dev/null; cat "$K41_LOG" 2>/dev/null)"
+has "có danh sách Mới cập nhật (Toon18x)" "Mới cập nhật (Toon18x)" "$(src_has 'Mới cập nhật (Toon18x)')"
+has "danh sách hot dùng sort=followers" "sort=followers" "$(src_has 'sort=followers')"
+has "danh sách đọc nhiều dùng sort=views" "sort=views" "$(src_has 'sort=views')"
+
+# (e) danh sách chương qua API
+K41_CHAPS=$(txsh "fetch_chapter_list alpha-story")
+check "API trả 4 chương" "4" "$(printf '%s\n' "$K41_CHAPS" | grep -c '.')"
+check "chương đầu = Chương 1 (sắp tăng dần)" "Chương 1" "$(printf '%s\n' "$K41_CHAPS" | head -1 | cut -d'|' -f1)"
+check "chương cuối = Chương 12" "Chương 12" "$(printf '%s\n' "$K41_CHAPS" | tail -1 | cut -d'|' -f1)"
+check "chương lẻ 11.5 nằm giữa 11 và 12" "Chương 11.5" "$(printf '%s\n' "$K41_CHAPS" | sed -n '3p' | cut -d'|' -f1)"
+check "cột 3 = số chương" "11.5" "$(printf '%s\n' "$K41_CHAPS" | sed -n '3p' | cut -d'|' -f3)"
+has "URL đọc dựng từ slug + số chương" "https://toon18x.com/vi/manga/alpha-story/chapter/1|" "$K41_CHAPS"
+K41_APILOG="$WORK/k41-api.log"; : > "$K41_APILOG"
+K41_LOG="$K41_APILOG" txsh 'fetch_chapter_list alpha-story' > /dev/null
+has "gọi đúng API /api/v1/manga/<slug>/chapters" "/api/v1/manga/alpha-story/chapters" "$(cat "$K41_APILOG" 2>/dev/null)"
+has "xin 200 chương mỗi lần (limit=200)" "limit=200" "$(cat "$K41_APILOG" 2>/dev/null)"
+check "chỉ 1 request khi API trả < limit" "1" "$(grep -c '/chapters' "$K41_APILOG" 2>/dev/null)"
+check "phân trang: 200 + 3 chương = 203" "203" \
+    "$(MOCK_TX_BIG=1 txsh 'fetch_chapter_list alpha-story' | grep -c '.')"
+K41_FAIL=$(MOCK_TX_CHAP_FAIL=1 txsh 'fetch_chapter_list alpha-story')
+has "API 404 -> báo lỗi rõ ràng" "API Toon18x lỗi (HTTP 404)" "$K41_FAIL"
+check "API 404 -> rc=1" "1" "$(MOCK_TX_CHAP_FAIL=1 txsh 'fetch_chapter_list alpha-story >/dev/null 2>&1; echo $?')"
+has "target rỗng -> nhắc dán link truyện" "Dán link dạng" "$(txsh 'fetch_chapter_list "" 2>&1')"
+check "target rỗng -> rc=1" "1" "$(txsh 'fetch_chapter_list "" >/dev/null 2>&1; echo $?')"
+
+# (f) ảnh trang đọc
+K41_IMGS=$(txsh "fetch_chapter_images 'https://toon18x.com/vi/manga/alpha-story/chapter/2'")
+check "trang đọc trả 4 ảnh" "4" "$(printf '%s\n' "$K41_IMGS" | grep -c '.')"
+check "ảnh đầu tiên đúng trang 001" "https://tv1.toon18x.com/series/alpha-story/ch-0002/001.png" \
+    "$(printf '%s\n' "$K41_IMGS" | head -1)"
+check "ảnh xếp đúng thứ tự trang" "004" "$(printf '%s\n' "$K41_IMGS" | tail -1 | sed 's#.*/##; s#\..*##')"
+has "giữ nguyên đoạn scrapes/<uuid> trong URL" "/scrapes/4f1c9a2e-0d3b-4c55-9f2a-77aa11bb22cc/002.png" "$K41_IMGS"
+check "bỏ ảnh bìa/logo khỏi danh sách ảnh" "0" "$(printf '%s\n' "$K41_IMGS" | grep -c '/covers/\|/logo')"
+check "giải mã URL dạng JSON (\/) " "1" "$(printf '%s\n' "$K41_IMGS" | grep -c '004.png')"
+K41_NAV=$(txsh "mkdir -p \"\$CACHE_DIR\"; fetch_chapter_images 'https://toon18x.com/vi/manga/alpha-story/chapter/2' >/dev/null; manga_saved_nav")
+check "lưu được chương trước/sau" \
+    "https://toon18x.com/vi/manga/alpha-story/chapter/1|https://toon18x.com/vi/manga/alpha-story/chapter/3" "$K41_NAV"
+
+# (g) tải ảnh (host riêng tv1.toon18x.com)
+check "tải ảnh trang ghi được file" "1" \
+    "$(txsh "manga_download_image 'https://tv1.toon18x.com/series/alpha-story/ch-0002/001.png' '$WORK/k41-img.bin' >/dev/null 2>&1; [ -s '$WORK/k41-img.bin' ] && echo 1 || echo 0")"
+
+# (h) chẩn đoán riêng của nguồn
+K41_DIAG=$(txsh 'manga_diagnose --no-pause')
+has "chẩn đoán toon18x: có mục nguồn" "Chẩn đoán nguồn truyện tranh (toon18x)" "$K41_DIAG"
+has "chẩn đoán toon18x: duyệt/tìm dùng được" "Duyệt/tìm truyện dùng được" "$K41_DIAG"
+has "chẩn đoán toon18x: đếm chương qua API" "4 chương" "$K41_DIAG"
+has "chẩn đoán toon18x: nhắc nội dung 18+" "18+" "$K41_DIAG"
+
+# (i) cấu hình: menu nguồn + config.cfg
+check "nguồn thứ 5 là toon18x" "toon18x|https://toon18x.com" \
+    "$(txsh 'manga_source_choices' | sed -n '5p' | cut -d'|' -f2,3)"
+check "mô tả nguồn 5 có nhắc 18+" "1" \
+    "$(txsh 'manga_source_choices' | sed -n '5p' | grep -c '18+')"
+check "Cài đặt: chọn 5 -> chuyển sang toon18x" "toon18x|https://toon18x.com" \
+    "$(KK_MOCK_PICK=5 txsh 'MANGA_SOURCE=nettruyen; MANGA_BASE_URL="https://nettruyen.info"; manga_switch_source >/dev/null 2>&1; printf "%s|%s" "$MANGA_SOURCE" "$MANGA_BASE_URL"')"
+has "Cài đặt: lưu nguồn toon18x vào config" 'MANGA_SOURCE="toon18x"' \
+    "$(cat "$WORK/home-k41/.config/anisub_cli/config.cfg" 2>/dev/null)"
+has "Cài đặt: chọn 5 -> cảnh báo 18+" "18+" \
+    "$(KK_MOCK_PICK=5 txsh 'MANGA_SOURCE=nettruyen; manga_switch_source')"
+PATH="$K40_FZFDIR:$PATH" K40_FZF_DUMP="$WORK/k41-fzf-dump.txt" KK_MOCK_PICK=5 \
+    txsh 'MANGA_SOURCE=nettruyen; manga_switch_source' > /dev/null 2>&1
+check "picker có dòng 5) toon18x" "1" "$(grep -c '5) toon18x' "$WORK/k41-fzf-dump.txt" 2>/dev/null)"
+# bộ src/ cũ (không có module toon18x): cảnh báo + KHÔNG đổi nguồn
+K41_OLD=$(KK_MOCK_PICK=5 txsh 'unset TOON18X_MODULE; unset -f tx_list_items; MANGA_SOURCE=nettruyen; MANGA_BASE_URL="https://nettruyen.info"; manga_switch_source; printf "src=%s|" "$MANGA_SOURCE"')
+has "thiếu module toon18x -> cảnh báo cần Cập nhật" "chưa có module toon18x" "$K41_OLD"
+has "thiếu module toon18x -> không đổi nguồn" "src=nettruyen|" "$K41_OLD"
+PATH="$K40_FZFDIR:$PATH" K40_FZF_DUMP="$WORK/k41-fzf-old.txt" KK_MOCK_PICK=5 \
+    txsh 'unset TOON18X_MODULE; unset -f tx_list_items; MANGA_SOURCE=nettruyen; manga_switch_source' > /dev/null 2>&1
+check "picker gắn (cần Cập nhật) khi thiếu module toon18x" "1" \
+    "$(grep -c '5) toon18x.*cần 🔄 Cập nhật' "$WORK/k41-fzf-old.txt" 2>/dev/null)"
+has "gợi ý bộ src/ cũ nêu tên toon18x" "toon18x" \
+    "$(txsh 'unset TOON18X_MODULE; unset -f tx_list_items; manga_src_outdated_hint')"
+has "gợi ý bộ src/ cũ vẫn nêu kagane" "kagane" \
+    "$(txsh 'unset TOON18X_MODULE; unset KAGANE_MODULE; unset -f tx_list_items; unset -f kg_list_items; manga_src_outdated_hint')"
+K41_CFG=$(txsh 'TOON18X_LOCALE="en"; save_config >/dev/null 2>&1; cat "$CONFIG_FILE"')
+has "config.cfg lưu TOON18X_LOCALE" 'TOON18X_LOCALE="en"' "$K41_CFG"
+check "có file module src/comic/toon18x.sh" "1" "$([ -f "$ROOT/src/comic/toon18x.sh" ] && echo 1 || echo 0)"
+
+# (j) --netcheck dùng host toon18x.com
+has "netcheck dùng host toon18x.com" "toon18x.com" "$(txsh 'anisub_netcheck')"
+
+# (k) selftest chạy hết luồng đọc
+K41_ST=$(txsh 'manga_selftest alpha-story' 2>&1)
+has "selftest: đọc được danh sách chương" "4 chapter" "$K41_ST"
+has "selftest: lấy được ảnh trang" "4 ảnh" "$K41_ST"
+has "selftest: kết luận luồng đọc OK" "Luồng đọc hoạt động" "$K41_ST"
+
+# (l) các nguồn khác không bị ảnh hưởng
+check "truyenvn vẫn là truyenvn" "TruyenVN" \
+    "$( ( ANISUB_SRC_DIR="$ROOT/src" HOME="$WORK/home-k41" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; MANGA_SOURCE=truyenvn; manga_source_label" ) 2>&1)"
+check "toon18x không lẫn sang kagane" "0" "$(txsh 'manga_is_kagane && echo 1 || echo 0')"
 
 echo
 printf 'KẾT QUẢ: \033[32m%s pass\033[0m' "$pass"

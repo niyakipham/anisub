@@ -25,7 +25,8 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
-《🎛》- **Đổi nguồn truyện** trong Cài đặt giờ là **menu chọn bằng fzf** (đánh dấu ✅ nguồn đang dùng, thấy đủ 4 nguồn: nettruyen / truyenvn / e-hentai / kagane) thay vì phải gõ số; nếu bộ `src/` trên máy còn là bản cũ (chưa có nguồn kagane) thì anisub **nói rõ “chạy 🔄 Cập nhật”** thay vì im lặng<br>
+《📚》- Thêm nguồn truyện **toon18x** (`https://toon18x.com/vi`): webtoon/manhwa 18+ bản tiếng Việt, duyệt/tìm trên `/vi/search`, danh sách chương đầy đủ qua `GET /api/v1/manga/<slug>/chapters`, ảnh trang đọc nằm trên `tv1.toon18x.com`; URL chương suy trực tiếp từ số chương nên `Ctrl-G` và lịch sử luôn chạy<br>
+《🎛》- **Đổi nguồn truyện** trong Cài đặt giờ là **menu chọn bằng fzf** (đánh dấu ✅ nguồn đang dùng, thấy đủ 5 nguồn: nettruyen / truyenvn / e-hentai / kagane / toon18x) thay vì phải gõ số; nếu bộ `src/` trên máy còn là bản cũ (chưa có nguồn kagane) thì anisub **nói rõ “chạy 🔄 Cập nhật”** thay vì im lặng<br>
 《📚》- Thêm nguồn truyện **kagane** (`https://kagane.moe`): duyệt/tìm truyện, danh sách chương lấy từ API riêng của site, ảnh trang đọc dùng **token ngắn hạn** (anisub tự xin + tự làm mới khi hết hạn); đổi nguồn ở `⚙️ Cài đặt → 📚 Nguồn truyện`, lọc ngôn ngữ bằng `KAGANE_LANG`<br>
 《🔒》- **DNS nhà mạng chặn e-hentai**: anisub tự hỏi IP qua **DNS-over-HTTPS** (cloudflare-dns.com → dns.google) rồi nối thẳng bằng `--resolve`, nhớ IP cho lần sau; tắt bằng `MANGA_DOH="off"`<br>
 《🩺》- Thêm `./anisub.sh --netcheck [host]`: kiểm tra **từng lớp** DNS hệ thống → DoH → HTTPS/TLS để biết bị chặn ở đâu (DNS / IP / SNI), kèm cách sửa (`resolvectl`, VPN, proxy)<br>
@@ -66,6 +67,7 @@
 《📚》- **TruyenVN** — `https://truyenvn.my` : nguồn cũ, đổi lại được bằng `🔁 Đổi nguồn truyện` (cần API nội bộ `list-chapter`) <br>
 《🔞》- **e-hentai** — `https://e-hentai.org` : gallery ảnh (18+), mặc định duyệt tag `language:vietnamese` <br>
 《📚》- **kagane** — `https://kagane.moe` : manga/manhwa/manhua đa ngôn ngữ (60+), duyệt/tìm trên trang `/search`, chương + ảnh trang qua API `/api/v2` của site <br>
+《🔞》- **toon18x** — `https://toon18x.com/vi` : webtoon/manhwa **18+** bản tiếng Việt, duyệt/tìm trên `/vi/search`, danh sách chương qua `GET /api/v1/manga/<slug>/chapters`, ảnh trang trên `tv1.toon18x.com` <br>
 《📂》- **Local Anidata** — `assets/aniw_export_2026-01-14.csv` : xem offline không cần mạng <br>
 
 <br>
@@ -135,11 +137,12 @@ EHENTAI_CHUNK="20"                             # số trang ảnh gộp thành 1
 EHENTAI_COOKIE=""                              # cookie đăng nhập e-hentai (chỉ khi gallery cần)
 KAGANE_LANG=""                                 # lọc ngôn ngữ của kagane: "" = mọi ngôn ngữ, vd "vi" / "en"
 KAGANE_COOKIE=""                               # cookie kagane.moe (chỉ cần cho truyện 18+)
+TOON18X_LOCALE="vi"                            # mã ngôn ngữ trên URL toon18x: vi (mặc định), en...
 ```
 
 Đổi nguồn không cần sửa file:
 `⚙️ Cài đặt → 📚 Nguồn truyện → 🔁 Đổi nguồn truyện` — chọn trong menu fzf (✅ = nguồn đang dùng;
-máy không có fzf thì vẫn gõ số 1/2/3/4). Nếu bộ `src/` là bản cũ (thiếu nguồn kagane), menu nguồn
+máy không có fzf thì vẫn gõ số 1/2/3/4/5). Nếu bộ `src/` là bản cũ (thiếu nguồn kagane / toon18x), menu nguồn
 truyện sẽ nhắc **chạy 🔄 Cập nhật** — cập nhật xong là thấy nguồn mới.
 (máy đang dùng config cũ chưa có `MANGA_SOURCE` sẽ tự chuyển sang nettruyen một lần).
 
@@ -167,6 +170,33 @@ Vài điểm cần biết:
 * **Thể loại** của Kagane nằm trong bộ lọc của SPA (không có route cố định), nên mục
   🗂 Theo thể loại tìm theo từ khoá tương ứng (action / romance / murim / isekai…).
 * Truyện **18+** có thể cần `KAGANE_COOKIE` (cookie trình duyệt sau khi đã bấm xác nhận 18+).
+
+### 📚 Nguồn Toon18x (`toon18x.com`)
+
+Toon18x là site webtoon/manhwa **18+** có bản tiếng Việt ở `/vi`, render sẵn phía server nên đọc
+được bằng `curl` thường. anisub dùng:
+
+| Việc | Cách anisub lấy |
+| --- | --- |
+| Duyệt truyện | `/vi/search?sort=updated` (mới cập nhật) · `sort=followers` (theo dõi nhiều) · `sort=views` (đọc nhiều) |
+| Tìm kiếm | `/vi/search?q=<từ khoá>` (`?keyword=` bị site bỏ qua) |
+| Danh sách chương | `GET /api/v1/manga/<slug>/chapters?page=1&limit=200` (JSON; trang truyện chỉ in 20 chương mới nhất) |
+| Ảnh bìa | `https://cdn.toon18x.com/covers/<slug>.webp` (thiếu thì về `default-cover.svg`) |
+| Ảnh trang đọc | `<img>` trong `/vi/manga/<slug>/chapter/<số>` → `https://tv1.toon18x.com/series/<slug>/ch-<0000>/…` |
+
+Vài điểm cần biết:
+
+* **URL chương suy trực tiếp từ số chương** (`/chapter/<số>`) nên `Ctrl-G`, `n`/`p` và mở lại từ
+  lịch sử luôn chạy, kể cả khi API danh sách chương lỗi. Chương lẻ như `11.5` được giữ nguyên.
+* **Danh sách chương lấy từ API** vì trang truyện chỉ in 20 chương mới nhất; API trả mới-nhất-trước
+  nên anisub sắp lại **tăng dần**. API không nói tổng số trang → anisub tải tiếp khi còn đủ 200 dòng
+  (tối đa 10 lượt).
+* **Ảnh trang không theo một mẫu cố định** (`ch-0001/001.png` hoặc `ch-0135/scrapes/<uuid>/001.png`),
+  nên anisub **đọc URL từ HTML** rồi xếp theo số trang, không tự ghép URL.
+* **Ngôn ngữ** đổi bằng `TOON18X_LOCALE` (mặc định `vi`) hoặc `⚙️ Cài đặt → 📚 Nguồn truyện →
+  🌏 Ngôn ngữ Toon18x`; URL sẽ thành `https://toon18x.com/<mã>/manga/...`.
+* **18+**: nguồn này chỉ chọn được khi bạn tự vào `📚 Nguồn truyện → 🔁 Đổi nguồn truyện` (anisub
+  in cảnh báo 18+ mỗi lần đổi). Nội dung công khai, không cần cookie.
 
 **Ba chỗ hay hỏng và cách anisub xử lý** (áp dụng cho cả hai nguồn)
 
@@ -209,7 +239,9 @@ Bộ thử nghiệm chạy offline (mock `curl`/`fzf` + HTML mẫu của cả ha
 ```shell
 bash tests/run_tests.sh     # 430+ check: nettruyen (URL, tìm kiếm, chapter, ảnh page_N, tự dò ảnh, menu),
                            # truyenvn (API chapter 419/500, 4 kiểu tải, proxy), kagane (parse /search,
-                           # API chapter, token ảnh + tự làm mới, header Origin), DoH/netcheck,
+                           # API chapter, token ảnh + tự làm mới, header Origin),
+                           # toon18x (parse /vi/search, API /api/v1 chapters + phân trang,
+                           # ảnh tv1. nhiều dạng URL, cảnh báo 18+), DoH/netcheck,
                            # ảnh bìa, tìm kiếm, lịch sử / yêu thích, giao thức vẽ ảnh
 ```
 
@@ -271,6 +303,9 @@ tail -n 20 ~/.config/anisub_cli/cache/anisub-debug.log   # log mở menu truyệ
 | Bấm **📚 Đọc Truyện Tranh** nháy một cái rồi quay lại menu chính | fzf trả về rỗng (Esc, terminal quá thấp, hoặc fzf lỗi) | anisub đã báo rõ số lần fzf trả về; xem `~/.config/anisub_cli/cache/anisub-debug.log` (dòng `comic-menu:`) rồi gửi kèm khi báo lỗi |
 | Bấm **📚 Đọc Truyện Tranh** không có gì xảy ra / menu truyện trống | thiếu thư mục `src/` (chỉ có `anisub.sh`, hoặc cập nhật dở) | chạy `./anisub.sh --doctor` (tự tải `src/` về); không có mạng thì `git clone https://github.com/NiyakiPham/anisub.git` |
 | Trong Cài đặt **không thấy nguồn kagane** | bộ `src/` trên máy là bản cũ (chưa cập nhật) | chạy `🔄 Cập nhật` ở menu chính hoặc `./anisub.sh --update` rồi mở lại; menu nguồn truyện có dòng nhắc khi phát hiện bản cũ |
+| Trong Cài đặt **không thấy nguồn toon18x** | bộ `src/` trên máy là bản cũ (chưa cập nhật) | chạy `🔄 Cập nhật` ở menu chính hoặc `./anisub.sh --update` rồi mở lại; dòng 5 trong menu nguồn hiện `(cần 🔄 Cập nhật)` khi thiếu module |
+| Toon18x: `API Toon18x lỗi (HTTP 404)` | sai slug / site đổi route | dán link thật dạng `https://toon18x.com/vi/manga/<slug>`; nghi bị chặn thì `./anisub.sh --netcheck toon18x.com` |
+| Toon18x: `Trang đọc không có ảnh nào` | chương chưa có ảnh hoặc site đổi cấu trúc | mở link in kèm bằng trình duyệt; gửi kèm URL chương khi báo lỗi |
 | Kagane: ảnh trang `401/403/507` | token đọc hết hạn hoặc truyện 18+ chưa xác nhận | anisub tự xin token mới 1 lần; vẫn lỗi thì đặt `KAGANE_COOKIE` hoặc `./anisub.sh --netcheck kagane.moe` |
 | Đổi DNS rồi **vẫn** `HTTP 000` | nhà mạng chặn theo IP/SNI, không chỉ DNS | `./anisub.sh --netcheck e-hentai.org` để xem lớp nào bị chặn; DNS chặn thì anisub tự đi DoH, còn IP/SNI chặn thì cần VPN/proxy (`MANGA_PROXY`, `https_proxy`) |
 | `HTTP 000` | không với được trang nguồn | anisub in kèm mã lỗi curl: `6` DNS (đổi DNS 1.1.1.1), `7` bị chặn/không kết nối, `28` timeout, `35/60` TLS. Với **e-hentai**: site hay bị nhà mạng VN chặn → bật VPN, hoặc bấm `1` để đổi sang nettruyen |
