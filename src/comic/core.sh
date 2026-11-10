@@ -306,12 +306,20 @@ if ! declare -F manga_is_kagane > /dev/null 2>&1; then
     manga_is_kagane() { return 1; }
 fi
 
+# ═══ NGUỒN TOON18X (toon18x.com) ═════════════════════════════════════════════
+# Toàn bộ phần Toon18x nằm ở src/comic/toon18x.sh. Bộ src/ cũ (chưa có file đó)
+# dùng stub dưới đây để mọi dispatch vẫn chạy như trước.
+if ! declare -F manga_is_toon18x > /dev/null 2>&1; then
+    manga_is_toon18x() { return 1; }
+fi
+
 # ═══ NGUỒN NETTRUYEN (nettruyen.info) ═══════════════════════════════════════
 # CMS kiểu NetTruyen: danh sách chương nằm sẵn trong HTML trang truyện (không cần
 # API/CSRF), ảnh trang đọc có dạng https://net.imgchapter.store/<slug>/<chap>/page_<i>.jpg
 # Nhãn hiển thị của nguồn đang dùng
 manga_source_label() {
     if   manga_is_kagane;    then printf 'kagane'
+    elif manga_is_toon18x;   then printf 'toon18x'
     elif manga_is_ehentai;   then printf 'e-hentai'
     elif manga_is_nettruyen; then printf 'nettruyen'
     else                          printf 'TruyenVN'
@@ -323,6 +331,7 @@ manga_is_truyenvn() {
     case "${MANGA_SOURCE:-$DEFAULT_MANGA_SOURCE}" in
         nettruyen|nt|nettruyen.info|ehentai|eh|e-hentai|e-hentai.org|exhentai) return 1 ;;
         kagane|kg|kagane.moe|kagane.org|kagane.si|kagane.cx|kagane.net)        return 1 ;;
+        toon18x|t18x|toon18|toon18x.com|www.toon18x.com)                       return 1 ;;
         *)                                                                     return 0 ;;
     esac
 }
@@ -337,6 +346,11 @@ manga_chapter_url() {
     # Kagane: chương không suy ra từ số được -> tra trong danh sách vừa tải (cache)
     if manga_is_kagane; then
         kg_chapter_url "$page_url" "$num"
+        return $?
+    fi
+    # Toon18x: URL chương suy trực tiếp từ số chương (/vi/manga/<slug>/chapter/<số>)
+    if manga_is_toon18x; then
+        tx_chapter_url "$page_url" "$num"
         return $?
     fi
     num="${num//[^0-9.]/}"
@@ -357,6 +371,10 @@ manga_manga_url() {
     fi
     if manga_is_kagane; then
         kg_series_url "${1:-}"
+        return $?
+    fi
+    if manga_is_toon18x; then
+        tx_manga_url "${1:-}"
         return $?
     fi
     case "${1:-}" in
@@ -387,6 +405,10 @@ manga_slug_from_url() {
     fi
     if manga_is_kagane; then
         kg_series_segment "$url"
+        return 0
+    fi
+    if manga_is_toon18x; then
+        tx_slug "$url"
         return 0
     fi
     local u="${url%/}"
@@ -562,10 +584,10 @@ manga_parse_nav() {
             $txt =~ s/\s+$//;
             my ($rel) = $attrs =~ /rel\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27)/ ? ($1 // $2) : "";
             $rel = "" unless defined $rel;
-            if (!length $prev && ($rel =~ /\bprev\b/i || $txt =~ /^(chap\s*)?(tr(?:ư|u)(?:ớ|o)c|prev(?:ious)?|back)\b/i)) {
+            if (!length $prev && ($rel =~ /\bprev\b/i || $txt =~ /^(chap|ch(?:ư|u)(?:ơ|o)ng)?\s*(tr(?:ư|u)(?:ớ|o)c|prev(?:ious)?|back)\b/i)) {
                 $prev = $href;
             }
-            if (!length $next && ($rel =~ /\bnext\b/i || $txt =~ /^(chap\s*)?(sau|ti(?:ế|e)p|next)\b/i)) {
+            if (!length $next && ($rel =~ /\bnext\b/i || $txt =~ /^(chap|ch(?:ư|u)(?:ơ|o)ng)?\s*(sau|ti(?:ế|e)p|next)\b/i)) {
                 $next = $href;
             }
         }
@@ -574,8 +596,8 @@ manga_parse_nav() {
                 my ($txt, $href) = ($1, $2);
                 $txt =~ s/^[^A-Za-zÀ-ỹ]+//;
                 $txt =~ s/\s+$//;
-                if (!length $prev && $txt =~ /^(chap\s*)?(tr(?:ư|u)(?:ớ|o)c|prev(?:ious)?|back)\b/i) { $prev = $href }
-                if (!length $next && $txt =~ /^(chap\s*)?(sau|ti(?:ế|e)p|next)\b/i) { $next = $href }
+                if (!length $prev && $txt =~ /^(chap|ch(?:ư|u)(?:ơ|o)ng)?\s*(tr(?:ư|u)(?:ớ|o)c|prev(?:ious)?|back)\b/i) { $prev = $href }
+                if (!length $next && $txt =~ /^(chap|ch(?:ư|u)(?:ơ|o)ng)?\s*(sau|ti(?:ế|e)p|next)\b/i) { $next = $href }
             }
         }
         print "$prev|$next";
@@ -748,6 +770,10 @@ manga_list_items() {
         kg_list_items "$path" "$@"
         return $?
     fi
+    if manga_is_toon18x; then
+        tx_list_items "$path" "$@"
+        return $?
+    fi
     local html=""
     if ! html=$(manga_http_fetch "$path" "$@"); then
         echo "⚠️ Không tải được $path (HTTP ${MANGA_HTTP_STATUS:-000}) - kiểm tra mạng hoặc MANGA_BASE_URL" >&2
@@ -779,6 +805,10 @@ manga_search_items() {
     fi
     if manga_is_nettruyen; then
         nt_search_items "$kw"
+        return $?
+    fi
+    if manga_is_toon18x; then
+        tx_search_items "$kw"
         return $?
     fi
     if manga_is_kagane; then
@@ -855,6 +885,10 @@ fetch_chapter_list() {
         kg_fetch_chapter_list "$target"
         return $?
     fi
+    if manga_is_toon18x; then
+        tx_fetch_chapter_list "$target"
+        return $?
+    fi
     local page_url
     page_url=$(manga_manga_url "$target")
     if [ -z "$page_url" ]; then
@@ -903,6 +937,10 @@ fetch_chapter_images() {
     fi
     if manga_is_kagane; then
         kg_fetch_chapter_images "$chapter_url"
+        return $?
+    fi
+    if manga_is_toon18x; then
+        tx_fetch_chapter_images "$chapter_url"
         return $?
     fi
     rm -f "$ANISUB_MANGA_NAV_FILE" 2>/dev/null   # không dùng link chuyển chap của chapter cũ
@@ -1719,7 +1757,9 @@ manga_browse_menu() {
 
 # Danh sách mặc định (mới cập nhật / hot / đọc nhiều) theo nguồn
 manga_browse_latest() {
-    if manga_is_kagane; then
+    if manga_is_toon18x; then
+        manga_browse_menu "/$(_tx_locale)/search" "Mới cập nhật (Toon18x)" "sort=updated"
+    elif manga_is_kagane; then
         manga_browse_menu "/search" "Mới cập nhật (Kagane)" "sort=updated_at,desc"
     elif manga_is_ehentai; then
         eh_browse_menu "$(eh_start_url)" "Truyện tiếng Việt (mới cập nhật)"
@@ -1731,7 +1771,9 @@ manga_browse_latest() {
 }
 
 manga_browse_hot() {
-    if manga_is_kagane; then
+    if manga_is_toon18x; then
+        manga_browse_menu "/$(_tx_locale)/search" "Được theo dõi nhiều (Toon18x)" "sort=followers"
+    elif manga_is_kagane; then
         manga_browse_menu "/search" "Đang hot (Kagane)" "sort=now"
     elif manga_is_ehentai; then
         eh_browse_menu "/?f_search=$(eh_tag)&f_srdd=4" "Tiếng Việt · điểm ≥ 4★"
@@ -1743,7 +1785,9 @@ manga_browse_hot() {
 }
 
 manga_browse_views() {
-    if manga_is_kagane; then
+    if manga_is_toon18x; then
+        manga_browse_menu "/$(_tx_locale)/search" "Đọc nhiều nhất (Toon18x)" "sort=views"
+    elif manga_is_kagane; then
         manga_browse_menu "/search" "Đọc nhiều tuần này (Kagane)" "sort=avg_views_week,desc"
     elif manga_is_ehentai; then
         eh_browse_menu "/?f_search=$(eh_tag)&f_srdd=5" "Tiếng Việt · điểm tối đa"
@@ -1785,6 +1829,10 @@ kg_genre_menu() {
 manga_genres() {
     if manga_is_ehentai; then
         eh_genres
+        return 0
+    fi
+    if manga_is_toon18x; then
+        tx_genres
         return 0
     fi
     if manga_is_kagane; then
@@ -1845,6 +1893,10 @@ manga_genre_menu() {
         eh_genre_menu
         return $?
     fi
+    if manga_is_toon18x; then
+        tx_genre_menu
+        return $?
+    fi
     if manga_is_kagane; then
         kg_genre_menu
         return $?
@@ -1870,6 +1922,10 @@ manga_diagnose() {
     fi
     if manga_is_kagane; then
         kg_diagnose "$pause"
+        return $?
+    fi
+    if manga_is_toon18x; then
+        tx_diagnose "$pause"
         return $?
     fi
     echo "💡 Chẩn đoán nhanh từ dòng lệnh: ./anisub.sh --manga-selftest <slug|URL> (anisub $ANISUB_VERSION)"
@@ -1970,10 +2026,20 @@ manga_has_kagane_module() {
     [ "${KAGANE_MODULE:-0}" = "1" ] && declare -F kg_list_items > /dev/null 2>&1
 }
 
+# Bộ src/ đang dùng đã có module Toon18x chưa? (cùng kiểu kiểm tra với Kagane)
+manga_has_toon18x_module() {
+    [ "${TOON18X_MODULE:-0}" = "1" ] && declare -F tx_list_items > /dev/null 2>&1
+}
+
 # Cảnh báo khi bộ src/ là bản cũ (thiếu nguồn mới) - in ở đầu menu nguồn truyện
 manga_src_outdated_hint() {
-    manga_has_kagane_module && return 0
-    echo "⚠️ Bộ src/ đang dùng là bản cũ: CHƯA có nguồn kagane."
+    local missing=""
+    manga_has_kagane_module  || missing="kagane"
+    if ! manga_has_toon18x_module; then
+        missing="${missing:+$missing, }toon18x"
+    fi
+    [ -z "$missing" ] && return 0
+    echo "⚠️ Bộ src/ đang dùng là bản cũ: CHƯA có nguồn $missing."
     echo "   Chạy 🔄 Cập nhật ở menu chính (hoặc ./anisub.sh --update) rồi mở lại mục này."
     echo ""
 }
@@ -1984,7 +2050,8 @@ manga_source_choices() {
         "1|nettruyen|https://nettruyen.info|mặc định, ảnh nhanh, đủ truyện" \
         "2|truyenvn|https://truyenvn.my|nguồn cũ (cần API chapter)" \
         "3|ehentai|${DEFAULT_MANGA_EHENTAI_URL:-https://e-hentai.org}|gallery ảnh (18+), tag $(eh_tag 2>/dev/null || echo 'language:vietnamese')" \
-        "4|kagane|${DEFAULT_KAGANE_BASE_URL:-https://kagane.moe}|manga/manhwa/manhua đa ngôn ngữ"
+        "4|kagane|${DEFAULT_KAGANE_BASE_URL:-https://kagane.moe}|manga/manhwa/manhua đa ngôn ngữ" \
+        "5|toon18x|${DEFAULT_TOON18X_BASE_URL:-https://toon18x.com}|webtoon/manhwa 18+ (bản tiếng Việt)"
 }
 
 # Đổi nguồn truyện: chọn bằng fzf (có đánh dấu nguồn đang dùng), máy không có
@@ -2001,6 +2068,7 @@ manga_switch_source() {
     manga_is_kagane    && cur="kagane"
     manga_is_ehentai   && cur="ehentai"
     manga_is_nettruyen && cur="nettruyen"
+    manga_is_toon18x  && cur="toon18x"
     local num name url desc mark line chosen="" inp
     local -a rows=()
     while IFS='|' read -r num name url desc; do
@@ -2008,7 +2076,10 @@ manga_switch_source() {
         mark="  "
         [ "$name" = "$cur" ] && mark="✅"
         line="$mark $num) $name  · $url  · $desc"
-        [ "$num" = "4" ] && ! manga_has_kagane_module && line="$line  (cần 🔄 Cập nhật)"
+        case "$num" in
+            4) ! manga_has_kagane_module  && line="$line  (cần 🔄 Cập nhật)" ;;
+            5) ! manga_has_toon18x_module && line="$line  (cần 🔄 Cập nhật)" ;;
+        esac
         rows+=("$line")
     done < <(manga_source_choices)
     if command -v fzf > /dev/null 2>&1; then
@@ -2017,7 +2088,7 @@ manga_switch_source() {
     else
         printf '%s\n' "${rows[@]}"
         echo ""
-        read -r -p "Chọn nguồn (1/2/3/4, Enter = giữ nguyên): " inp
+        read -r -p "Chọn nguồn (1/2/3/4/5, Enter = giữ nguyên): " inp
         chosen="$inp"
     fi
     [ -z "$chosen" ] && { echo "↩️ Giữ nguyên nguồn $(manga_source_label)."; sleep 0.8; return 0; }
@@ -2034,6 +2105,14 @@ manga_switch_source() {
                return 1
            fi
            MANGA_SOURCE="kagane";    MANGA_BASE_URL="${DEFAULT_KAGANE_BASE_URL:-https://kagane.moe}" ;;
+        5) if ! manga_has_toon18x_module; then
+               echo "⚠️ Bộ src/ đang dùng chưa có module toon18x - chưa đổi được nguồn."
+               echo "   Chạy 🔄 Cập nhật ở menu chính (hoặc ./anisub.sh --update) rồi thử lại."
+               sleep 2.5
+               return 1
+           fi
+           MANGA_SOURCE="toon18x";   MANGA_BASE_URL="${DEFAULT_TOON18X_BASE_URL:-https://toon18x.com}"
+           echo "   ⚠️ Toon18x có nội dung người lớn (18+). Bạn tự chịu trách nhiệm khi xem." ;;
         *) echo "↩️ Giữ nguyên nguồn $(manga_source_label)."; sleep 0.8; return 0 ;;
     esac
     save_config
@@ -2047,8 +2126,13 @@ show_manga_settings() {
     while true; do
         local sm_header
         sm_header="$(manga_source_label): ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
-        manga_has_kagane_module || sm_header="$sm_header\n⚠️ bộ src/ cũ: thiếu nguồn kagane - chạy 🔄 Cập nhật"
-        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔁 Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🏷 Tag mặc định (e-hentai): ${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}\n🍪 Cookie e-hentai: $([ -n "${EHENTAI_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt (chỉ gallery công khai)')\n🔢 Số trang ảnh mỗi chapter (e-hentai): ${EHENTAI_CHUNK:-$DEFAULT_EHENTAI_CHUNK}\n🌏 Ngôn ngữ lọc Kagane: ${KAGANE_LANG:-mọi ngôn ngữ}\n🍪 Cookie Kagane: $([ -n "${KAGANE_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt (chỉ truyện công khai)')\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
+        local sm_missing=""
+        manga_has_kagane_module  || sm_missing="kagane"
+        if ! manga_has_toon18x_module; then
+            sm_missing="${sm_missing:+$sm_missing, }toon18x"
+        fi
+        [ -n "$sm_missing" ] && sm_header="$sm_header\n⚠️ bộ src/ cũ: thiếu nguồn $sm_missing - chạy 🔄 Cập nhật"
+        opt=$(echo -e "🩺 Kiểm tra nguồn truyện\n🧪 Kiểm tra đọc truyện (chẩn đoán)\n🔁 Đổi nguồn truyện (nettruyen / truyenvn / e-hentai / kagane / toon18x)\n🛡 Dịch vụ đọc hộ khi bị chặn: ${MANGA_READER_PROXY:-tắt}\n🌐 Trang web nguồn: ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}\n🔎 Danh sách dùng khi tìm kiếm: ${MANGA_SEARCH_FEEDS:-$DEFAULT_MANGA_SEARCH_FEEDS}\n📄 Số trang tải cho mỗi danh sách: ${MANGA_SEARCH_PAGES:-$DEFAULT_MANGA_SEARCH_PAGES}\n🏷 Tag mặc định (e-hentai): ${EHENTAI_TAG:-$DEFAULT_EHENTAI_TAG}\n🍪 Cookie e-hentai: $([ -n "${EHENTAI_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt (chỉ gallery công khai)')\n🔢 Số trang ảnh mỗi chapter (e-hentai): ${EHENTAI_CHUNK:-$DEFAULT_EHENTAI_CHUNK}\n🌏 Ngôn ngữ lọc Kagane: ${KAGANE_LANG:-mọi ngôn ngữ}\n🍪 Cookie Kagane: $([ -n "${KAGANE_COOKIE:-}" ] && echo 'đã đặt' || echo 'chưa đặt (chỉ truyện công khai)')\n🌏 Ngôn ngữ Toon18x: ${TOON18X_LOCALE:-${DEFAULT_TOON18X_LOCALE:-vi}}\n🖼️ Kiểu hiển thị ảnh: ${MANGA_IMAGE_PROTOCOL:-$DEFAULT_MANGA_IMAGE_PROTOCOL} (đang dùng: $(manga_image_protocol))\n🔙 Quay lại" \
             | fzf --prompt="📚 Nguồn truyện ($(manga_source_label)) > " --header="$sm_header")
         case "$opt" in
             *"Đổi nguồn truyện"*)
@@ -2065,8 +2149,9 @@ show_manga_settings() {
                 manga_is_nettruyen && st_def="one-piece-dao-hai-tac"
                 manga_is_ehentai && st_def="(gallery đầu tiên của tag $(eh_tag))"
                 manga_is_kagane && st_def="(truyện đầu tiên ở danh sách Đang hot)"
+                manga_is_toon18x && st_def="(truyện đầu tiên ở danh sách Mới cập nhật)"
                 printf '🧪 Nhập slug hoặc link truyện (Enter = %s): ' "$st_def"
-                { manga_is_ehentai || manga_is_kagane; } && st_def=""
+                { manga_is_ehentai || manga_is_kagane || manga_is_toon18x; } && st_def=""
                 read -r st_target
                 [ -z "$st_target" ] && st_target="$st_def"
                 mkdir -p "$CACHE_DIR" 2>/dev/null
@@ -2159,6 +2244,22 @@ show_manga_settings() {
                 esac
                 save_config
                 echo "✅ Ngôn ngữ: ${KAGANE_LANG:-mọi ngôn ngữ}"
+                sleep 1.2 ;;
+            *"Ngôn ngữ Toon18x"*)
+                clear
+                echo "🌏 NGÔN NGỮ TOON18X (chỉ dùng khi đang ở nguồn toon18x)"
+                echo "   Đây là phần mã ngôn ngữ trên URL: toon18x.com/<mã>/manga/..."
+                echo "   Mặc định: ${DEFAULT_TOON18X_LOCALE:-vi} (bản tiếng Việt). Ví dụ: en"
+                echo "   Đang đặt: ${TOON18X_LOCALE:-${DEFAULT_TOON18X_LOCALE:-vi}}"
+                read -r -p "Mã ngôn ngữ 2 chữ cái (Enter = giữ nguyên, 'mac-dinh' = về vi): " inp
+                case "${inp:-}" in
+                    "")                              : ;;
+                    mac-dinh|default|reset)          TOON18X_LOCALE="${DEFAULT_TOON18X_LOCALE:-vi}" ;;
+                    *)                               TOON18X_LOCALE="$(printf '%s' "$inp" | tr 'A-Z' 'a-z' | tr -cd 'a-z' | cut -c1-5)" ;;
+                esac
+                [ -z "${TOON18X_LOCALE:-}" ] && TOON18X_LOCALE="${DEFAULT_TOON18X_LOCALE:-vi}"
+                save_config
+                echo "✅ Ngôn ngữ Toon18x: $TOON18X_LOCALE"
                 sleep 1.2 ;;
             *"Cookie Kagane"*)
                 clear

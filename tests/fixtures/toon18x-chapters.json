@@ -1,0 +1,6 @@
+{"data":[
+{"id":"c-12","manga_id":"m-1","volume_number":null,"chapter_number":12,"title":"Chương 12","language_code":"vi","views_total":120,"is_premium":false,"is_published":true,"published_at":"2026-11-01T10:00:00Z","comments_total":3},
+{"id":"c-11b","manga_id":"m-1","volume_number":null,"chapter_number":11.5,"title":"Chương 11.5","language_code":"vi","views_total":90,"is_premium":false,"is_published":true,"published_at":"2026-10-28T10:00:00Z","comments_total":1},
+{"id":"c-11","manga_id":"m-1","volume_number":null,"chapter_number":11,"title":"Chương 11","language_code":"vi","views_total":80,"is_premium":false,"is_published":true,"published_at":"2026-10-20T10:00:00Z","comments_total":0},
+{"id":"c-1","manga_id":"m-1","volume_number":null,"chapter_number":1,"title":"Chương 1","language_code":"vi","views_total":10,"is_premium":false,"is_published":true,"published_at":"2025-01-01T10:00:00Z","comments_total":0}
+]}

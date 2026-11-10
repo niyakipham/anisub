@@ -27,7 +27,7 @@ for i in "${!args[@]}"; do
         --data-urlencode) enc=${nxt// /%20}; data="$data&$enc"; skip_next=1 ;;
         http://*|https://*)
             case "$a" in
-                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*kagane.moe*|*cloudflare-dns.com*|*dns.google*|*codeload.github.com*|*"/uploads/"*|*"manga-offline"*|*dnsblock*)
+                *"/truyen-tranh/"*|*"/tim-kiem"*|*"/the-loai/"*|*"/webapi/"*|*"/chapter-"*|*"/danh-sach"*|*"/v1/api/"*|*"/phim/"*|*imggo.net*|*imgchapter*|*nettruyen.info*|*e-hentai.org*|*kagane.moe*|*toon18x.com*|*cloudflare-dns.com*|*dns.google*|*codeload.github.com*|*"/uploads/"*|*"manga-offline"*|*dnsblock*)
                     url="$a" ;;   # URL thật luôn là tham số cuối -> lấy cái cuối cùng
             esac ;;
     esac
@@ -81,6 +81,30 @@ case "$eff" in
         body="${MOCK_FIXTURES}/kagane-series.json" ;;
     *kagane.moe/search*|*kagane.moe/*)
         body="${MOCK_FIXTURES}/kagane-search.html" ;;
+    *toon18x.com/api/v1/manga/*/chapters*)
+        # Giả lập API danh sách chương: page/limit đọc từ query
+        if [ "${MOCK_TX_CHAP_FAIL:-0}" = "1" ]; then
+            code="404"; body="${MOCK_FIXTURES}/toon18x-404.json"
+        elif [ "${MOCK_TX_BIG:-0}" = "1" ]; then
+            # 200 chương ở trang 1 rồi 3 chương ở trang 2 (test phân trang)
+            if printf '%s' "$eff" | grep -q 'page=1&'; then
+                body="${TMPDIR:-/tmp}/mock-tx-big-1-$$.json"
+                perl -e 'print "{\"data\":["; for my $i (1..200) { print "," if $i > 1; print "{\"chapter_number\":$i}" } print "]}"' > "$body"
+            else
+                body="${TMPDIR:-/tmp}/mock-tx-big-2-$$.json"
+                perl -e 'print "{\"data\":[{\"chapter_number\":201},{\"chapter_number\":202},{\"chapter_number\":203}]}"' > "$body"
+            fi
+        else
+            body="${MOCK_FIXTURES}/toon18x-chapters.json"
+        fi ;;
+    *toon18x.com/api/v1/manga/*)
+        code="404"; body="${MOCK_FIXTURES}/toon18x-404.json" ;;
+    *toon18x.com/vi/manga/*/chapter/*)
+        body="${MOCK_FIXTURES}/toon18x-chapter.html" ;;
+    *toon18x.com/vi/manga/*)
+        body="${MOCK_FIXTURES}/toon18x-series.html" ;;
+    *toon18x.com/*)
+        body="${MOCK_FIXTURES}/toon18x-list.html" ;;
     *cloudflare-dns.com*|*dns.google*)
         # DNS-over-HTTPS giả lập: trả JSON có 1 bản ghi A
         body="${MOCK_DOH_JSON:-$(mktemp 2>/dev/null)}"
