@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.12b"
+ANISUB_VERSION="2026.11.12c"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -29,6 +29,20 @@ DEFAULT_KKPHIM_REFERER="https://kkphim.com/"
 DEFAULT_KKPHIM_SEARCH_LIMIT=24      # số kết quả trả về mỗi lần tìm kiếm / 1 trang
 DEFAULT_KKPHIM_DETAIL_TTL=600       # giây - cache chi tiết phim (link m3u8 hết hạn rất nhanh)
 DEFAULT_KKPHIM_SERVER_PREF="auto"   # auto | vietsub | long-tieng | thuyet-minh | <tên bất kỳ>
+# Chặn quảng cáo chèn trong playlist HLS (.m3u8): KKPhim nhét khối segment quảng
+# cáo ngay trong playlist (thường gặp ở ~phút 15 của phim), bọc bởi #EXT-X-CUE-OUT
+# / #EXT-X-CUE-IN. anisub tải playlist, bỏ cả khối quảng cáo + segment khớp mẫu
+# rồi mới đưa cho mpv/vlc. Lọc lỗi -> tự phát link gốc.
+DEFAULT_KKPHIM_AD_BLOCK=1
+# Mẫu nhận diện quảng cáo: so khớp NGUYÊN một thành phần host/đường dẫn
+# (tách theo / . - _ ? & =), nên "media"/"load"/"shadow"/"segment_1" không bị
+# xoá nhầm; query được bỏ qua nên "?ad=0" cũng không bị coi là quảng cáo.
+DEFAULT_KKPHIM_AD_PATTERNS="ad,ads,advert,adserver,adservice,adtag,adslot,preroll,pre-roll,midroll,mid-roll,postroll,quangcao,quang-cao,promo,sponsor,vast,vmap,scte,banner"
+# Chọn variant khi playlist là master: first (mặc định, giống trình phát trước
+# đây) | max (nét nhất) | số thứ tự (1..N). Variant quá nặng so với mạng -> khựng.
+DEFAULT_KKPHIM_AD_VARIANT="first"
+# 1 = bỏ luôn khối segment nằm ở tên miền khác với CDN của phim (adserver)
+DEFAULT_KKPHIM_AD_FOREIGN_HOST=1
 KKPHIM_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 KKPHIM_SITE_URL=""
 KKPHIM_API_URL=""
@@ -37,6 +51,12 @@ KKPHIM_REFERER=""
 KKPHIM_SEARCH_LIMIT=""
 KKPHIM_DETAIL_TTL=""
 KKPHIM_SERVER_PREF=""
+KKPHIM_AD_BLOCK=""
+KKPHIM_AD_PATTERNS=""
+KKPHIM_AD_VARIANT=""
+KKPHIM_AD_FOREIGN_HOST=""
+KKPHIM_ADFREE_FILE=""
+KKPHIM_ADFREE_STATS=""
 KKPHIM_FFMPEG_HEADERS=""
 
 # Local Data File
@@ -174,6 +194,10 @@ load_config() {
         echo "KKPHIM_SEARCH_LIMIT=\"$DEFAULT_KKPHIM_SEARCH_LIMIT\"" >> "$CONFIG_FILE"
         echo "KKPHIM_DETAIL_TTL=\"$DEFAULT_KKPHIM_DETAIL_TTL\"" >> "$CONFIG_FILE"
         echo "KKPHIM_SERVER_PREF=\"$DEFAULT_KKPHIM_SERVER_PREF\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_BLOCK=\"$DEFAULT_KKPHIM_AD_BLOCK\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_PATTERNS=\"$DEFAULT_KKPHIM_AD_PATTERNS\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_VARIANT=\"$DEFAULT_KKPHIM_AD_VARIANT\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_FOREIGN_HOST=\"$DEFAULT_KKPHIM_AD_FOREIGN_HOST\"" >> "$CONFIG_FILE"
     fi
     ANISUB_CONFIG_HAS_SOURCE=0
     grep -q '^MANGA_SOURCE=' "$CONFIG_FILE" 2>/dev/null && ANISUB_CONFIG_HAS_SOURCE=1
@@ -212,6 +236,13 @@ load_config() {
     KKPHIM_SEARCH_LIMIT=${KKPHIM_SEARCH_LIMIT:-$DEFAULT_KKPHIM_SEARCH_LIMIT}
     KKPHIM_DETAIL_TTL=${KKPHIM_DETAIL_TTL:-$DEFAULT_KKPHIM_DETAIL_TTL}
     KKPHIM_SERVER_PREF=${KKPHIM_SERVER_PREF:-$DEFAULT_KKPHIM_SERVER_PREF}
+    KKPHIM_AD_BLOCK=${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}
+    KKPHIM_AD_PATTERNS=${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}
+    KKPHIM_AD_VARIANT=${KKPHIM_AD_VARIANT:-$DEFAULT_KKPHIM_AD_VARIANT}
+    KKPHIM_AD_FOREIGN_HOST=${KKPHIM_AD_FOREIGN_HOST:-$DEFAULT_KKPHIM_AD_FOREIGN_HOST}
+    # Playlist đã lọc + file thống kê dùng chung 1 đường dẫn cố định để trap dọn được
+    KKPHIM_ADFREE_FILE="${TMPDIR:-/tmp}/anisub-adfree-$$.m3u8"
+    KKPHIM_ADFREE_STATS="${TMPDIR:-/tmp}/anisub-adfree-$$.stats"
     # Chuỗi header cho ffmpeg (mỗi header cách nhau bằng CRLF thật)
     KKPHIM_FFMPEG_HEADERS="Referer: ${KKPHIM_REFERER}"$'\r\n'"User-Agent: ${KKPHIM_USER_AGENT}"$'\r\n'
     mkdir -p "$DOWNLOAD_DIR"
@@ -253,6 +284,10 @@ save_config() {
         echo "KKPHIM_SEARCH_LIMIT=\"$KKPHIM_SEARCH_LIMIT\""
         echo "KKPHIM_DETAIL_TTL=\"$KKPHIM_DETAIL_TTL\""
         echo "KKPHIM_SERVER_PREF=\"$KKPHIM_SERVER_PREF\""
+        echo "KKPHIM_AD_BLOCK=\"${KKPHIM_AD_BLOCK:-$DEFAULT_KKPHIM_AD_BLOCK}\""
+        echo "KKPHIM_AD_PATTERNS=\"${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}\""
+        echo "KKPHIM_AD_VARIANT=\"${KKPHIM_AD_VARIANT:-$DEFAULT_KKPHIM_AD_VARIANT}\""
+        echo "KKPHIM_AD_FOREIGN_HOST=\"${KKPHIM_AD_FOREIGN_HOST:-$DEFAULT_KKPHIM_AD_FOREIGN_HOST}\""
     } > "$CONFIG_FILE" 2>/dev/null || {
         echo "⚠️ Không ghi được cấu hình: $CONFIG_FILE" >&2
         return 1
@@ -850,6 +885,19 @@ anisub_doctor() {
     fi
     echo "📚 Truyện : $(manga_source_label) · ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🎬 Phim   : $SOURCE_NAME · $KKPHIM_API_URL"
+    # Chặn quảng cáo HLS: trạng thái + kết quả lần lọc gần nhất (nếu có)
+    local ad_state ad_filter
+    if declare -F kkphim_ad_block_enabled > /dev/null 2>&1; then
+        ad_state=$(kkphim_ad_block_enabled && echo 'bật' || echo 'tắt')
+        if declare -F kkphim_hls_filter_script > /dev/null 2>&1 && kkphim_hls_filter_script > /dev/null 2>&1; then
+            ad_filter="có (src/movie/hls_adfree.pl)"
+        else
+            ad_filter="⚠️ thiếu hls_adfree.pl → chạy ./anisub.sh --update"
+        fi
+        echo "🚫 Chặn QC : $ad_state · bộ lọc: $ad_filter"
+    else
+        echo "🚫 Chặn QC : ⚠️ bộ src/ là bản cũ (không có phần lọc quảng cáo)"
+    fi
     local fzf_ver
     fzf_ver=$(fzf --version 2>/dev/null | head -1)
     [ -n "$fzf_ver" ] || fzf_ver="❌ chưa cài"
@@ -935,7 +983,7 @@ anisub_need_module() {
 
 # --- MAIN LOGIC ---
 main() {
-    trap 'rm -f "$ANISUB_STATUS_FILE" "$ANISUB_CURL_ERR_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE"; kill $(jobs -p) 2>/dev/null' EXIT
+    trap 'rm -f "$ANISUB_STATUS_FILE" "$ANISUB_CURL_ERR_FILE" "$MANGA_COOKIE_JAR" "$ANISUB_MANGA_NAV_FILE" "${KKPHIM_ADFREE_FILE:-}" "${KKPHIM_ADFREE_STATS:-}"; kill $(jobs -p) 2>/dev/null' EXIT
     check_dependencies
     load_config
 
@@ -1047,6 +1095,14 @@ anisub_main_entry() {
     if [ "${1:-}" = "--netcheck" ] || [ "${1:-}" = "--net" ]; then
         load_config
         anisub_netcheck "${2:-}"
+        exit $?
+    fi
+
+    # Chẩn đoán chặn quảng cáo HLS: ./anisub.sh --kkphim-ad-debug "<link .m3u8>"
+    if [ "${1:-}" = "--kkphim-ad-debug" ] || [ "${1:-}" = "--ad-debug" ]; then
+        load_config
+        shift
+        kkphim_ad_report "${1:-}"
         exit $?
     fi
 

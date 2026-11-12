@@ -13,16 +13,39 @@ download_video() {
     
     mkdir -p "$folder"
     safe_name=$(echo "$filename" | sed 's/[^a-zA-Z0-9 .-]/_/g')
-    
+
+    # Bản tải về cũng bỏ quảng cáo: dùng chung bộ lọc với lúc phát (không lọc
+    # được thì tải đúng link gốc, không làm hỏng việc tải).
+    local play_url="$url"
+    if declare -F kkphim_play_url > /dev/null 2>&1; then
+        play_url=$(kkphim_play_url "$url" 2>/dev/null)
+        [ -z "$play_url" ] && play_url="$url"
+    fi
+
     echo "Đang tải xuống: $safe_name... (nguồn: $SOURCE_NAME)"
+    local rc=0
     if command -v yt-dlp &> /dev/null; then
         yt-dlp --referer "$KKPHIM_REFERER" --user-agent "$KKPHIM_USER_AGENT" \
-            "$url" -o "$folder/$safe_name.mp4"
+            "$play_url" -o "$folder/$safe_name.mp4" || rc=$?
     else
         ffmpeg -hide_banner -loglevel error -headers "$KKPHIM_FFMPEG_HEADERS" \
             -protocol_whitelist "file,http,https,tcp,tls,crypto" -allowed_extensions ALL \
-            -i "$url" -c copy -bsf:a aac_adtstoasc "$folder/$safe_name.mp4"
+            -i "$play_url" -c copy -bsf:a aac_adtstoasc "$folder/$safe_name.mp4" || rc=$?
     fi
+    # Playlist đã lọc là file local: vài bản yt-dlp/ffmpeg không nhận -> thử lại
+    # bằng đúng link gốc (chấp nhận có quảng cáo) thay vì báo lỗi tải.
+    if [ "$rc" -ne 0 ] && [ "$play_url" != "$url" ]; then
+        echo "⚠️  Tải bằng playlist đã lọc không được - thử lại bằng link gốc..."
+        if command -v yt-dlp &> /dev/null; then
+            yt-dlp --referer "$KKPHIM_REFERER" --user-agent "$KKPHIM_USER_AGENT" \
+                "$url" -o "$folder/$safe_name.mp4" || rc=$?
+        else
+            ffmpeg -hide_banner -loglevel error -headers "$KKPHIM_FFMPEG_HEADERS" \
+                -protocol_whitelist "file,http,https,tcp,tls,crypto" -allowed_extensions ALL \
+                -i "$url" -c copy -bsf:a aac_adtstoasc "$folder/$safe_name.mp4" || rc=$?
+        fi
+    fi
+    [ "$rc" -ne 0 ] && echo "❌ Tải không thành công (mã $rc)."
     echo "Đã tải xong: $folder/$safe_name.mp4"
     sleep 2
 }
@@ -43,6 +66,14 @@ cut_video_logic() {
             ;;
     esac
 
+    # Cắt ĐÚNG timeline người dùng đang xem: nếu lúc phát đã bỏ quảng cáo thì
+    # mốc thời gian đã bị nén lại, nên phải cắt trên playlist đã lọc ấy.
+    local play_url="$input_url"
+    if declare -F kkphim_play_url > /dev/null 2>&1; then
+        play_url=$(kkphim_play_url "$input_url" 2>/dev/null)
+        [ -z "$play_url" ] && play_url="$input_url"
+    fi
+
     echo "=== CHẾ ĐỘ CẮT VIDEO (Fix lỗi hình ảnh) ==="
     echo "Lưu ý: Nhập chính xác thời gian trên trình phát đang xem."
     
@@ -52,7 +83,7 @@ cut_video_logic() {
         output_name="cut_$(date +%s).mp4"
         
         echo "Đang xử lý (Re-encoding)..."
-        ffmpeg "${input_args[@]}" -i "$input_url" -ss "$start_time" -to "$end_time" \
+        ffmpeg "${input_args[@]}" -i "$play_url" -ss "$start_time" -to "$end_time" \
             -c:v libx264 -preset fast -crf 23 -c:a aac \
             "$dest_dir/$output_name" -hide_banner -loglevel error
         
@@ -67,7 +98,7 @@ cut_video_logic() {
             output_name="cut_${i}_$(date +%s).mp4"
             
             echo "Đang xử lý đoạn $i..."
-            ffmpeg "${input_args[@]}" -i "$input_url" -ss "$start_t" -to "$end_t" \
+            ffmpeg "${input_args[@]}" -i "$play_url" -ss "$start_t" -to "$end_t" \
                 -c:v libx264 -preset fast -crf 23 -c:a aac \
                 "$dest_dir/$output_name" -hide_banner -loglevel error
 
