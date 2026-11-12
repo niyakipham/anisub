@@ -602,17 +602,155 @@ has "CLI --manga-selftest tự chọn truyện mẫu theo nguồn" "nettruyen" \
     "$(MANGA_SOURCE=nettruyen MANGA_BASE_URL=https://nettruyen.info bash "$ROOT/anisub.sh" --manga-selftest 2>&1 | head -2)"
 
 
-echo "== 33. đã gỡ tính năng chặn quảng cáo trong m3u8 (gây khựng khi phát) =="
-check "không còn cấu hình KKPHIM_AD_BLOCK" "0" "$(src_count 'KKPHIM_AD_BLOCK')"
-check "không còn menu chặn quảng cáo" "0" "$(src_count 'Chặn quảng cáo trong m3u8')"
-check "không còn hàm lọc playlist" "0" "$(src_count 'kkphim_playlist_filter\|kkphim_play_url')"
-check "play_stream phát thẳng link gốc" "1" "$(src_count 'mpv \"\$url\" --no-terminal')"
-check "không còn cờ CLI --kkphim-ad-debug" "0" "$(src_count 'kkphim-ad-debug')"
+echo "== 33. chặn quảng cáo chèn trong playlist m3u8 (quảng cáo giữa phim ~phút 15) =="
+check "mặc định bật chặn quảng cáo" "1" "$(KKPHIM_AD_BLOCK=1 kkphim_ad_block_enabled && echo 1 || echo 0)"
+check "tắt được bằng KKPHIM_AD_BLOCK=0" "0" "$(KKPHIM_AD_BLOCK=0 kkphim_ad_block_enabled && echo 1 || echo 0)"
+check "load_config mặc định bật" "1" "$KKPHIM_AD_BLOCK"
+check "có file lọc playlist bằng perl" "1" "$([ -s "$ROOT/src/movie/hls_adfree.pl" ] && echo 1 || echo 0)"
+check "tìm được script lọc từ bộ src/" "1" \
+    "$(printf '%s' "$(kkphim_hls_filter_script)" | grep -c 'hls_adfree.pl$')"
+
+check "ghép URL tuyệt đối (gốc /)" "https://cdn.phim.test/keys/k1.bin" \
+    "$(kkphim_abs_url https://cdn.phim.test/hls/phim/high/index.m3u8 /keys/k1.bin)"
+check "ghép URL tương đối theo thư mục playlist" "https://cdn.phim.test/hls/phim/high/002.ts" \
+    "$(kkphim_abs_url https://cdn.phim.test/hls/phim/high/index.m3u8 002.ts)"
+check "giữ nguyên URL tuyệt đối" "https://x.test/a.ts" \
+    "$(kkphim_abs_url https://cdn.phim.test/hls/phim/high/index.m3u8 https://x.test/a.ts)"
+
+check "link không phải m3u8 -> phát nguyên" "https://cdn.phim.test/vod/phim.mp4" \
+    "$(KKPHIM_AD_BLOCK=1 kkphim_play_url https://cdn.phim.test/vod/phim.mp4)"
+check "tắt chặn -> trả lại link gốc" "https://cdn.phim.test/hls/phim/master.m3u8" \
+    "$(KKPHIM_AD_BLOCK=0 kkphim_play_url https://cdn.phim.test/hls/phim/master.m3u8)"
+
+# --- playlist thật (mock): khối quảng cáo nằm CÙNG host với phim, bọc CUE-OUT/CUE-IN
+: > "$MOCK_CURL_LOG"
+KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/master.m3u8" > "$WORK/adfree.path" 2>/dev/null
+adfree_file=$(cat "$WORK/adfree.path")
+check "bật chặn -> trả về file playlist đã lọc" "1" \
+    "$(printf '%s' "$adfree_file" | grep -c 'anisub-adfree-.*\.m3u8$')"
+check "file đã lọc tồn tại" "1" "$([ -s "$adfree_file" ] && echo 1 || echo 0)"
+check "mặc định chọn variant ĐẦU TIÊN (low/, giống trình phát cũ)" "1 0" \
+    "$(grep -c 'hls/phim/low/index.m3u8' "$MOCK_CURL_LOG") $(grep -c 'hls/phim/high/index.m3u8' "$MOCK_CURL_LOG")"
+check "giữ đúng 4 segment phim" "4" "$(grep -cE '^https?://.*\.ts' "$adfree_file")"
+check "BỎ khối CUE-OUT..CUE-IN dù cùng host với phim (003.ts)" "0" "$(grep -c 'phim/003.ts' "$adfree_file")"
+check "BỎ segment thứ 2 của khối quảng cáo (004.ts)" "0" "$(grep -c 'phim/004.ts' "$adfree_file")"
+check "giữ segment ngay sau CUE-IN (005.ts)" "1" "$(grep -c 'phim/005.ts' "$adfree_file")"
+check "bỏ segment preroll (ads.adtag.vn)" "0" "$(grep -ci 'preroll' "$adfree_file")"
+check "bỏ marker CUE-OUT/CUE-IN" "0" "$(grep -c 'EXT-X-CUE' "$adfree_file")"
+check "giữ #EXT-X-ENDLIST" "1" "$(grep -c '#EXT-X-ENDLIST' "$adfree_file")"
+check "#EXT-X-KEY được tuyệt đối hoá" "1" "$(grep -c 'URI="https://cdn.phim.test/keys/k1.bin"' "$adfree_file")"
+check "giữ nguyên #EXT-X-MEDIA-SEQUENCE (IV của AES)" "1" "$(grep -c '^#EXT-X-MEDIA-SEQUENCE:0$' "$adfree_file")"
+check "chèn #EXT-X-DISCONTINUITY tại mỗi chỗ cắt" "2" "$(grep -c '^#EXT-X-DISCONTINUITY$' "$adfree_file")"
+check "mọi DISCONTINUITY đều đứng TRƯỚC #EXTINF" "2" \
+    "$(grep -A1 '^#EXT-X-DISCONTINUITY$' "$adfree_file" | grep -c '^#EXTINF')"
+check "thống kê: bỏ 3 / giữ 4" "3 4" "$(kkphim_ad_stat dropped) $(kkphim_ad_stat kept)"
+check "thống kê: quảng cáo bị bỏ vì CUE + mẫu URL" "2 1" \
+    "$(kkphim_ad_stat reason_cue) $(kkphim_ad_stat reason_pattern)"
+rm -f "$adfree_file" "${adfree_file%.m3u8}.stats"
+
+# --- KHÔNG xoá nhầm segment phim có tên chứa 'media'/'shadow' hoặc query ?ad=0
+cat > "$WORK/keep.m3u8" <<'EOP'
+#EXTM3U
+#EXT-X-TARGETDURATION:6
+#EXTINF:6.000,
+https://cdn.phim.test/hls/media/shadow/003.ts?token=abc&ad=0
+#EXTINF:6.000,
+https://cdn.phim.test/hls/phim/segment_1.ts
+#EXT-X-ENDLIST
+EOP
+KKPHIM_BASE="https://cdn.phim.test/hls/phim/index.m3u8" KKPHIM_AD_PATTERNS="ad,ads,promo" \
+    perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/keep.m3u8" > "$WORK/keep.out" 2>/dev/null
+check "không xoá segment 'media/shadow' hay 'segment_1'" "2" "$(grep -cE '^https?://' "$WORK/keep.out")"
+
+# --- khối segment ở tên miền lạ (adserver) dù URL không chứa chữ 'ad'
+KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/foreign.m3u8" > "$WORK/foreign.path" 2>/dev/null
+foreign_file=$(cat "$WORK/foreign.path")
+check "bỏ khối 2 segment ở tên miền lạ" "6" "$(grep -cE '^https?://' "$foreign_file")"
+check "không còn host adserver" "0" "$(grep -c 'other-x.net' "$foreign_file")"
+rm -f "$foreign_file" "${foreign_file%.m3u8}.stats"
+
+# --- playlist kiểu live -> chuẩn hoá VOD (sửa lỗi 'phát vài giây lại khựng')
+KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/live.m3u8" > "$WORK/live.path" 2>/dev/null
+live_file=$(cat "$WORK/live.path")
+check "playlist thiếu ENDLIST -> thêm ENDLIST" "1" "$(grep -c '#EXT-X-ENDLIST' "$live_file")"
+check "thêm PLAYLIST-TYPE:VOD" "1" "$(grep -c '#EXT-X-PLAYLIST-TYPE:VOD' "$live_file")"
+check "giữ nguyên MEDIA-SEQUENCE gốc" "1" "$(grep -c '^#EXT-X-MEDIA-SEQUENCE:120$' "$live_file")"
+check "giữ nguyên DISCONTINUITY-SEQUENCE gốc" "1" "$(grep -c '^#EXT-X-DISCONTINUITY-SEQUENCE:4$' "$live_file")"
+check "bỏ quảng cáo trong playlist live" "0" "$(grep -ci 'adtag' "$live_file")"
+rm -f "$live_file" "${live_file%.m3u8}.stats"
+
+# --- chốt an toàn: CUE-OUT thiếu CUE-IN chỉ bỏ tối đa 180s (không mất nửa phim)
+{
+    echo "#EXTM3U"; echo "#EXT-X-TARGETDURATION:6"
+    for i in $(seq 1 100); do
+        [ "$i" = "5" ] && echo "#EXT-X-CUE-OUT"
+        echo "#EXTINF:6.000,"
+        echo "seg-$i.ts"
+    done
+} > "$WORK/cue-noclose.m3u8"
+KKPHIM_BASE="https://cdn.phim.test/hls/phim/index.m3u8" KKPHIM_AD_PATTERNS="ad,ads" \
+    perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/cue-noclose.m3u8" > "$WORK/cue-noclose.out" 2>/dev/null
+check "CUE-OUT không có CUE-IN -> chỉ bỏ 90s (giữ 85/100 segment)" "85" \
+    "$(grep -cE '^[^#]' "$WORK/cue-noclose.out")"
+
+# --- chốt an toàn: nhận diện sai (bỏ >45% phim dài) -> không dùng bản đã lọc
+{
+    echo "#EXTM3U"; echo "#EXT-X-TARGETDURATION:6"
+    echo "#EXT-X-CUE-OUT:200"
+    for i in $(seq 1 60); do echo "#EXTINF:6.000,"; echo "seg-$i.ts"; done
+} > "$WORK/overdrop.m3u8"
+KKPHIM_BASE="https://cdn.phim.test/hls/phim/index.m3u8" KKPHIM_AD_PATTERNS="ad,ads" \
+    perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/overdrop.m3u8" > /dev/null 2>&1
+check "bỏ quá 45% phim dài -> perl trả mã 4 (anisub phát link gốc)" "4" "$?"
+
+# --- live thật (cửa sổ trượt vài giây) -> không lọc, phát link gốc (khỏi mất phim)
+check "playlist live cửa sổ ngắn -> phát link gốc" "https://cdn.phim.test/hls/phim/livewin.m3u8" \
+    "$(KKPHIM_AD_BLOCK=1 kkphim_play_url https://cdn.phim.test/hls/phim/livewin.m3u8)"
+
+# --- AES-128 không kèm IV -> không lọc (tránh giải mã sai, phim hỏng)
+kkphim_play_url "https://cdn.phim.test/hls/phim/aesnoiv.m3u8" > "$WORK/aes.out" 2>/dev/null
+check "AES-128 không kèm IV -> phát link gốc" "https://cdn.phim.test/hls/phim/aesnoiv.m3u8" "$(cat "$WORK/aes.out")"
+
+# --- tải playlist lỗi -> phát link gốc (không bao giờ chặn việc xem phim)
+check "tải playlist lỗi -> phát link gốc" "https://manga-offline.test/x.m3u8" \
+    "$(KKPHIM_AD_BLOCK=1 kkphim_play_url https://manga-offline.test/x.m3u8)"
+
+# --- trình phát nhận playlist đã lọc + vẫn gửi Referer
+: > "$WORK/mpv-ad.log"
+MOCK_MPV_LOG="$WORK/mpv-ad.log" PLAYER=mpv KKPHIM_AD_BLOCK=1 \
+    play_stream "https://cdn.phim.test/hls/phim/master.m3u8" "Phim test" > /dev/null 2>&1
+check "trình phát nhận file đã lọc (không phải link gốc)" "1" \
+    "$(grep -c 'anisub-adfree-.*\.m3u8' "$WORK/mpv-ad.log")"
+has "vẫn gửi Referer khi phát bản đã lọc" "--referrer=https://kkphim.com/" "$(cat "$WORK/mpv-ad.log")"
+: > "$WORK/mpv-ad.log"
+MOCK_MPV_LOG="$WORK/mpv-ad.log" PLAYER=mpv KKPHIM_AD_BLOCK=0 \
+    play_stream "https://cdn.phim.test/hls/phim/master.m3u8" "Phim test" > /dev/null 2>&1
+check "tắt chặn -> trình phát nhận link gốc" "1" \
+    "$(grep -c 'cdn.phim.test/hls/phim/master.m3u8' "$WORK/mpv-ad.log")"
+
+# --- cấu hình / menu / CLI
+has "cài đặt có mục chặn quảng cáo" "Chặn quảng cáo trong m3u8" \
+    "$(grep -o 'Chặn quảng cáo trong m3u8' "$ROOT/src/movie/kkphim.sh" | head -1)"
+has "cài đặt có mục chất lượng khi lọc" "Chất lượng khi lọc quảng cáo" \
+    "$(grep -o 'Chất lượng khi lọc quảng cáo' "$ROOT/src/movie/kkphim.sh" | head -1)"
+has "cài đặt có mục mẫu nhận diện" "Mẫu nhận diện quảng cáo" \
+    "$(grep -o 'Mẫu nhận diện quảng cáo' "$ROOT/src/movie/kkphim.sh" | head -1)"
+has "config lưu KKPHIM_AD_BLOCK" 'KKPHIM_AD_BLOCK="' "$(save_config >/dev/null; cat "$CONFIG_FILE")"
+has "CLI có --kkphim-ad-debug" "kkphim-ad-debug" "$(src_has 'kkphim-ad-debug')"
+has "CLI ad-debug in hướng dẫn khi thiếu URL" "Cách dùng" \
+    "$(kkphim_ad_report '' 2>&1 | head -1)"
+
 mkdir -p "$WORK/home3/.config/anisub_cli"
 printf 'PLAYER="mpv"\nKKPHIM_AD_BLOCK=0\nKKPHIM_AD_PATTERNS="ad,quangcao"\nKKPHIM_AD_VARIANT=max\n' > "$WORK/home3/.config/anisub_cli/config.cfg"
-( HOME="$WORK/home3" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; load_config >/dev/null 2>&1" ) \
-    && ok "config cũ còn khoá KKPHIM_AD_* vẫn nạp bình thường (bỏ qua, không lỗi)" \
-    || bad "config cũ còn khoá KKPHIM_AD_*" "nạp được" "lỗi"
+( HOME="$WORK/home3" bash -c "source '$WORK/lib.sh' >/dev/null 2>&1; load_config >/dev/null 2>&1; [ \"\$KKPHIM_AD_BLOCK\" = 0 ] && [ \"\$KKPHIM_AD_VARIANT\" = max ]" ) \
+    && ok "config cũ có sẵn khoá KKPHIM_AD_* được giữ nguyên" \
+    || bad "config cũ còn khoá KKPHIM_AD_*" "đọc được 0/max" "khác"
+
+# --- tải/cắt video dùng chung bộ lọc (mốc thời gian khớp lúc xem)
+has "tải video dùng playlist đã lọc" 'play_url=$(kkphim_play_url "$url"' \
+    "$(grep -o 'play_url=$(kkphim_play_url "$url"' "$ROOT/src/movie/media.sh" | head -1)"
+has "cắt video dùng playlist đã lọc" 'play_url=$(kkphim_play_url "$input_url"' \
+    "$(grep -o 'play_url=$(kkphim_play_url "$input_url"' "$ROOT/src/movie/media.sh" | head -1)"
 
 echo "== 34. nguồn truyện e-hentai (e-hentai.org) =="
 eh() { MANGA_SOURCE=ehentai MANGA_BASE_URL=https://e-hentai.org EHENTAI_DELAY=0 "$@"; }
