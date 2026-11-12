@@ -885,6 +885,19 @@ anisub_doctor() {
     fi
     echo "📚 Truyện : $(manga_source_label) · ${MANGA_BASE_URL:-$DEFAULT_MANGA_BASE_URL}"
     echo "🎬 Phim   : $SOURCE_NAME · $KKPHIM_API_URL"
+    # Chặn quảng cáo HLS: trạng thái + kết quả lần lọc gần nhất (nếu có)
+    local ad_state ad_filter
+    if declare -F kkphim_ad_block_enabled > /dev/null 2>&1; then
+        ad_state=$(kkphim_ad_block_enabled && echo 'bật' || echo 'tắt')
+        if declare -F kkphim_hls_filter_script > /dev/null 2>&1 && kkphim_hls_filter_script > /dev/null 2>&1; then
+            ad_filter="có (src/movie/hls_adfree.pl)"
+        else
+            ad_filter="⚠️ thiếu hls_adfree.pl → chạy ./anisub.sh --update"
+        fi
+        echo "🚫 Chặn QC : $ad_state · bộ lọc: $ad_filter"
+    else
+        echo "🚫 Chặn QC : ⚠️ bộ src/ là bản cũ (không có phần lọc quảng cáo)"
+    fi
     local fzf_ver
     fzf_ver=$(fzf --version 2>/dev/null | head -1)
     [ -n "$fzf_ver" ] || fzf_ver="❌ chưa cài"

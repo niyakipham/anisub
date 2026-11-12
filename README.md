@@ -102,7 +102,9 @@ tải playlist (kèm `Referer` / `User-Agent`) rồi lọc **trước khi phát*
 3. bỏ segment có host/đường dẫn khớp `KKPHIM_AD_PATTERNS` (so khớp **nguyên một thành phần**, nên
    `media`, `shadow`, `load`, `segment_1`… không bị xoá nhầm; query được bỏ qua nên `?ad=0` không tính);
 4. bỏ **khối ngắn nằm ở tên miền khác** với CDN của phim (adserver) khi CDN phim chiếm >=70% segment
-   — tắt bằng `KKPHIM_AD_FOREIGN_HOST="0"`;
+   — tắt bằng `KKPHIM_AD_FOREIGN_HOST="0"`; bỏ thêm tag quảng cáo kiểu `#EXT-X-SOFA-AD` và
+   `#EXT-X-DATERANGE` có `CLASS`/`X-ASSET-URI` mang tiếng quảng cáo (interstitial/ad/promo/vast…) —
+   DATERANGE không phải quảng cáo (chapter, …) được giữ nguyên;
 5. đổi URL tương đối (`segment`, `#EXT-X-KEY`, `#EXT-X-MAP`) sang tuyệt đối để file local vẫn tải
    được, **giữ nguyên** `#EXT-X-MEDIA-SEQUENCE` / `#EXT-X-DISCONTINUITY-SEQUENCE` (IV mặc định của
    AES-128 + mốc `BYTERANGE`), và **chèn `#EXT-X-DISCONTINUITY` đúng chỗ cắt** để trình phát nối
@@ -122,6 +124,9 @@ Chẩn đoán nhanh (in số segment giữ/bỏ, lý do bỏ, lưu playlist đã
 ```shell
 ./anisub.sh --kkphim-ad-debug "https://.../index.m3u8"
 ```
+
+`./anisub.sh --doctor` cũng in dòng `🚫 Chặn QC` (bật/tắt + có bộ lọc `hls_adfree.pl` chưa) và
+`--kkphim-ad-debug` cho biết **lý do** từng segment bị bỏ (cue / mẫu URL / tên miền).
 
 Bật/tắt và chỉnh trong `⚙️ Cài đặt → 🎞 Nguồn phim`:
 **🚫 Chặn quảng cáo trong m3u8: bật/tắt**, **🎚️ Chất lượng khi lọc quảng cáo** (`first` / `max` /
@@ -150,6 +155,8 @@ và in mã HTTP + số kết quả nhận được (bản này chính là thứ 
 | `HTTP 000` | máy không với được `phimapi.com` | kiểm tra mạng / DNS / proxy / VPN, thử mạng khác |
 | `HTTP 403`, `429`, `5xx` | KKPhim chặn theo khu vực hoặc đang bảo trì | thử lại sau; nếu họ đổi host thì sửa `KKPHIM_API_URL` / `KKPHIM_SITE_URL` |
 | `HTTP 200 · 0 kết quả` | từ khóa không khớp | thử gõ không dấu, hoặc tên tiếng Việt đầy đủ có dấu |
+| Vẫn thấy quảng cáo ở giữa phim | playlist của tập đó chèn quảng cáo theo kiểu khác (không có marker, cùng host + cùng thư mục) | chạy `./anisub.sh --kkphim-ad-debug "<link .m3u8>"`, gửi kèm file playlist in ra để thêm mẫu nhận diện |
+| Phim khựng sau khi bật chặn quảng cáo | mạng không đủ cho variant đang chọn | `⚙️ Cài đặt → 🎞 Nguồn phim → 🎚️ Chất lượng khi lọc quảng cáo` = `first`, hoặc tắt tạm `🚫 Chặn quảng cáo` để so sánh |
 | fzf quá cũ (không có action `reload:`, cần `>= 0.19`) | `--bind` bị báo lỗi, cửa sổ tìm không mở | anisub **tự chuyển** sang chế độ nhập từ khóa 1 lần (Enter để tải danh sách, vẫn gõ để lọc trong kết quả) |
 
 <br>

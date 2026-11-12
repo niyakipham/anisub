@@ -662,6 +662,28 @@ KKPHIM_BASE="https://cdn.phim.test/hls/phim/index.m3u8" KKPHIM_AD_PATTERNS="ad,a
     perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/keep.m3u8" > "$WORK/keep.out" 2>/dev/null
 check "không xoá segment 'media/shadow' hay 'segment_1'" "2" "$(grep -cE '^https?://' "$WORK/keep.out")"
 
+# --- marker lạ không được kích hoạt bỏ nhầm (#EXT-X-CUE-OUT-PTS) / CUE-OUT:ID=… vẫn bỏ được
+printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:6' '#EXT-X-CUE-OUT-PTS:900' '#EXTINF:6.000,' 'a.ts' \
+    '#EXTINF:6.000,' 'b.ts' '#EXT-X-ENDLIST' > "$WORK/cuepts.m3u8"
+check "#EXT-X-CUE-OUT-PTS không bị coi là khối quảng cáo" "2" \
+    "$(KKPHIM_BASE="https://cdn.phim.test/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/cuepts.m3u8" | grep -c '\.ts')"
+printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:6' '#EXT-X-CUE-OUT:ID=126' '#EXTINF:6.000,' 'ad1.ts' \
+    '#EXTINF:6.000,' 'ad2.ts' '#EXT-X-CUE-IN' '#EXTINF:6.000,' 'c1.ts' '#EXT-X-ENDLIST' > "$WORK/cueid.m3u8"
+check "CUE-OUT:ID=… vẫn bỏ được khối quảng cáo" "1 c1.ts" \
+    "$(KKPHIM_BASE="https://cdn.phim.test/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/cueid.m3u8" | grep -c '\.ts') $(KKPHIM_BASE="https://cdn.phim.test/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/cueid.m3u8" | grep -o 'c1.ts')"
+
+# --- playlist fMP4 + BYTERANGE thật (Apple bipbop): không được bỏ nhầm segment
+KKPHIM_BASE="https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/v5/prog_index.m3u8" \
+    KKPHIM_AD_PATTERNS="ad,ads,advert,preroll,midroll,quangcao,promo,sponsor,vast" \
+    perl "$ROOT/src/movie/hls_adfree.pl" < "$ROOT/tests/fixtures/kkphim-fmp4-byterange.m3u8" \
+    > "$WORK/fmp4.out" 2>/dev/null
+check "fMP4/BYTERANGE: giữ đủ 4 segment (không bỏ nhầm)" "4" "$(grep -cE '^https?://' "$WORK/fmp4.out")"
+check "fMP4/BYTERANGE: giữ #EXT-X-MAP + BYTERANGE" "1 4" \
+    "$(grep -c '#EXT-X-MAP:' "$WORK/fmp4.out") $(grep -c '#EXT-X-BYTERANGE:' "$WORK/fmp4.out")"
+check "#EXT-X-MAP được tuyệt đối hoá" "1" "$(grep -c 'URI="https://devstreaming-cdn.apple.com/.*/main.mp4"' "$WORK/fmp4.out")"
+check "bỏ DATERANGE quảng cáo (interstitial)" "0" "$(grep -c 'com.apple.hls.interstitial' "$WORK/fmp4.out")"
+check "giữ DATERANGE không phải quảng cáo (chapter)" "1" "$(grep -c 'CLASS="chapter"' "$WORK/fmp4.out")"
+
 # --- khối segment ở tên miền lạ (adserver) dù URL không chứa chữ 'ad'
 KKPHIM_AD_BLOCK=1 kkphim_play_url "https://cdn.phim.test/hls/phim/foreign.m3u8" > "$WORK/foreign.path" 2>/dev/null
 foreign_file=$(cat "$WORK/foreign.path")

@@ -52,6 +52,15 @@ sub reg_domain {
     return join('.', @l[ -2 .. -1 ]);
 }
 
+# #EXT-X-DATERANGE mô tả một đoạn quảng cáo (interstitial / SSAI)? Trình phát
+# hiện tại (mpv/vlc) bỏ qua tag này, nhưng để nguyên thì vài trình phát khác có
+# thể chèn quảng cáo -> bỏ luôn những tag "mang tiếng" quảng cáo.
+sub is_ad_like_daterange {
+    my ($t) = @_;
+    return 1 if $t =~ /(?:^|[,:\s"])(?:CLASS|ID|X-ASSET-URI|X-ASSET-LIST)[^,]*?(?:interstitial|\bad(s|vert\w*)?\b|promo|sponsor|ssai|vast|vmap|quang[-_]?cao)/i;
+    return 0;
+}
+
 # URL này là segment quảng cáo? (so khớp NGUYÊN một thành phần host/đường dẫn,
 # nên media / shadow / load / segment_1 không bị xoá nhầm; query được bỏ đi nên
 # ?ad=0 cũng không bị coi là quảng cáo)
@@ -150,23 +159,24 @@ for my $i (0 .. $#units) {
 
     # Marker chèn quảng cáo đứng TRƯỚC segment mà nó áp dụng
     for my $t (@{ $u->{tags} }) {
-        if ($t =~ /^#EXT-X-CUE-OUT(-CONT)?(?::(?:DURATION=)?([0-9]*\.?[0-9]+))?/i) {
-            if ($1) {
-                # #EXT-X-CUE-OUT-CONT: khối quảng cáo vẫn đang tiếp diễn
-                $ad_left = 90 unless $ad_left > 0;
-                next;
-            }
-            if (defined $2 && $2 > 0) {
-                $ad_left = $2 + 0;
+        if ($t =~ /^#EXT-X-CUE-OUT-DURATION:\s*([0-9]*\.?[0-9]+)/i) {
+            $ad_left = ($1 > 0) ? $1 + 0 : 90;
+            $ad_unknown = 0;
+        } elsif ($t =~ /^#EXT-X-CUE-OUT-CONT(?::|\s*$)/i) {
+            # Khối quảng cáo vẫn đang tiếp diễn
+            $ad_left = 90 unless $ad_left > 0;
+        } elsif ($t =~ /^#EXT-X-CUE-OUT(?::(?:DURATION=)?([0-9]*\.?[0-9]+))?(?::|\s*$)/i) {
+            if (defined $1 && $1 > 0) {
+                $ad_left = $1 + 0;
                 $ad_unknown = 0;
             } else {
-                # Không ghi thời lượng: bỏ tối đa 90s và dừng ngay khi gặp
-                # #EXT-X-DISCONTINUITY (hết khối) — nếu playlist thiếu CUE-IN mà
-                # bỏ "tới hết playlist" thì sẽ mất cả phần sau của phim.
+                # Không ghi thời lượng (hoặc ghi kiểu :ID=…): bỏ tối đa 90s và
+                # dừng ngay khi gặp #EXT-X-DISCONTINUITY — nếu playlist thiếu
+                # CUE-IN mà bỏ "tới hết playlist" thì sẽ mất cả phần sau phim.
                 $ad_left = 90;
                 $ad_unknown = 1;
             }
-        } elsif ($t =~ /^#EXT-X-CUE-IN/i) {
+        } elsif ($t =~ /^#EXT-X-CUE-IN(?::|\s*$)/i) {
             $ad_left = 0;
             $ad_unknown = 0;
         }
@@ -182,6 +192,8 @@ for my $i (0 .. $#units) {
             && !/^#EXT-(?:OATCLS-)?SCTE35\b/i
             && !/^#EXT-X-ASSET\b/i
             && !/^#EXT-X-SPLICE(?:POINT|INFO)?\b/i
+            && !/^#EXT-X-SOFA-AD\b/i                       # marker quảng cáo của một số CDN
+            && !(/^#EXT-X-DATERANGE:/i && is_ad_like_daterange($_))
     } @{ $u->{tags} };
 
     if ($u->{kind} eq 'seg') {
