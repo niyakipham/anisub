@@ -662,6 +662,32 @@ KKPHIM_BASE="https://cdn.phim.test/hls/phim/index.m3u8" KKPHIM_AD_PATTERNS="ad,a
     perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/keep.m3u8" > "$WORK/keep.out" 2>/dev/null
 check "không xoá segment 'media/shadow' hay 'segment_1'" "2" "$(grep -cE '^https?://' "$WORK/keep.out")"
 
+# --- ca bug thật: tập 24 phút, quảng cáo 60s chèn ở ~phút 14:54 (cùng host với phim)
+{
+    echo "#EXTM3U"; echo "#EXT-X-VERSION:3"; echo "#EXT-X-TARGETDURATION:6"; echo "#EXT-X-MEDIA-SEQUENCE:0"
+    for i in $(seq 0 239); do
+        if [ "$i" = "149" ]; then
+            echo "#EXT-X-CUE-OUT:60.000"
+            for k in $(seq 0 9); do
+                echo "#EXTINF:6.000,"
+                echo "https://a.kvp726.com/20261112/IVHkWrqQ/ad-$k.ts"
+            done
+            echo "#EXT-X-CUE-IN"
+        fi
+        echo "#EXTINF:6.000,"
+        echo "https://a.kvp726.com/20261112/IVHkWrqQ/$i.ts"
+    done
+    echo "#EXT-X-ENDLIST"
+} > "$WORK/kk-24min.m3u8"
+KKPHIM_BASE="https://a.kvp726.com/20261112/IVHkWrqQ/index.m3u8" KKPHIM_AD_STATS="$WORK/kk-24min.stats" \
+    perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/kk-24min.m3u8" > "$WORK/kk-24min.out" 2>/dev/null
+check "tập 24 phút: bỏ đúng 10 segment quảng cáo (60s)" "10 240" \
+    "$(sed -n 's/^dropped=//p' "$WORK/kk-24min.stats") $(grep -cE '^https?://' "$WORK/kk-24min.out")"
+check "tập 24 phút: còn đủ 1440s phim" "1440" \
+    "$(grep '^#EXTINF' "$WORK/kk-24min.out" | sed 's/#EXTINF://; s/,.*//' | awk '{s+=$1} END{printf "%d", s}')"
+check "tập 24 phút: chỉ 1 DISCONTINUITY, đúng ngay chỗ cắt" "1 149.ts 0" \
+    "$(grep -c '^#EXT-X-DISCONTINUITY$' "$WORK/kk-24min.out") $(grep -A2 '^#EXT-X-DISCONTINUITY$' "$WORK/kk-24min.out" | grep -o '149\.ts') $(grep -c 'ad-' "$WORK/kk-24min.out")"
+
 # --- marker lạ không được kích hoạt bỏ nhầm (#EXT-X-CUE-OUT-PTS) / CUE-OUT:ID=… vẫn bỏ được
 printf '%s\n' '#EXTM3U' '#EXT-X-TARGETDURATION:6' '#EXT-X-CUE-OUT-PTS:900' '#EXTINF:6.000,' 'a.ts' \
     '#EXTINF:6.000,' 'b.ts' '#EXT-X-ENDLIST' > "$WORK/cuepts.m3u8"
