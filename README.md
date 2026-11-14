@@ -25,6 +25,7 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🚫》- **Thêm 2 dấu hiệu nhận diện + 2 cách xử lý khi quảng cáo "cứng đầu"**: ngoài host / thư mục / đuôi file / kiểu `#EXTINF`, khối lạ còn được nhận ra khi **kiểu tên file** khác phim (`00012.ts` vs `ad_01.ts`) hoặc **thời lượng segment** khác hẳn (15s vs 6s). Nếu quảng cáo **giống hệt phim ở mọi dấu hiệu** (chỉ chèn thêm segment cùng host, cùng thư mục, cùng tên file), dùng `./anisub.sh --kkphim-ad-cut "14:55-15:40"` (hoặc `⚙️ Cài đặt → 🎞 Nguồn phim → ⏱️ Cắt quảng cáo theo mốc`) để bỏ đúng khoảng thời gian đó. Toàn bộ việc lọc giờ được **ghi nhật ký** vào `~/.config/anisub_cli/cache/kkphim-adfree.log` (bản đồ khối + lý do bỏ) — xem bằng `./anisub.sh --kkphim-ad-log`, gửi file này khi báo lỗi "vẫn còn quảng cáo"<br>
 《🚫》- **Quảng cáo ở ~14:58/14:59 giờ được xử lý y như khối ở ~2:56**: bộ lọc không "bắt" riêng từng mốc thời gian mà chia playlist thành từng **khối theo `#EXT-X-DISCONTINUITY`** rồi bỏ mọi khối ngắn nằm giữa phim mà **khác phim ở host / thư mục / đuôi file / kiểu `#EXTINF`** (hoặc bọc bởi `CUE-OUT`/`CUE-IN`). Nhờ vậy khối quảng cáo không có marker, nằm cùng host với phim (kiểu chèn giữa phim) cũng bị bỏ; khối giống hệt phim thì **không** đụng vào. Thêm `#EXT-X-CUE-OUT-DURATION`, `CUE-OUT-CONT`, `CUE-OUT:ID=…`, tag `#EXT-X-SOFA-AD`, `DATERANGE` kiểu interstitial — và **không** còn nhầm `CUE-OUT-PTS`. Chẩn đoán mới: `./anisub.sh --kkphim-ad-debug "<link .m3u8>"` in **bản đồ khối** (khối nào bị bỏ / vì sao) + lưu 2 file playlist gốc & đã lọc trong `~/.config/anisub_cli/cache/`<br>
 《🚫》- **Sửa lỗi quảng cáo hiện giữa phim (chỗ ~phút 14:58–15:00)**: KKPhim nhét **khối segment quảng cáo ngay trong playlist `.m3u8`** (kiểu SSAI, bọc bởi `#EXT-X-CUE-OUT` / `#EXT-X-CUE-IN`). Bản lọc cũ chỉ bỏ segment có URL khớp mẫu quảng cáo nên quảng cáo **cùng host với phim** vẫn lọt; bản này **bỏ cả khối giữa 2 marker** (hoặc đúng thời lượng ghi trong `CUE-OUT`), bỏ segment khớp `KKPHIM_AD_PATTERNS`, bỏ khối ngắn nằm ở **tên miền lạ** (adserver), rồi mới đưa playlist cho mpv/vlc — tua qua chỗ cắt không còn khựng vì có `#EXT-X-DISCONTINUITY`, playlist được chuẩn hoá thành VOD. Tải/cắt video cũng dùng chung bản đã lọc nên mốc thời gian khớp với lúc xem. Không lọc được (mạng lỗi, AES-128 thiếu IV, playlist lạ) thì **phát đúng link gốc**. Chẩn đoán: `./anisub.sh --kkphim-ad-debug "<link .m3u8>"`; bật/tắt ở `⚙️ Cài đặt → 🎞 Nguồn phim`<br>
 《🔧》- **Sửa lỗi “không thấy nguồn toon18x trong Cài đặt”**: anisub giờ **tự kiểm tra bộ `src/`** khi khởi động; thiếu module nguồn nào (ví dụ `toon18x.sh`) là **tự tải lại bộ nguồn** (bản cài git thì `git pull`), rồi mới mở menu — không còn cảnh bộ nguồn cũ nằm im. Không tải được (mất mạng) thì nói rõ đang thiếu nguồn nào và cách sửa; dòng `📚 Nguồn truyện` trong ⚙️ Cài đặt cũng gắn `⚠️ thiếu nguồn: …`. `🔄 Cập nhật` không còn bỏ qua khi “đã là bản mới nhất” mà `src/` vẫn thiếu module<br>
@@ -87,6 +88,7 @@ KKPHIM_SERVER_PREF="auto"              # auto | vietsub | long-tieng | thuyet-mi
 KKPHIM_AD_BLOCK="1"                    # 1 = bỏ quảng cáo chèn trong playlist .m3u8
 KKPHIM_AD_VARIANT="first"              # first (mượt) | max (nét) | 1..9
 KKPHIM_AD_FOREIGN_HOST="1"             # 1 = bỏ khối segment ở tên miền lạ (adserver)
+KKPHIM_AD_CUT=""                       # cắt thêm theo mốc, vd "14:55-15:40" (rỗng = không cắt)
 KKPHIM_AD_PATTERNS="ad,ads,advert,adserver,adtag,adslot,preroll,midroll,postroll,quangcao,promo,sponsor,vast,vmap,scte,banner"
 ```
 
@@ -106,10 +108,17 @@ tải playlist (kèm `Referer` / `User-Agent`) rồi lọc **trước khi phát*
    phân biệt mốc thời gian** (nên khối ở ~2:56 và khối ở ~14:58 được xử lý giống hệt): playlist được
    chia thành từng khối theo `#EXT-X-DISCONTINUITY`, khối nào **ngắn** (<= 25% số segment, <= 3 phút,
    tổng phần bỏ <= 35% phim) mà **khác phim** ở `host` **hoặc** `thư mục` **hoặc** `đuôi file`
-   **hoặc** `kiểu #EXTINF` (số chữ số thập phân) thì bỏ. Khối **giống hệt** phim thì giữ nguyên
+   **hoặc** `kiểu #EXTINF` (số chữ số thập phân) **hoặc** `kiểu tên file` (`00012.ts` vs `ad_01.ts`)
+   **hoặc** `thời lượng segment` (lệch > 34% so với trung vị của phim, khi khối nằm giữa 2
+   `#EXT-X-DISCONTINUITY`) thì bỏ. Khối **giống hệt** phim thì giữ nguyên
    (không thể phân biệt — tránh ăn mất nội dung). Tắt luật này bằng `KKPHIM_AD_FOREIGN_HOST="0"`;
    bỏ thêm tag quảng cáo kiểu `#EXT-X-SOFA-AD` và `#EXT-X-DATERANGE` có `CLASS`/`X-ASSET-URI` mang
    tiếng quảng cáo (interstitial/ad/promo/vast…) — DATERANGE không phải quảng cáo (chapter, …) giữ nguyên;
+4b. nếu **vẫn** còn quảng cáo mà nó giống hệt phim ở mọi dấu hiệu trên (chỉ biết "nó ở phút thứ
+   mấy"), bỏ thêm theo **mốc thời gian**: `KKPHIM_AD_CUT="14:55-15:40"` (nhiều khoảng cách nhau
+   bằng dấu phẩy, vd `"2:50-3:30,14:55-15:40"`). Đặt nhanh:
+   `./anisub.sh --kkphim-ad-cut "14:55-15:40"` (tắt: `--kkphim-ad-cut ""`). Khoảng cắt không bao
+   giờ vượt 60% phim — đặt sai cũng không làm mất phim;
 5. đổi URL tương đối (`segment`, `#EXT-X-KEY`, `#EXT-X-MAP`) sang tuyệt đối để file local vẫn tải
    được, **giữ nguyên** `#EXT-X-MEDIA-SEQUENCE` / `#EXT-X-DISCONTINUITY-SEQUENCE` (IV mặc định của
    AES-128 + mốc `BYTERANGE`), và **chèn `#EXT-X-DISCONTINUITY` đúng chỗ cắt** để trình phát nối
@@ -134,16 +143,25 @@ playlist để đối chiếu:
 # ~/.config/anisub_cli/cache/kkphim-playlist-filtered.m3u8    (bản dùng để phát)
 ```
 
-`./anisub.sh --doctor` cũng in dòng `🚫 Chặn QC` (bật/tắt + có bộ lọc `hls_adfree.pl` chưa) và
-`--kkphim-ad-debug` cho biết **lý do** từng segment bị bỏ (cue / mẫu URL / tên miền).
+**Nhật ký tự động** (không cần chạy lệnh gì trước): mỗi lần phát phim, bản đồ khối + lý do bỏ được
+ghi vào `~/.config/anisub_cli/cache/kkphim-adfree.log` (tự cắt bớt khi > 256KB). Xem 60 dòng cuối:
+
+```shell
+./anisub.sh --kkphim-ad-log
+```
+
+`./anisub.sh --doctor` cũng in dòng `🚫 Chặn QC` (bật/tắt + có bộ lọc `hls_adfree.pl` chưa + khoảng
+cắt theo mốc) và đường dẫn file nhật ký.
 
 Bật/tắt và chỉnh trong `⚙️ Cài đặt → 🎞 Nguồn phim`:
 **🚫 Chặn quảng cáo trong m3u8: bật/tắt**, **🎚️ Chất lượng khi lọc quảng cáo** (`first` / `max` /
-`1..3`), **🏷️ Mẫu nhận diện quảng cáo**.
+`1..3`), **⏱️ Cắt quảng cáo theo mốc** (vd `14:55-15:40`), **🏷️ Mẫu nhận diện quảng cáo**,
+**📝 Xem nhật ký chặn quảng cáo**.
 
-> Nếu **vẫn** thấy quảng cáo: chạy `--kkphim-ad-debug` với link m3u8 của tập đó rồi gửi mình file
-> playlist in ra — quảng cáo chèn server-side hoàn toàn có thể nhận diện thêm bằng mẫu URL hoặc
-> marker mới. Nếu phim **khựng** khi phát: đặt `🎚️ Chất lượng khi lọc quảng cáo` = `first`, hoặc tắt
+> Nếu **vẫn** thấy quảng cáo: (1) xem `./anisub.sh --kkphim-ad-log` để biết bộ lọc đã bỏ được khối
+> nào; (2) nếu quảng cáo nằm ở đúng một mốc cố định, cắt thẳng bằng
+> `./anisub.sh --kkphim-ad-cut "14:55-15:40"`; (3) gửi mình file nhật ký (hoặc
+> `--kkphim-ad-debug "<link .m3u8>"`) để thêm luật nhận diện. Nếu phim **khựng** khi phát: đặt `🎚️ Chất lượng khi lọc quảng cáo` = `first`, hoặc tắt
 > tạm `🚫 Chặn quảng cáo trong m3u8` để so sánh rồi báo lại.
 
 
@@ -164,7 +182,7 @@ và in mã HTTP + số kết quả nhận được (bản này chính là thứ 
 | `HTTP 000` | máy không với được `phimapi.com` | kiểm tra mạng / DNS / proxy / VPN, thử mạng khác |
 | `HTTP 403`, `429`, `5xx` | KKPhim chặn theo khu vực hoặc đang bảo trì | thử lại sau; nếu họ đổi host thì sửa `KKPHIM_API_URL` / `KKPHIM_SITE_URL` |
 | `HTTP 200 · 0 kết quả` | từ khóa không khớp | thử gõ không dấu, hoặc tên tiếng Việt đầy đủ có dấu |
-| Vẫn thấy quảng cáo ở giữa phim | playlist của tập đó chèn quảng cáo theo kiểu khác (không có marker, cùng host + cùng thư mục) | chạy `./anisub.sh --kkphim-ad-debug "<link .m3u8>"`, gửi kèm file playlist in ra để thêm mẫu nhận diện |
+| Vẫn thấy quảng cáo ở giữa phim | quảng cáo giống hệt phim ở mọi dấu hiệu (cùng host/thư mục/tên file/EXTINF) nên không có gì để nhận diện | `./anisub.sh --kkphim-ad-cut "14:55-15:40"` (đúng mốc bị quảng cáo); xem `./anisub.sh --kkphim-ad-log` rồi gửi file log để thêm luật |
 | Phim khựng sau khi bật chặn quảng cáo | mạng không đủ cho variant đang chọn | `⚙️ Cài đặt → 🎞 Nguồn phim → 🎚️ Chất lượng khi lọc quảng cáo` = `first`, hoặc tắt tạm `🚫 Chặn quảng cáo` để so sánh |
 | fzf quá cũ (không có action `reload:`, cần `>= 0.19`) | `--bind` bị báo lỗi, cửa sổ tìm không mở | anisub **tự chuyển** sang chế độ nhập từ khóa 1 lần (Enter để tải danh sách, vẫn gõ để lọc trong kết quả) |
 

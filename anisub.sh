@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANISUB_VERSION="2026.11.12d"
+ANISUB_VERSION="2026.11.12e"
 
 # --- CONFIGURATION & DATA FILES ---
 CONFIG_DIR="$HOME/.config/anisub_cli"
@@ -43,6 +43,10 @@ DEFAULT_KKPHIM_AD_PATTERNS="ad,ads,advert,adserver,adservice,adtag,adslot,prerol
 DEFAULT_KKPHIM_AD_VARIANT="first"
 # 1 = bỏ luôn khối segment nằm ở tên miền khác với CDN của phim (adserver)
 DEFAULT_KKPHIM_AD_FOREIGN_HOST=1
+# Cắt thêm theo MỐC THỜI GIAN khi quảng cáo không có dấu hiệu nào để nhận diện
+# (cùng host/thư mục/tên file/EXTINF với phim). Ví dụ: "14:55-15:40", hoặc nhiều
+# khoảng "2:50-3:30,14:55-15:40". Để trống = không cắt theo mốc (mặc định).
+DEFAULT_KKPHIM_AD_CUT=""
 KKPHIM_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 KKPHIM_SITE_URL=""
 KKPHIM_API_URL=""
@@ -55,6 +59,7 @@ KKPHIM_AD_BLOCK=""
 KKPHIM_AD_PATTERNS=""
 KKPHIM_AD_VARIANT=""
 KKPHIM_AD_FOREIGN_HOST=""
+KKPHIM_AD_CUT=""
 KKPHIM_ADFREE_FILE=""
 KKPHIM_ADFREE_STATS=""
 KKPHIM_FFMPEG_HEADERS=""
@@ -198,6 +203,7 @@ load_config() {
         echo "KKPHIM_AD_PATTERNS=\"$DEFAULT_KKPHIM_AD_PATTERNS\"" >> "$CONFIG_FILE"
         echo "KKPHIM_AD_VARIANT=\"$DEFAULT_KKPHIM_AD_VARIANT\"" >> "$CONFIG_FILE"
         echo "KKPHIM_AD_FOREIGN_HOST=\"$DEFAULT_KKPHIM_AD_FOREIGN_HOST\"" >> "$CONFIG_FILE"
+        echo "KKPHIM_AD_CUT=\"$DEFAULT_KKPHIM_AD_CUT\"" >> "$CONFIG_FILE"
     fi
     ANISUB_CONFIG_HAS_SOURCE=0
     grep -q '^MANGA_SOURCE=' "$CONFIG_FILE" 2>/dev/null && ANISUB_CONFIG_HAS_SOURCE=1
@@ -240,6 +246,7 @@ load_config() {
     KKPHIM_AD_PATTERNS=${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}
     KKPHIM_AD_VARIANT=${KKPHIM_AD_VARIANT:-$DEFAULT_KKPHIM_AD_VARIANT}
     KKPHIM_AD_FOREIGN_HOST=${KKPHIM_AD_FOREIGN_HOST:-$DEFAULT_KKPHIM_AD_FOREIGN_HOST}
+    KKPHIM_AD_CUT=${KKPHIM_AD_CUT:-$DEFAULT_KKPHIM_AD_CUT}
     # Playlist đã lọc + file thống kê dùng chung 1 đường dẫn cố định để trap dọn được
     KKPHIM_ADFREE_FILE="${TMPDIR:-/tmp}/anisub-adfree-$$.m3u8"
     KKPHIM_ADFREE_STATS="${TMPDIR:-/tmp}/anisub-adfree-$$.stats"
@@ -288,6 +295,7 @@ save_config() {
         echo "KKPHIM_AD_PATTERNS=\"${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}\""
         echo "KKPHIM_AD_VARIANT=\"${KKPHIM_AD_VARIANT:-$DEFAULT_KKPHIM_AD_VARIANT}\""
         echo "KKPHIM_AD_FOREIGN_HOST=\"${KKPHIM_AD_FOREIGN_HOST:-$DEFAULT_KKPHIM_AD_FOREIGN_HOST}\""
+        echo "KKPHIM_AD_CUT=\"${KKPHIM_AD_CUT:-$DEFAULT_KKPHIM_AD_CUT}\""
     } > "$CONFIG_FILE" 2>/dev/null || {
         echo "⚠️ Không ghi được cấu hình: $CONFIG_FILE" >&2
         return 1
@@ -894,7 +902,8 @@ anisub_doctor() {
         else
             ad_filter="⚠️ thiếu hls_adfree.pl → chạy ./anisub.sh --update"
         fi
-        echo "🚫 Chặn QC : $ad_state · bộ lọc: $ad_filter"
+        echo "🚫 Chặn QC : $ad_state · bộ lọc: $ad_filter · cắt mốc: ${KKPHIM_AD_CUT:-không}"
+        echo "📝 Nhật ký QC: ${CACHE_DIR:-$HOME/.config/anisub_cli}/kkphim-adfree.log (xem: ./anisub.sh --kkphim-ad-log)"
     else
         echo "🚫 Chặn QC : ⚠️ bộ src/ là bản cũ (không có phần lọc quảng cáo)"
     fi
@@ -1103,6 +1112,40 @@ anisub_main_entry() {
         load_config
         shift
         kkphim_ad_report "${1:-}"
+        exit $?
+    fi
+
+    # Đặt khoảng thời gian cần cắt quảng cáo: ./anisub.sh --kkphim-ad-cut "14:55-15:40"
+    if [ "${1:-}" = "--kkphim-ad-cut" ] || [ "${1:-}" = "--ad-cut" ]; then
+        local _cut="${2:-}"
+        if [ -n "$_cut" ]; then
+            local _ok=1 _r
+            for _r in $(printf '%s' "$_cut" | tr ',' ' '); do
+                printf '%s' "$_r" | grep -Eq '^[0-9]+(:[0-9]+){1,2}-[0-9]+(:[0-9]+){1,2}$' || _ok=0
+            done
+            if [ "$_ok" != "1" ]; then
+                echo "❌ Sai định dạng: $_cut"
+                echo "   Đúng: mm:ss-mm:ss, nhiều khoảng cách nhau bằng dấu phẩy."
+                echo "   Ví dụ: ./anisub.sh --kkphim-ad-cut \"14:55-15:40\""
+                exit 1
+            fi
+        fi
+        load_config
+        KKPHIM_AD_CUT="$_cut"
+        save_config > /dev/null 2>&1
+        if [ -n "$KKPHIM_AD_CUT" ]; then
+            echo "✅ Cắt quảng cáo theo mốc: $KKPHIM_AD_CUT"
+            echo "   (bỏ mọi segment nằm trong khoảng này, kể cả khi không có dấu hiệu nào khác)"
+        else
+            echo "✅ Đã tắt cắt theo mốc (chỉ dùng nhận diện tự động)."
+        fi
+        exit 0
+    fi
+
+    # Xem nhật ký chặn quảng cáo: ./anisub.sh --kkphim-ad-log
+    if [ "${1:-}" = "--kkphim-ad-log" ] || [ "${1:-}" = "--ad-log" ]; then
+        load_config
+        kkphim_ad_log_show
         exit $?
     fi
 
