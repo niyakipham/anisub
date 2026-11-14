@@ -688,6 +688,60 @@ has "bản đồ khối đánh dấu ⚠️thư-mục-lạ" "⚠️thư-mục-l�
 check "khối giống hệt phim -> không bỏ nhầm nội dung" "20" \
     "$(KKPHIM_BASE="https://a.kvp726.com/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/same-sig.m3u8" | grep -cE '^https?://')"
 
+# --- quảng cáo cùng host/thư mục/EXTINF, chỉ khác KIỂU TÊN FILE (ad_01.ts)
+{
+    echo "#EXTM3U"; echo "#EXT-X-TARGETDURATION:6"
+    for i in $(seq 0 29); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-DISCONTINUITY"
+    for i in $(seq 0 3); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/ad_$i.ts"; done
+    echo "#EXT-X-DISCONTINUITY"
+    for i in $(seq 30 59); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-ENDLIST"
+} > "$WORK/tpl.m3u8"
+check "bỏ khối quảng cáo khác KIỂU TÊN FILE" "60" \
+    "$(KKPHIM_BASE="https://a.kvp726.com/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" \
+        < "$WORK/tpl.m3u8" | grep -cE '^https?://')"
+
+# --- quảng cáo cùng tên file, chỉ khác THỜI LƯỢNG segment (15s vs 6s)
+{
+    echo "#EXTM3U"; echo "#EXT-X-TARGETDURATION:15"
+    for i in $(seq 0 29); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-DISCONTINUITY"
+    for i in $(seq 100 102); do echo "#EXTINF:15.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-DISCONTINUITY"
+    for i in $(seq 30 59); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-ENDLIST"
+} > "$WORK/dur.m3u8"
+check "bỏ khối quảng cáo khác THỜI LƯỢNG segment" "60" \
+    "$(KKPHIM_BASE="https://a.kvp726.com/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" \
+        < "$WORK/dur.m3u8" | grep -cE '^https?://')"
+
+# --- không bỏ nhầm: segment cuối ngắn (2s) của phim
+{
+    echo "#EXTM3U"; echo "#EXT-X-TARGETDURATION:6"
+    for i in $(seq 0 28); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXTINF:2.000,"; echo "https://a.kvp726.com/x/29.ts"; echo "#EXT-X-ENDLIST"
+} > "$WORK/tail.m3u8"
+check "giữ segment cuối ngắn của phim (không bỏ nhầm)" "30" \
+    "$(KKPHIM_BASE="https://a.kvp726.com/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" \
+        < "$WORK/tail.m3u8" | grep -cE '^https?://')"
+
+# --- cắt theo MỐC THỜI GIAN (KKPHIM_AD_CUT): 60 segment x 6s = 6 phút, cắt 4:00-4:20
+{
+    echo "#EXTM3U"; echo "#EXT-X-TARGETDURATION:6"
+    for i in $(seq 0 59); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-ENDLIST"
+} > "$WORK/cut.m3u8"
+KKPHIM_AD_CUT="4:00-4:20" KKPHIM_BASE="https://a.kvp726.com/x/index.m3u8" \
+    KKPHIM_AD_STATS="$WORK/cut.stats" perl "$ROOT/src/movie/hls_adfree.pl" < \
+    "$WORK/cut.m3u8" > "$WORK/cut.out" 2>/dev/null
+check "cắt theo mốc thời gian (KKPHIM_AD_CUT)" "4" "$(sed -n 's/^reason_time=//p' "$WORK/cut.stats")"
+check "cắt mốc 4:00-4:20 -> bỏ 4 segment, giữ 56" "56" \
+    "$(grep -cE '^https?://' "$WORK/cut.out")"
+check "mốc sai (cắt >60% phim) -> không cắt gì" "60" \
+    "$(KKPHIM_AD_CUT="0:00-5:00" KKPHIM_BASE="https://a.kvp726.com/x/index.m3u8" \
+        perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/cut.m3u8" | grep -cE '^https?://')"
+
 # --- chẩn đoán: lưu playlist gốc + đã lọc, in bản đồ khối
 : > "$MOCK_CURL_LOG"
 kkphim_ad_report "https://cdn.phim.test/hls/phim/master.m3u8" > "$WORK/report.txt" 2>&1
@@ -695,6 +749,11 @@ has "chẩn đoán in bản đồ khối" "KHỐI" "$(cat "$WORK/report.txt")"
 has "chẩn đoán in lý do khối lạ" "khối-lạ=" "$(cat "$WORK/report.txt")"
 check "chẩn đoán lưu playlist GỐC" "1" "$([ -s "$CACHE_DIR/kkphim-playlist-original.m3u8" ] && echo 1 || echo 0)"
 check "chẩn đoán lưu playlist ĐÃ LỌC" "1" "$([ -s "$CACHE_DIR/kkphim-playlist-filtered.m3u8" ] && echo 1 || echo 0)"
+check "nhật ký chặn QC có bản đồ khối" "1" \
+    "$(n=$(grep -c 'BẢN ĐỒ KHỐI' "$CACHE_DIR/kkphim-adfree.log" 2>/dev/null || echo 0); [ "${n:-0}" -ge 1 ] && echo 1 || echo 0)"
+has "xem nhật ký bằng --kkphim-ad-log" "Nhật ký chặn quảng cáo" "$(kkphim_ad_log_show 2>&1)"
+check "nhật ký ghi lý do bỏ (reason_)" "1" \
+    "$(n=$(grep -cE 'reason_(cue|pattern|block|time)=' "$CACHE_DIR/kkphim-adfree.log" 2>/dev/null || echo 0); [ "${n:-0}" -ge 1 ] && echo 1 || echo 0)"
 
 # --- ca bug thật: tập 24 phút, quảng cáo 60s chèn ở ~phút 14:54 (cùng host với phim)
 {
@@ -819,6 +878,26 @@ has "cài đặt có mục mẫu nhận diện" "Mẫu nhận diện quảng cá
     "$(grep -o 'Mẫu nhận diện quảng cáo' "$ROOT/src/movie/kkphim.sh" | head -1)"
 has "config lưu KKPHIM_AD_BLOCK" 'KKPHIM_AD_BLOCK="' "$(save_config >/dev/null; cat "$CONFIG_FILE")"
 has "CLI có --kkphim-ad-debug" "kkphim-ad-debug" "$(src_has 'kkphim-ad-debug')"
+has "cài đặt có mục cắt quảng cáo theo mốc" "Cắt quảng cáo theo mốc" \
+    "$(grep -o 'Cắt quảng cáo theo mốc' "$ROOT/src/movie/kkphim.sh" | head -1)"
+has "cài đặt có mục xem nhật ký chặn QC" "Xem nhật ký chặn quảng cáo" \
+    "$(grep -o 'Xem nhật ký chặn quảng cáo' "$ROOT/src/movie/kkphim.sh" | head -1)"
+has "config lưu KKPHIM_AD_CUT" 'KKPHIM_AD_CUT="' "$(save_config >/dev/null; cat "$CONFIG_FILE")"
+# CLI --kkphim-ad-cut: hợp lệ -> lưu config; sai -> báo lỗi, exit 1
+_cut_home="$WORK/cut-home"
+mkdir -p "$_cut_home"
+( export HOME="$_cut_home"; cd "$ROOT" && PATH="$HERE/mockbin:$PATH" timeout 30 \
+    bash ./anisub.sh --kkphim-ad-cut "14:55-15:40" > "$WORK/cut-cli.txt" 2>&1 )
+has "CLI --kkphim-ad-cut lưu khoảng" 'KKPHIM_AD_CUT="14:55-15:40"' \
+    "$(grep 'KKPHIM_AD_CUT=' "$_cut_home/.config/anisub_cli/config.cfg" 2>/dev/null)"
+( export HOME="$_cut_home"; cd "$ROOT" && PATH="$HERE/mockbin:$PATH" timeout 30 \
+    bash ./anisub.sh --kkphim-ad-cut "sai-dinh-dang" > "$WORK/cut-bad.txt" 2>&1 ); _cut_rc=$?
+check "CLI --kkphim-ad-cut sai định dạng -> exit 1" "1" "$_cut_rc"
+has "CLI --kkphim-ad-cut báo lỗi rõ ràng" "Sai định dạng" "$(cat "$WORK/cut-bad.txt")"
+# đường phát phim có tôn trọng KKPHIM_AD_CUT
+: > "$MOCK_CURL_LOG"
+KKPHIM_AD_CUT="0:10-0:25" _cut_play=$(kkphim_play_url "https://cdn.phim.test/hls/phim/master.m3u8")
+check "phát phim có cắt theo mốc" "2" "$(grep -cE '^https?://' "$_cut_play" 2>/dev/null || echo 0)"
 has "CLI ad-debug in hướng dẫn khi thiếu URL" "Cách dùng" \
     "$(kkphim_ad_report '' 2>&1 | head -1)"
 

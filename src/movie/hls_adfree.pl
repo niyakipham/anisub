@@ -83,6 +83,12 @@ sub is_ad {
     return 0;
 }
 
+sub to_sec {    # "14:58" / "1:14:58" -> giây
+    my ($t) = @_;
+    return undef unless defined $t && $t =~ /^(?:(\d+):)?(\d+):(\d+)$/;
+    return $1 ? $1 * 3600 + $2 * 60 + $3 : $2 * 60 + $3;
+}
+
 sub hhmmss {
     my ($s) = @_;
     $s = int($s + 0.5);
@@ -133,6 +139,11 @@ for my $i (0 .. $#units) {
     (my $ext = $file) =~ s/^.*\.//;
     $u->{dir} = $dir;
     $u->{ext} = lc($ext // '');
+    # Kiểu tên file: 00123.ts -> ###.ts, ad_5.ts -> ad_#.ts. Quảng cáo hay đặt tên
+    # file khác phim dù cùng host/thư mục -> thêm một dấu hiệu để nhận ra.
+    (my $tpl = $file) =~ s/\d+/#/g;
+    $tpl = '#' if $tpl =~ /^#+$/;
+    $u->{tpl} = $tpl;
     $seg_total++;
     push @seg_idx, $i;
 }
@@ -148,7 +159,8 @@ for my $i (@seg_idx) {
     if ($starts) {
         push @blocks, $cur if defined $cur;
         $cur = { idx => [], n => 0, dur => 0, first_disc => ($u->{disc} ? 1 : 0),
-                 dom => {}, dir => {}, ext => {}, prec => {}, t0 => $t };
+                 dom => {}, dir => {}, ext => {}, prec => {}, tpl => {}, t0 => $t,
+                 brk => ($u->{disc} ? 1 : 0) };
     }
     push @{ $cur->{idx} }, $i;
     $cur->{n}++;
@@ -157,6 +169,7 @@ for my $i (@seg_idx) {
     $cur->{dir}{ $u->{dir} }++;
     $cur->{ext}{ $u->{ext} }++;
     $cur->{prec}{ $u->{prec} }++;
+    $cur->{tpl}{ $u->{tpl} }++;
     $t += $u->{dur};
     $cur->{t1} = $t;
 }
@@ -175,14 +188,16 @@ sub dominant {
 
 # ─── 3b. Chế độ "blocks": in bản đồ khối để chẩn đoán ─────────────────────────
 if ($mode eq 'blocks') {
-    my %all = (dom => {}, dir => {}, ext => {}, prec => {});
+    my %all = (dom => {}, dir => {}, ext => {}, prec => {}, tpl => {});
     for my $i (@seg_idx) {
         my $u = $units[$i];
-        $all{$_}{ $u->{$_} }++ for qw(dom dir ext prec);
+        $all{$_}{ $u->{$_} }++ for qw(dom dir ext prec tpl);
     }
     my ($g_dom) = dominant($all{dom});
-    printf "%-4s %-11s %-11s %5s %8s  %-22s %-28s %-6s %s\n",
-        'KHỐI', 'TỪ', 'ĐẾN', 'SEG', 'GIÂY', 'HOST', 'THƯ MỤC', 'EXTINF', 'ĐUÔI';
+    my ($g_dir) = dominant($all{dir});
+    my ($g_tpl) = dominant($all{tpl});
+    printf "%-4s %-11s %-11s %5s %8s  %-16s %-26s %-6s %-5s %s\n",
+        'KHỐI', 'TỪ', 'ĐẾN', 'SEG', 'GIÂY', 'HOST', 'THƯ MỤC', 'EXTINF', 'ĐUÔI', 'TÊN FILE';
     my $k = 0;
     for my $b (@blocks) {
         $k++;
@@ -190,13 +205,17 @@ if ($mode eq 'blocks') {
         my ($bdir) = dominant($b->{dir});
         my ($bext) = dominant($b->{ext});
         my ($bprec) = dominant($b->{prec});
+        my ($btpl) = dominant($b->{tpl});
         my $flag = '';
-        $flag .= ' ⚠️host-lạ'  if $bd ne $g_dom;
-        $flag .= ' ⚠️thư-mục-lạ' if $b->{first_disc} && $bdir ne (dominant($all{dir}))[0];
+        $flag .= ' ⚠️host-lạ'     if $bd   ne $g_dom;
+        $flag .= ' ⚠️thư-mục-lạ'  if $bdir ne $g_dir;
+        $flag .= ' ⚠️tên-lạ'      if $btpl ne $g_tpl;
         $flag .= ' ⚠️CUE' if grep { /^#EXT-X-CUE-(?:OUT|IN)/i } map { @{ $units[$_]{tags} } } @{ $b->{idx} };
-        printf "%-4s %-11s %-11s %5s %8s  %-22s %-28s %-6s %s%s\n",
+        $flag .= ' ⚠️DATERANGE' if grep { /^#EXT-X-DATERANGE:/i && is_ad_like_daterange($_) }
+            map { @{ $units[$_]{tags} } } @{ $b->{idx} };
+        printf "%-4s %-11s %-11s %5s %8s  %-16s %-26s %-6s %-5s %s%s\n",
             $k, hhmmss($b->{t0}), hhmmss($b->{t1}), $b->{n}, int($b->{dur} + 0.5),
-            $bd, $bdir, ($bprec < 0 ? '?' : $bprec . ' số'), $bext, $flag;
+            $bd, $bdir, ($bprec < 0 ? '?' : $bprec . ' số'), $bext, $btpl, $flag;
     }
     exit 0;
 }
@@ -207,28 +226,43 @@ if ($mode eq 'blocks') {
 # Đoạn được tính lại mỗi khi gặp #EXT-X-DISCONTINUITY hoặc khi dấu hiệu đổi, nên
 # khối quảng cáo ở 2:56 và khối ở 14:58 đều được xử lý bởi CÙNG một luật này —
 # không phải "bắt" riêng từng mốc thời gian.
-my %all = (dom => {}, dir => {}, ext => {}, prec => {});
+my %all = (dom => {}, dir => {}, ext => {}, prec => {}, tpl => {});
 for my $i (@seg_idx) {
     my $u = $units[$i];
-    $all{$_}{ $u->{$_} }++ for qw(dom dir ext prec);
+    $all{$_}{ $u->{$_} }++ for qw(dom dir ext prec tpl);
 }
 my ($g_dom, $g_dom_share)   = dominant($all{dom});
 my ($g_dir, $g_dir_share)   = dominant($all{dir});
 my ($g_ext, $g_ext_share)   = dominant($all{ext});
 my ($g_prec, $g_prec_share) = dominant($all{prec});
+my ($g_tpl,  $g_tpl_share)  = dominant($all{tpl});
+my ($g_ext2, $g_ext_share2) = ($g_ext, $g_ext_share);
 
-my @runs;    # { idx=>[], n, dur, sig, dom, dir, ext, prec }
+# thời lượng "chuẩn" của phim (trung vị) — quảng cáo hay dùng segment dài/ngắn khác
+my @durs = sort { $a <=> $b } map { $units[$_]{dur} } @seg_idx;
+my $g_med = @durs ? $durs[ int($#durs / 2) ] : 0;
+
+my @runs;    # { idx=>[], n, dur, sig, dom, dir, ext, prec, tpl, brk }
 for my $i (@seg_idx) {
     my $u = $units[$i];
-    my $sig = join('|', $u->{dom}, $u->{dir}, $u->{ext}, ($u->{prec} < 0 ? '?' : $u->{prec}));
+    my $sig = join('|', $u->{dom}, $u->{dir}, $u->{ext},
+        ($u->{prec} < 0 ? '?' : $u->{prec}), $u->{tpl});
     if (@runs && !$u->{disc} && $runs[-1]{sig} eq $sig) {
         push @{ $runs[-1]{idx} }, $i;
         $runs[-1]{n}++;
         $runs[-1]{dur} += $u->{dur};
     } else {
         push @runs, { idx => [$i], n => 1, dur => $u->{dur}, sig => $sig,
-                      dom => $u->{dom}, dir => $u->{dir}, ext => $u->{ext}, prec => $u->{prec} };
+                      dom => $u->{dom}, dir => $u->{dir}, ext => $u->{ext},
+                      prec => $u->{prec}, tpl => $u->{tpl}, brk => ($u->{disc} ? 1 : 0) };
     }
+}
+# run được "bọc" bởi #EXT-X-DISCONTINUITY ở đầu và/hoặc cuối?
+for my $k (0 .. $#runs) {
+    my $r = $runs[$k];
+    my $last_i = $r->{idx}[-1];
+    my $ends_disc = ($last_i < $#units && $units[ $last_i + 1 ]{disc}) ? 1 : 0;
+    $r->{brk_after} = $ends_disc;
 }
 
 my %drop_block;
@@ -239,12 +273,17 @@ if ($foreign && $seg_total >= 4 && scalar(@runs) > 1) {
     for my $r (@runs) {
         next if $r->{n} > $max_seg;          # đoạn dài = nội dung
         next if $r->{dur} > 180;             # quảng cáo không dài quá 3 phút
-        next if $r->{sig} eq join('|', $g_dom, $g_dir, $g_ext, ($g_prec < 0 ? '?' : $g_prec));
         my $odd = 0;
         $odd = 1 if $g_dom_share  >= 0.7  && $r->{dom}  ne $g_dom;
         $odd = 1 if $g_dir_share  >= 0.7  && $r->{dir}  ne $g_dir;
         $odd = 1 if $g_ext_share  >= 0.7  && $r->{ext}  ne $g_ext;
         $odd = 1 if $g_prec_share >= 0.85 && $r->{prec} >= 0 && $r->{prec} ne $g_prec;
+        $odd = 1 if $g_tpl_share  >= 0.8  && $r->{tpl}  ne $g_tpl;
+        # thời lượng khác hẳn phim + có DISCONTINUITY ở (ít nhất) một đầu
+        if (!$odd && $g_med > 0 && ($r->{brk} || $r->{brk_after}) && $r->{n} <= $max_seg) {
+            my $mean = $r->{dur} / ($r->{n} || 1);
+            $odd = 1 if abs($mean - $g_med) / $g_med > 0.34;
+        }
         next unless $odd;
         # tổng phần bị bỏ vẫn phải "nhỏ" so với cả phim (tránh xoá nửa phim)
         next if $drop_n + $r->{n} > $seg_total * 0.35;
@@ -255,10 +294,39 @@ if ($foreign && $seg_total >= 4 && scalar(@runs) > 1) {
     }
 }
 
+# ─── 4b. Cắt thêm theo MỐC THỜI GIAN người dùng chỉ định ─────────────────────
+# KKPHIM_AD_CUT="14:55-15:40"  ->  bỏ mọi segment nằm trong khoảng đó.
+# Dùng khi quảng cáo không có dấu hiệu nào khác để nhận diện (cùng host/thư mục/
+# tên file/EXTINF) mà chỉ biết nó nằm ở phút thứ mấy.
+my %drop_time;
+my @ranges;
+for my $r (split /[,;\s]+/, ($ENV{KKPHIM_AD_CUT} // '')) {
+    next unless $r =~ /^(\d+(?::\d+){1,2})-(\d+(?::\d+){1,2})$/;
+    my ($a, $b) = (to_sec($1), to_sec($2));
+    push @ranges, [ $a, $b ] if defined $a && defined $b && $b > $a;
+}
+if (@ranges) {
+    my $tt = 0;
+    my $hit = 0;
+    for my $i (@seg_idx) {
+        my $u = $units[$i];
+        my ($st, $en) = ($tt, $tt + $u->{dur});
+        $tt = $en;
+        for my $rg (@ranges) {
+            next unless $st < $rg->[1] && $en > $rg->[0];
+            $drop_time{$i} = 1;
+            $hit++;
+            last;
+        }
+    }
+    # chốt an toàn: không bao giờ cắt quá 60% phim dù khoảng chỉ định sai
+    %drop_time = () if $hit > $seg_total * 0.6;
+}
+
 # ─── 5. Duyệt playlist: bỏ khối CUE-OUT..CUE-IN, segment khớp mẫu, khối lạ ────
 my @out;
 my ($kept, $dropped, $dropped_sec, $kept_dur) = (0, 0, 0, 0);
-my %reasons = (cue => 0, pattern => 0, host => 0, block => 0);
+my %reasons = (cue => 0, pattern => 0, host => 0, block => 0, time => 0);
 my @dropped_urls;
 my $ad_left = 0;        # 0 = không trong khối quảng cáo; >0 = còn bấy nhiêu giây
 my $ad_unknown = 0;     # 1 = CUE-OUT không ghi thời lượng (kết thúc ở CUE-IN/DISCONTINUITY)
@@ -314,6 +382,7 @@ for my $i (0 .. $#units) {
         if    ($ad_left != 0)    { $reason = 'cue'; }
         elsif (is_ad($u->{uri})) { $reason = 'pattern'; }
         elsif ($drop_block{$i})  { $reason = 'block'; }
+        elsif ($drop_time{$i})   { $reason = 'time'; }
 
         if ($reason) {
             $dropped++;
@@ -370,6 +439,7 @@ if ($stats_f ne '') {
         print $fh "reason_pattern=$reasons{pattern}\n";
         print $fh "reason_host=$reasons{host}\n";
         print $fh "reason_block=$reasons{block}\n";
+        print $fh "reason_time=$reasons{time}\n";
         print $fh "blocks=" . scalar(@blocks) . "\n";
         print $fh "url=$_\n" for @dropped_urls;
         close $fh;

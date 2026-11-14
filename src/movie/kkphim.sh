@@ -640,6 +640,54 @@ kkphim_ad_stat() {
 }
 
 # Tải + lọc playlist, in ra đường dẫn file .m3u8 đã lọc. Lỗi -> return 1.
+# Nhật ký chặn quảng cáo: ghi bản đồ khối của playlist vừa phát vào 1 file log
+# (~/.config/anisub_cli/logs/adfree.log, tự cắt bớt khi > 256KB) để gửi kèm khi
+# báo lỗi "vẫn còn quảng cáo". Lỗi ghi log không bao giờ làm hỏng việc phát phim.
+kkphim_ad_log() {
+    local url="$1" text="$2" stats="$3" pl="$4"
+    local dir="${CACHE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/anisub_cli}"
+    local log="$dir/kkphim-adfree.log"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    if [ -f "$log" ] && [ "$(wc -c < "$log" 2>/dev/null || echo 0)" -gt 262144 ]; then
+        mv -f "$log" "$log.1" 2>/dev/null
+    fi
+    {
+        echo "═══ $(date '+%Y-%m-%d %H:%M:%S') · anisub $ANISUB_VERSION"
+        echo "URL : $url"
+        echo "Cắt theo mốc: ${KKPHIM_AD_CUT:-<không đặt>}"
+        if [ -s "$stats" ]; then
+            echo "SỐ LIỆU: $(grep -E '^(kept|dropped|dropped_sec|segments|reason_)' "$stats" | tr '\n' ' ')"
+            sed -n 's/^url=/  · bỏ: /p' "$stats" 2>/dev/null
+        fi
+        if [ -n "$pl" ]; then
+            echo "BẢN ĐỒ KHỐI:"
+            printf '%s\n' "$text" \
+                | KKPHIM_BASE="$url" KKPHIM_AD_MODE=blocks \
+                  KKPHIM_AD_PATTERNS="${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}" \
+                  perl "$pl" 2>/dev/null | sed 's/^/  /'
+        fi
+        echo ""
+    } >> "$log" 2>/dev/null
+    return 0
+}
+
+# ./anisub.sh --kkphim-ad-log : xem nhật ký chặn quảng cáo (gửi kèm khi báo lỗi
+# "vẫn còn quảng cáo"). In đường dẫn + 60 dòng cuối.
+kkphim_ad_log_show() {
+    local dir="${CACHE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/anisub_cli}"
+    local log="$dir/kkphim-adfree.log"
+    echo "📝 Nhật ký chặn quảng cáo: $log"
+    if [ ! -s "$log" ]; then
+        echo "   (chưa có gì — mở một tập phim rồi xem lại, hoặc chạy --kkphim-ad-debug \"<link .m3u8>\")"
+        return 0
+    fi
+    echo "   ── 60 dòng cuối ─────────────────────────────────────────────────"
+    tail -60 "$log" | sed 's/^/   /'
+    echo "   ─────────────────────────────────────────────────────────────────"
+    echo "   → Nếu VẪN thấy quảng cáo: gửi file này (hoặc đoạn ứng với tập bị lỗi)."
+    return 0
+}
+
 kkphim_adfree_playlist() {
     local url="$1" text variant filtered out stats pl
     pl=$(kkphim_hls_filter_script) || return 1
@@ -675,6 +723,7 @@ kkphim_adfree_playlist() {
         | KKPHIM_BASE="$url" \
           KKPHIM_AD_PATTERNS="${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}" \
           KKPHIM_AD_FOREIGN_HOST="${KKPHIM_AD_FOREIGN_HOST:-$DEFAULT_KKPHIM_AD_FOREIGN_HOST}" \
+          KKPHIM_AD_CUT="${KKPHIM_AD_CUT:-}" \
           KKPHIM_AD_STATS="$stats" \
           perl "$pl" 2>/dev/null) || return 1
     [ -z "$filtered" ] && return 1
@@ -682,6 +731,10 @@ kkphim_adfree_playlist() {
 
     out="${KKPHIM_ADFREE_FILE:-${TMPDIR:-/tmp}/anisub-adfree-$$.m3u8}"
     printf '%s\n' "$filtered" > "$out" 2>/dev/null || return 1
+    # Nhật ký: mỗi lần lọc đều ghi lại bản đồ khối + số segment bỏ được, để sau khi
+    # xem phim mà VẪN thấy quảng cáo thì chỉ cần gửi 1 file log này (không phải
+    # chạy lệnh chẩn đoán, không cần biết mốc thời gian).
+    kkphim_ad_log "$url" "$text" "$stats" "$pl"
     printf '%s' "$out"
 }
 
@@ -1261,7 +1314,7 @@ show_source_settings() {
     while true; do
         local ad_state
         ad_state=$(kkphim_ad_block_enabled && echo 'bật' || echo 'tắt')
-        opt=$(echo -e "🩺 Kiểm tra kết nối & phụ thuộc\n🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🚫 Chặn quảng cáo trong m3u8: $ad_state\n🎚️ Chất lượng khi lọc quảng cáo: ${KKPHIM_AD_VARIANT:-first}\n🏷️ Mẫu nhận diện quảng cáo\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document · lỗi tìm kiếm? chạy 🩺 trước")
+        opt=$(echo -e "🩺 Kiểm tra kết nối & phụ thuộc\n🌐 Trang web nguồn: $KKPHIM_SITE_URL\n🔌 API nguồn: $KKPHIM_API_URL\n🖼️ CDN ảnh: $KKPHIM_CDN_URL\n🔉 Server ưu tiên: ${KKPHIM_SERVER_PREF:-auto}\n🔎 Số kết quả tìm kiếm: ${KKPHIM_SEARCH_LIMIT:-24}\n⏱️ Cache chi tiết phim: ${KKPHIM_DETAIL_TTL:-600}s\n🚫 Chặn quảng cáo trong m3u8: $ad_state\n🎚️ Chất lượng khi lọc quảng cáo: ${KKPHIM_AD_VARIANT:-first}\n⏱️ Cắt quảng cáo theo mốc: ${KKPHIM_AD_CUT:-không}\n🏷️ Mẫu nhận diện quảng cáo\n📝 Xem nhật ký chặn quảng cáo\n🧹 Xóa cache nguồn phim\n🔙 Quay lại" | fzf --prompt="🎞 Nguồn phim ($SOURCE_NAME) > " --header="Tài liệu API của KKPhim: $KKPHIM_SITE_URL/api-document · lỗi tìm kiếm? chạy 🩺 trước")
         case "$opt" in
             *"Kiểm tra kết nối"*)
                 clear
@@ -1324,6 +1377,25 @@ show_source_settings() {
                 save_config
                 echo "🎚️ Variant khi lọc quảng cáo: $KKPHIM_AD_VARIANT"
                 sleep 1 ;;
+            *"Cắt quảng cáo theo mốc"*)
+                echo "Hiện tại: ${KKPHIM_AD_CUT:-<không cắt theo mốc>}"
+                echo "  Dùng khi quảng cáo KHÔNG có dấu hiệu nào để nhận diện (cùng host,"
+                echo "  thư mục, tên file, kiểu #EXTINF như phim) mà chỉ biết nó ở phút thứ mấy."
+                echo "  Định dạng: mm:ss-mm:ss, nhiều khoảng cách nhau bằng dấu phẩy."
+                echo "  Ví dụ: 14:55-15:40   hoặc   2:50-3:30,14:55-15:40"
+                read -r -p "Nhập khoảng mới (Enter = giữ nguyên, 'off' = tắt): " inp
+                case "$inp" in
+                    "")   continue ;;
+                    off|OFF|0|no) KKPHIM_AD_CUT="" ;;
+                    *)    KKPHIM_AD_CUT="$inp" ;;
+                esac
+                save_config
+                echo "⏱️ Cắt quảng cáo theo mốc: ${KKPHIM_AD_CUT:-không}"
+                sleep 1 ;;
+            *"Xem nhật ký chặn quảng cáo"*)
+                clear
+                kkphim_ad_log_show
+                read -r -p "Enter để quay lại... " _ ;;
             *"Mẫu nhận diện quảng cáo"*)
                 echo "Hiện tại: ${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}"
                 echo "  (các mẫu cách nhau bằng dấu phẩy; so khớp nguyên một thành phần host/đường dẫn)"
