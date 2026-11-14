@@ -25,6 +25,7 @@
 《🔝》- Thêm level để leo rank<br>
 《🪟》- Chạy trên windows<br>
 ## UPDATE
+《🚫》- **Quảng cáo ở ~14:58/14:59 giờ được xử lý y như khối ở ~2:56**: bộ lọc không "bắt" riêng từng mốc thời gian mà chia playlist thành từng **khối theo `#EXT-X-DISCONTINUITY`** rồi bỏ mọi khối ngắn nằm giữa phim mà **khác phim ở host / thư mục / đuôi file / kiểu `#EXTINF`** (hoặc bọc bởi `CUE-OUT`/`CUE-IN`). Nhờ vậy khối quảng cáo không có marker, nằm cùng host với phim (kiểu chèn giữa phim) cũng bị bỏ; khối giống hệt phim thì **không** đụng vào. Thêm `#EXT-X-CUE-OUT-DURATION`, `CUE-OUT-CONT`, `CUE-OUT:ID=…`, tag `#EXT-X-SOFA-AD`, `DATERANGE` kiểu interstitial — và **không** còn nhầm `CUE-OUT-PTS`. Chẩn đoán mới: `./anisub.sh --kkphim-ad-debug "<link .m3u8>"` in **bản đồ khối** (khối nào bị bỏ / vì sao) + lưu 2 file playlist gốc & đã lọc trong `~/.config/anisub_cli/cache/`<br>
 《🚫》- **Sửa lỗi quảng cáo hiện giữa phim (chỗ ~phút 14:58–15:00)**: KKPhim nhét **khối segment quảng cáo ngay trong playlist `.m3u8`** (kiểu SSAI, bọc bởi `#EXT-X-CUE-OUT` / `#EXT-X-CUE-IN`). Bản lọc cũ chỉ bỏ segment có URL khớp mẫu quảng cáo nên quảng cáo **cùng host với phim** vẫn lọt; bản này **bỏ cả khối giữa 2 marker** (hoặc đúng thời lượng ghi trong `CUE-OUT`), bỏ segment khớp `KKPHIM_AD_PATTERNS`, bỏ khối ngắn nằm ở **tên miền lạ** (adserver), rồi mới đưa playlist cho mpv/vlc — tua qua chỗ cắt không còn khựng vì có `#EXT-X-DISCONTINUITY`, playlist được chuẩn hoá thành VOD. Tải/cắt video cũng dùng chung bản đã lọc nên mốc thời gian khớp với lúc xem. Không lọc được (mạng lỗi, AES-128 thiếu IV, playlist lạ) thì **phát đúng link gốc**. Chẩn đoán: `./anisub.sh --kkphim-ad-debug "<link .m3u8>"`; bật/tắt ở `⚙️ Cài đặt → 🎞 Nguồn phim`<br>
 《🔧》- **Sửa lỗi “không thấy nguồn toon18x trong Cài đặt”**: anisub giờ **tự kiểm tra bộ `src/`** khi khởi động; thiếu module nguồn nào (ví dụ `toon18x.sh`) là **tự tải lại bộ nguồn** (bản cài git thì `git pull`), rồi mới mở menu — không còn cảnh bộ nguồn cũ nằm im. Không tải được (mất mạng) thì nói rõ đang thiếu nguồn nào và cách sửa; dòng `📚 Nguồn truyện` trong ⚙️ Cài đặt cũng gắn `⚠️ thiếu nguồn: …`. `🔄 Cập nhật` không còn bỏ qua khi “đã là bản mới nhất” mà `src/` vẫn thiếu module<br>
 《📚》- Thêm nguồn truyện **toon18x** (`https://toon18x.com/vi`): webtoon/manhwa 18+ bản tiếng Việt, duyệt/tìm trên `/vi/search`, danh sách chương đầy đủ qua `GET /api/v1/manga/<slug>/chapters`, ảnh trang đọc nằm trên `tv1.toon18x.com`; URL chương suy trực tiếp từ số chương nên `Ctrl-G` và lịch sử luôn chạy<br>
@@ -101,10 +102,14 @@ tải playlist (kèm `Referer` / `User-Agent`) rồi lọc **trước khi phát*
    chừng ấy giây;
 3. bỏ segment có host/đường dẫn khớp `KKPHIM_AD_PATTERNS` (so khớp **nguyên một thành phần**, nên
    `media`, `shadow`, `load`, `segment_1`… không bị xoá nhầm; query được bỏ qua nên `?ad=0` không tính);
-4. bỏ **khối ngắn nằm ở tên miền khác** với CDN của phim (adserver) khi CDN phim chiếm >=70% segment
-   — tắt bằng `KKPHIM_AD_FOREIGN_HOST="0"`; bỏ thêm tag quảng cáo kiểu `#EXT-X-SOFA-AD` và
-   `#EXT-X-DATERANGE` có `CLASS`/`X-ASSET-URI` mang tiếng quảng cáo (interstitial/ad/promo/vast…) —
-   DATERANGE không phải quảng cáo (chapter, …) được giữ nguyên;
+4. bỏ **khối ngắn "lạ"** — đây là luật quan trọng nhất và **áp dụng cho mọi khối như nhau, không
+   phân biệt mốc thời gian** (nên khối ở ~2:56 và khối ở ~14:58 được xử lý giống hệt): playlist được
+   chia thành từng khối theo `#EXT-X-DISCONTINUITY`, khối nào **ngắn** (<= 25% số segment, <= 3 phút,
+   tổng phần bỏ <= 35% phim) mà **khác phim** ở `host` **hoặc** `thư mục` **hoặc** `đuôi file`
+   **hoặc** `kiểu #EXTINF` (số chữ số thập phân) thì bỏ. Khối **giống hệt** phim thì giữ nguyên
+   (không thể phân biệt — tránh ăn mất nội dung). Tắt luật này bằng `KKPHIM_AD_FOREIGN_HOST="0"`;
+   bỏ thêm tag quảng cáo kiểu `#EXT-X-SOFA-AD` và `#EXT-X-DATERANGE` có `CLASS`/`X-ASSET-URI` mang
+   tiếng quảng cáo (interstitial/ad/promo/vast…) — DATERANGE không phải quảng cáo (chapter, …) giữ nguyên;
 5. đổi URL tương đối (`segment`, `#EXT-X-KEY`, `#EXT-X-MAP`) sang tuyệt đối để file local vẫn tải
    được, **giữ nguyên** `#EXT-X-MEDIA-SEQUENCE` / `#EXT-X-DISCONTINUITY-SEQUENCE` (IV mặc định của
    AES-128 + mốc `BYTERANGE`), và **chèn `#EXT-X-DISCONTINUITY` đúng chỗ cắt** để trình phát nối
@@ -119,10 +124,14 @@ gian cắt khớp đúng với lúc xem. Playlist mã hoá AES-128 **không kèm
 (phát bản gốc) vì bỏ segment sẽ làm lệch IV → giải mã hỏng cả phim; tải/lọc lỗi cũng phát đúng link
 gốc — không bao giờ làm bạn không xem được phim.
 
-Chẩn đoán nhanh (in số segment giữ/bỏ, lý do bỏ, lưu playlist đã lọc):
+Chẩn đoán nhanh — in số segment giữ/bỏ, **lý do** (cue / mẫu URL / khối lạ), **bản đồ khối theo
+`#EXT-X-DISCONTINUITY`** (khối nào bị bỏ, cảnh báo `⚠️thư-mục-lạ`, `⚠️host-lạ`, `⚠️CUE`) và lưu 2 file
+playlist để đối chiếu:
 
 ```shell
 ./anisub.sh --kkphim-ad-debug "https://.../index.m3u8"
+# ~/.config/anisub_cli/cache/kkphim-playlist-original.m3u8   (bản web trả về)
+# ~/.config/anisub_cli/cache/kkphim-playlist-filtered.m3u8    (bản dùng để phát)
 ```
 
 `./anisub.sh --doctor` cũng in dòng `🚫 Chặn QC` (bật/tắt + có bộ lọc `hls_adfree.pl` chưa) và

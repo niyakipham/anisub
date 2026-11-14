@@ -663,6 +663,12 @@ kkphim_adfree_playlist() {
         return 1
     fi
 
+    # Chẩn đoán: giữ lại playlist gốc (bản media playlist đang dùng) để đối chiếu
+    if [ "${KKPHIM_AD_SAVE:-0}" = "1" ]; then
+        mkdir -p "$CACHE_DIR" 2>/dev/null
+        printf '%s\n' "$text" > "${KKPHIM_AD_ORIGINAL_FILE:-$CACHE_DIR/kkphim-playlist-original.m3u8}" 2>/dev/null
+    fi
+
     stats="${KKPHIM_ADFREE_STATS:-${TMPDIR:-/tmp}/anisub-adfree-$$.stats}"
     rm -f "$stats" 2>/dev/null
     filtered=$(printf '%s\n' "$text" \
@@ -718,24 +724,44 @@ kkphim_ad_report() {
     echo "   Variant      : ${KKPHIM_AD_VARIANT:-first}"
     echo "   Mẫu nhận diện: ${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}"
     echo "   Host lạ      : $(kkphim_ad_foreign_enabled && echo 'bỏ khối ở tên miền khác' || echo 'tắt')"
-    local out
+    local out pl
+    pl=$(kkphim_hls_filter_script) || pl=""
+    KKPHIM_AD_SAVE=1
     if ! out=$(kkphim_adfree_playlist "$url" 2>&1); then
+        KKPHIM_AD_SAVE=0
         echo "   ❌ Không tải/lọc được playlist này (xem thông báo ngay trên)."
         echo "      → kiểm tra: curl -sSL -o /tmp/pl.m3u8 \"$url\" && head -20 /tmp/pl.m3u8"
         return 1
     fi
+    KKPHIM_AD_SAVE=0
     local kept dropped secs total
     kept=$(kkphim_ad_stat kept); dropped=$(kkphim_ad_stat dropped)
     secs=$(kkphim_ad_stat dropped_sec); total=$(kkphim_ad_stat segments)
     echo "   ✔ Playlist tải được · segment giữ ${kept:-?} / bỏ ${dropped:-0} (tổng ${total:-?})"
     echo "     thời lượng đã bỏ: ~${secs:-0}s"
-    echo "     lý do: cue=$(kkphim_ad_stat reason_cue) mẫu-url=$(kkphim_ad_stat reason_pattern) tên-miền=$(kkphim_ad_stat reason_host)"
+    echo "     lý do: cue=$(kkphim_ad_stat reason_cue) mẫu-url=$(kkphim_ad_stat reason_pattern) tên-miền=$(kkphim_ad_stat reason_host) khối-lạ=$(kkphim_ad_stat reason_block)"
+
+    # Bản đồ khối theo #EXT-X-DISCONTINUITY: thấy ngay vì sao khối ở 2:56 bị bỏ
+    # mà khối ở 14:58 không (khác host / thư mục / đuôi / kiểu #EXTINF ở chỗ nào).
+    local orig="${KKPHIM_AD_ORIGINAL_FILE:-$CACHE_DIR/kkphim-playlist-original.m3u8}"
+    if [ -s "$orig" ] && [ -n "$pl" ]; then
+        echo "   ── bản đồ khối (theo #EXT-X-DISCONTINUITY):"
+        KKPHIM_AD_MODE=blocks KKPHIM_BASE="$url" \
+            KKPHIM_AD_PATTERNS="${KKPHIM_AD_PATTERNS:-$DEFAULT_KKPHIM_AD_PATTERNS}" \
+            perl "$pl" < "$orig" 2>/dev/null | sed 's/^/      /'
+        cp "$out" "$CACHE_DIR/kkphim-playlist-filtered.m3u8" 2>/dev/null
+        echo "   📄 Playlist GỐC     : $orig"
+        echo "   📄 Playlist ĐÃ LỌC  : $CACHE_DIR/kkphim-playlist-filtered.m3u8"
+    fi
     if [ "${dropped:-0}" -gt 0 ] 2>/dev/null && [ -s "${KKPHIM_ADFREE_STATS:-${TMPDIR:-/tmp}/anisub-adfree-$$.stats}" ]; then
         echo "   ── segment bị bỏ (tối đa 25):"
         sed -n 's/^url=/      · /p' "${KKPHIM_ADFREE_STATS:-${TMPDIR:-/tmp}/anisub-adfree-$$.stats}" 2>/dev/null
     fi
-    echo "   📄 Playlist đã lọc: $out"
-    echo "   → Nếu VẪN thấy quảng cáo, gửi kèm file này (hoặc bản gốc của playlist) khi báo lỗi."
+    [ -s "${KKPHIM_AD_ORIGINAL_FILE:-$CACHE_DIR/kkphim-playlist-original.m3u8}" ] || \
+        echo "   📄 Playlist đã lọc: $out"
+    echo "   💡 Khối ở ~2:56 bị bỏ được mà khối ở ~14:58 không? So 2 dòng ⚠️ trong"
+    echo "      bản đồ khối ở trên: chúng khác nhau ở host / thư mục / đuôi / kiểu #EXTINF."
+    echo "   → Gửi 2 file playlist (gốc + đã lọc) khi báo lỗi để thêm luật nhận diện."
     return 0
 }
 

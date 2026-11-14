@@ -662,6 +662,40 @@ KKPHIM_BASE="https://cdn.phim.test/hls/phim/index.m3u8" KKPHIM_AD_PATTERNS="ad,a
     perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/keep.m3u8" > "$WORK/keep.out" 2>/dev/null
 check "không xoá segment 'media/shadow' hay 'segment_1'" "2" "$(grep -cE '^https?://' "$WORK/keep.out")"
 
+# --- khối quảng cáo KHÔNG có marker: chỉ khác thư mục + nằm giữa 2 DISCONTINUITY
+# (đây là kiểu khối "ở phút 14:58" — phải được xử lý y như khối ở phút 2:56)
+KKPHIM_BASE="https://a.kvp726.com/20261112/IVHkWrqQ/index.m3u8" KKPHIM_AD_STATS="$WORK/midroll.stats" \
+    perl "$ROOT/src/movie/hls_adfree.pl" < "$ROOT/tests/fixtures/kkphim-midroll-discontinuity.m3u8" \
+    > "$WORK/midroll.out" 2>/dev/null
+check "bỏ khối quảng cáo khác THƯ MỤC (không marker CUE)" "4 80" \
+    "$(sed -n 's/^dropped=//p' "$WORK/midroll.stats") $(grep -cE '^https?://' "$WORK/midroll.out")"
+check "lý do bỏ = khối lạ (không phải cue / mẫu URL)" "4" \
+    "$(sed -n 's/^reason_block=//p' "$WORK/midroll.stats")"
+has "bản đồ khối đánh dấu ⚠️thư-mục-lạ" "⚠️thư-mục-lạ" \
+    "$(KKPHIM_BASE="https://a.kvp726.com/20261112/IVHkWrqQ/index.m3u8" KKPHIM_AD_MODE=blocks \
+        perl "$ROOT/src/movie/hls_adfree.pl" < "$ROOT/tests/fixtures/kkphim-midroll-discontinuity.m3u8" 2>/dev/null)"
+
+# --- khối giống hệt phim (cùng host/thư mục/đuôi/EXTINF) -> KHÔNG bỏ (không thể phân biệt)
+{
+    echo "#EXTM3U"; echo "#EXT-X-TARGETDURATION:6"
+    for i in $(seq 0 7); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-DISCONTINUITY"
+    for i in $(seq 8 11); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-DISCONTINUITY"
+    for i in $(seq 12 19); do echo "#EXTINF:6.000,"; echo "https://a.kvp726.com/x/$i.ts"; done
+    echo "#EXT-X-ENDLIST"
+} > "$WORK/same-sig.m3u8"
+check "khối giống hệt phim -> không bỏ nhầm nội dung" "20" \
+    "$(KKPHIM_BASE="https://a.kvp726.com/x/index.m3u8" perl "$ROOT/src/movie/hls_adfree.pl" < "$WORK/same-sig.m3u8" | grep -cE '^https?://')"
+
+# --- chẩn đoán: lưu playlist gốc + đã lọc, in bản đồ khối
+: > "$MOCK_CURL_LOG"
+kkphim_ad_report "https://cdn.phim.test/hls/phim/master.m3u8" > "$WORK/report.txt" 2>&1
+has "chẩn đoán in bản đồ khối" "KHỐI" "$(cat "$WORK/report.txt")"
+has "chẩn đoán in lý do khối lạ" "khối-lạ=" "$(cat "$WORK/report.txt")"
+check "chẩn đoán lưu playlist GỐC" "1" "$([ -s "$CACHE_DIR/kkphim-playlist-original.m3u8" ] && echo 1 || echo 0)"
+check "chẩn đoán lưu playlist ĐÃ LỌC" "1" "$([ -s "$CACHE_DIR/kkphim-playlist-filtered.m3u8" ] && echo 1 || echo 0)"
+
 # --- ca bug thật: tập 24 phút, quảng cáo 60s chèn ở ~phút 14:54 (cùng host với phim)
 {
     echo "#EXTM3U"; echo "#EXT-X-VERSION:3"; echo "#EXT-X-TARGETDURATION:6"; echo "#EXT-X-MEDIA-SEQUENCE:0"
